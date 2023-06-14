@@ -1,0 +1,38 @@
+version: "3.5"
+services:
+  postgres:
+    image: postgres:15.2
+    volumes:
+      - ./shared/postgres/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    command:
+      - "-c"
+      - "plan_cache_mode=force_custom_plan"
+    networks:
+      - backend
+    ports:
+      - "5435:5432"
+    shm_size: 256MB
+  tracer:
+#    image:
+    depends_on:
+      - postgres
+    networks:
+      - backend
+    environment:
+      - ENVIRONMENT=local
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/postgres
+    ports:
+      - "4317:4317" # port where traces should be sent to
+      - "4200:4200" # ui and api port
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH=http://127.0.0.1:4200
+        - API_SERVER_URL_NO_TRAILING_SLASH=http://127.0.0.1:4200
+
+networks:
+  backend:
