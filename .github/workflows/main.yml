@@ -8,3 +8,6 @@ jobs:
     - uses: actions/checkout@v3
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag my-image-name:latest
+      env:
+        FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: "http://127.0.0.1:4200"
+        API_SERVER_URL_NO_TRAILING_SLASH: "http://127.0.0.1:4200"
