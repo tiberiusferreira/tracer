@@ -1,0 +1,533 @@
+{
+  "db": "PostgreSQL",
+  "0fc8d5bfc5f99ad7d70550e511028f298417cd0b348a699b7445d97db19a6b49": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Int8"
+              },
+              "name": "ubigint"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Varchar"
+              },
+              "name": "identifier"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Varchar"
+              },
+              "name": "identifier"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Int8"
+              },
+              "name": "ubigint"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Int8"
+              },
+              "name": "ubigint"
+            }
+          },
+          "Bool"
+        ]
+      }
+    },
+    "query": "insert into trace (timestamp, service_name, top_level_span_name, duration, warning_count, has_errors)\n    values ($1::ubigint, $2, $3, $4, $5, $6) returning id;"
+  },
+  "19036f3b9a76caf3503db15c574a622de7d392ca8a9f52dd17b289dc397e0639": {
+    "describe": {
+      "columns": [
+        {
+          "name": "key",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Bool",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "select distinct event_key_value.key\n                    from trace\n                    inner join event_key_value\n                        on event_key_value.trace_id=trace.id\n                where\n                     trace.timestamp >= $1::BIGINT\n                     and trace.timestamp <= $2::BIGINT\n                     and trace.duration  >= $3::BIGINT\n                     and ($4::BIGINT is null or trace.duration <= $4::BIGINT)\n                     and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)\n                     and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)\n                     and ($7::TEXT = trace.service_name)\n                     and ($8::TEXT = trace.top_level_span_name)\n                     and event_key_value.user_generated=true;"
+  },
+  "23270bf09bb73d61e8e9075c0d14dcd514e085f8009be9c3de52c3eed9d78258": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "delete from trace where timestamp < (EXTRACT(epoch FROM now() - INTERVAL '1 DAY') * 1000000000);"
+  },
+  "2f035dc044f377e9ca3f75f404b8c6ae2c0d04ea81d789f29a0777554ef6e3d6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "BoolArray",
+          "Int8Array",
+          "TextArray",
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Enum": [
+                        "string",
+                        "i64",
+                        "f64",
+                        "bool"
+                      ]
+                    },
+                    "name": "value_type"
+                  }
+                }
+              },
+              "name": "_value_type"
+            }
+          },
+          "TextArray"
+        ]
+      }
+    },
+    "query": "insert into span_key_value (trace_id, user_generated, span_id, key, value_type, value)\n        select $1::BIGINT, * from unnest($2::BOOLEAN[], $3::BIGINT[], $4::TEXT[], $5::value_type[], $6::TEXT[]);"
+  },
+  "32370b290ff74b6c92321148b9fde24bbc0bbe96f2e96b3884669486a5b2ed70": {
+    "describe": {
+      "columns": [
+        {
+          "name": "key",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Bool",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "select distinct span_key_value.key\n                    from trace\n                    inner join span_key_value\n                        on span_key_value.trace_id=trace.id\n                where\n                     trace.timestamp >= $1::BIGINT\n                     and trace.timestamp <= $2::BIGINT\n                     and trace.duration  >= $3::BIGINT\n                     and ($4::BIGINT is null or trace.duration <= $4::BIGINT)\n                     and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)\n                     and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)\n                     and ($7::TEXT = trace.service_name)\n                     and ($8::TEXT = trace.top_level_span_name)\n                     and span_key_value.user_generated=true;"
+  },
+  "36e72611b52a96653e42569a820426f212caec00510e21f6db712a1c44d3e50f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "service_name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Bool"
+        ]
+      }
+    },
+    "query": "select distinct trace.service_name from trace\n            where\n                 trace.timestamp >= $1::BIGINT\n                 and trace.timestamp <= $2::BIGINT\n                 and trace.duration  >= $3::BIGINT\n                 and ($4::BIGINT is null or trace.duration <= $4::BIGINT)\n                 and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)\n                 and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN);"
+  },
+  "423a3b1a0d894148d53fa86b71470918abee074836c30b9a4d0ed915c5e79c36": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "timestamp",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "duration",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "parent_id",
+          "ordinal": 4,
+          "type_info": "Int8"
+        },
+        {
+          "name": "span_key_values!",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "events!",
+          "ordinal": 6,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "with event_kv_by_span_event as (select event_key_value.span_id,\n                                                      event_key_value.event_id,\n                                                      json_agg(json_build_object('key',\n                                                                                 event_key_value.key,\n                                                                                 'user_generated',\n                                                                                 event_key_value.user_generated,\n                                                                                 'value',\n                                                                                 event_key_value.value)) as key_vals\n                                               from event_key_value\n                                               where event_key_value.trace_id = $1\n                                               group by event_key_value.span_id, event_key_value.event_id),\n                    event_with_kv_by_span as (select event.span_id,\n                                                     COALESCE(jsonb_agg(json_build_object('timestamp',\n                                                                                          event.timestamp,\n                                                                                          'name',\n                                                                                          event.name,\n                                                                                          'severity',\n                                                                                          event.severity,\n                                                                                          'key_values',\n                                                                                          COALESCE(event_kv_by_span_event.key_vals, '[]'))),\n                                                              '[]') as events\n                                              from event\n                                                       left join event_kv_by_span_event on\n                                                          event.trace_id = $1 and\n                                                          event.span_id = event_kv_by_span_event.span_id and\n                                                          event.id = event_kv_by_span_event.event_id\n                                              where event.trace_id = $1\n                                              group by event.span_id),\n                    span_kv_by_id as (select span_key_value.span_id,\n                                             jsonb_agg(json_build_object('key',\n                                                                        span_key_value.key,\n                                                                        'user_generated',\n                                                                        span_key_value.user_generated,\n                                                                        'value',\n                                                                        span_key_value.value)) as key_vals\n                                      from span_key_value\n                                      where span_key_value.trace_id = $1\n                                      group by span_key_value.span_id),\n                    span_with_events as (select span.id,\n                                                span.timestamp,\n                                                span.name,\n                                                span.duration,\n                                                span.parent_id,\n                                                COALESCE(\n                                                        span_kv_by_id.key_vals,\n                                                        '[]') as span_key_values,\n                                                COALESCE(event_with_kv_by_span.events, '[]') as events\n                                         from span\n                                                  left join event_with_kv_by_span on\n                                                     span.trace_id = $1 and\n                                                     span.id = event_with_kv_by_span.span_id\n                                                  left join span_kv_by_id on span_kv_by_id.span_id = span.id\n                                         where span.trace_id = $1\n                                         group by span.id, span.timestamp, span.name, span.duration, span.parent_id,\n                                                  event_with_kv_by_span.events, span_kv_by_id.key_vals)\n               select span_with_events.id,\n                      span_with_events.timestamp,\n                      span_with_events.name,\n                      span_with_events.duration,\n                      span_with_events.parent_id,\n                      span_with_events.span_key_values as \"span_key_values!\",\n                      span_with_events.events          as \"events!\"\n               from span_with_events;"
+  },
+  "46655c746a62c5b269b3af0742e8f938958e7e349efb9f72de3a8bf21243ecb8": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "BoolArray",
+          "Int8Array",
+          "Int8Array",
+          "TextArray",
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Enum": [
+                        "string",
+                        "i64",
+                        "f64",
+                        "bool"
+                      ]
+                    },
+                    "name": "value_type"
+                  }
+                }
+              },
+              "name": "_value_type"
+            }
+          },
+          "TextArray"
+        ]
+      }
+    },
+    "query": "insert into event_key_value (trace_id, user_generated, span_id, event_id, key, value_type, value)\n        select $1::BIGINT, * from unnest($2::BOOLEAN[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::value_type[], $7::TEXT[]);"
+  },
+  "53521f14d5591b6b2ccd785c832e09a0eb3adcd7845e38f229503a925949dec3": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8Array",
+          "Int8Array",
+          "Int8Array",
+          "Int8Array",
+          "TextArray"
+        ]
+      }
+    },
+    "query": "insert into span (trace_id, id, timestamp, parent_id, duration, name)\n        select $1::BIGINT, * from unnest($2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::BIGINT[], $6::TEXT[]);"
+  },
+  "8de4e1eef788442589c405fbe9dc1070c7116d92bf065be32642a98f3d9a99a5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "top_level_span_name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Bool",
+          "Text"
+        ]
+      }
+    },
+    "query": "select distinct trace.top_level_span_name\n                from trace\n            where\n                 trace.timestamp >= $1::BIGINT\n                 and trace.timestamp <= $2::BIGINT\n                 and trace.duration  >= $3::BIGINT\n                 and ($4::BIGINT is null or trace.duration <= $4::BIGINT)\n                 and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)\n                 and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)\n                 and ($7::TEXT = trace.service_name);"
+  },
+  "a9d0f3ad4c8a60d99b1834d447111aece44f2c3097188f955f2c8a0bf5e26b29": {
+    "describe": {
+      "columns": [
+        {
+          "name": "service_name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "top_level_span_name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "total_traces!",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "total_traces_with_error!",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "longest_trace_id!",
+          "ordinal": 4,
+          "type_info": "Int8"
+        },
+        {
+          "name": "longest_trace_duration_service_name!",
+          "ordinal": 5,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "longest_trace_duration!",
+          "ordinal": 6,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        null,
+        null,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "with trace_services_summary as (select trace.service_name,\n                                       trace.top_level_span_name,\n                                       COUNT(trace.timestamp)        as total_traces,\n                                       SUM((has_errors = true)::INT) as total_traces_with_error,\n                                       MAX(duration)\n                                                                     as longest_trace_duration\n                                from trace\n                                group by trace.service_name, trace.top_level_span_name)\nselect trace_services_summary.service_name,\n       trace_services_summary.top_level_span_name,\n       total_traces            as \"total_traces!\",\n       total_traces_with_error as \"total_traces_with_error!\",\n       trace.id                as \"longest_trace_id!\",\n       trace.service_name      as \"longest_trace_duration_service_name!\",\n       trace.duration          as \"longest_trace_duration!\"\nfrom trace_services_summary\n         join lateral (select id, trace.service_name, duration\n                       from trace\n                       where trace.service_name = trace_services_summary.service_name\n                         and trace.top_level_span_name = trace_services_summary.top_level_span_name\n                         and trace.duration = trace_services_summary.longest_trace_duration\n                       limit 1) trace on true\norder by service_name, total_traces_with_error desc, total_traces desc;"
+  },
+  "b23b717e2a7959e87f26337dea222285f76d8a86dbe7980f87282e9fa8e41fdd": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Bool",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "select distinct span.name\n                from trace\n                inner join span on span.trace_id=trace.id\n            where\n                 trace.timestamp >= $1::BIGINT\n                 and trace.timestamp <= $2::BIGINT\n                 and trace.duration  >= $3::BIGINT\n                 and ($4::BIGINT is null or trace.duration <= $4::BIGINT)\n                 and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)\n                 and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)\n                 and ($7::TEXT = trace.service_name)\n                 and ($8::TEXT = trace.top_level_span_name);"
+  },
+  "cadb215bab23f087bed141744e0e1f7e444557f6db3448c18a31646851f95727": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8Array",
+          "Int8Array",
+          "Int8Array",
+          "TextArray",
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Enum": [
+                        "trace",
+                        "debug",
+                        "info",
+                        "warn",
+                        "error"
+                      ]
+                    },
+                    "name": "severity_level"
+                  }
+                }
+              },
+              "name": "_severity_level"
+            }
+          }
+        ]
+      }
+    },
+    "query": "insert into event (trace_id, span_id, id,\n        timestamp, name, severity)\n        select $1::BIGINT, * from unnest($2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[]);"
+  },
+  "f13dea49d4ef3b497c25871251dad7b48c493395e0b83d0f1b2749eed47b985b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "timestamp",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "duration",
+          "ordinal": 2,
+          "type_info": "Int8"
+        },
+        {
+          "name": "service_name",
+          "ordinal": 3,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "has_errors",
+          "ordinal": 4,
+          "type_info": "Bool"
+        },
+        {
+          "name": "warning_count",
+          "ordinal": 5,
+          "type_info": "Int8"
+        },
+        {
+          "name": "top_level_span_name",
+          "ordinal": 6,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "key?",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "value?",
+          "ordinal": 8,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "span_name?",
+          "ordinal": 9,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "event_name?",
+          "ordinal": 10,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        null,
+        null,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Int8",
+          "Text",
+          "Bool",
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "select distinct on (trace.timestamp, trace.id) trace.id,\n                                                   trace.timestamp,\n                                                   trace.duration,\n                                                   trace.service_name,\n                                                   trace.has_errors,\n                                                   trace.warning_count,\n                                                   trace.top_level_span_name,\n                                                   COALESCE(event_key_value.key, span_key_value.key)   as \"key?\",\n                                                   COALESCE(event_key_value.value, span_key_value.value)  as \"value?\",\n                                                   span.name            as \"span_name?\",\n                                                   event.name           as \"event_name?\"\n    from trace\n             left join span_key_value\n                       on ($1::TEXT is not null and span_key_value.key = $1::TEXT)\n                           and ($2::TEXT is null or span_key_value.value ilike $2::TEXT)\n                           and span_key_value.trace_id = trace.id\n             left join event_key_value\n                       on ($1::TEXT is not null and event_key_value.key = $1::TEXT)\n                           and ($2::TEXT is null or event_key_value.value ilike $2::TEXT)\n                           and event_key_value.trace_id = trace.id\n             left join span\n                       on ($3::TEXT is not null and span.name = $3::TEXT)\n                           and span.trace_id = trace.id\n             left join event\n                       on ($4::TEXT is not null and event.name ilike $4::TEXT)\n                           and event.trace_id = trace.id\n    where\n      -- make sure if the user provided values, we treat is as an inner join\n        ($1::TEXT is null or (span_key_value.key is not null or event_key_value.key is not null))\n      and ($3::TEXT is null or span.id is not null)\n      and ($4::TEXT is null or event.timestamp is not null)\n      -- common filters\n      and trace.timestamp >= $5::BIGINT\n      and trace.timestamp <= $6::BIGINT\n      and trace.duration >= $7::BIGINT\n      and ($8::BIGINT is null or trace.duration <= $8::BIGINT)\n      and ($9::TEXT is null or trace.service_name = $9::TEXT)\n      and ($10::BOOL is null or trace.has_errors = $10::BOOL)\n      and ($11::TEXT is null or trace.top_level_span_name = $11::TEXT)\n      and ($12::BIGINT is null or trace.warning_count >= $12::BIGINT)\n    order by trace.timestamp desc\n    limit 100;"
+  }
+}
