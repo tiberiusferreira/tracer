@@ -1,8 +1,8 @@
 on:
-  workflow_dispatch:
+  push
 jobs:
   my_job:
-    name: deploy to staging
+    name: build docker image
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
