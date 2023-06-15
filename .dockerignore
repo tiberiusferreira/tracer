@@ -1,0 +1,8 @@
+*
+!tracer-ui
+!tracer-backend
+!tracing-config-helper
+!api-structs
+!Cargo.toml
+!Cargo.lock
+!sqlx-data.json
