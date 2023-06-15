@@ -14,7 +14,7 @@ jobs:
         docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
     - name: Build the Docker image
       run: |
-        docker build . --file Dockerfile --tag tracer:latest \
+        docker build . --file Dockerfile --tag $DOCKER_USER/tracer:latest \
         --build-arg API_SERVER_URL_NO_TRAILING_SLASH=$API_SERVER_URL_NO_TRAILING_SLASH \
         --build-arg FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH=$FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH
       env:
@@ -23,4 +23,4 @@ jobs:
     - name: Docker Push
       env:
         DOCKER_USER: ${{secrets.DOCKER_USER}}
-      run: docker push $DOCKER_USER/tracer
+      run: docker push $DOCKER_USER/tracer:latest
