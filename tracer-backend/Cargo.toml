@@ -12,10 +12,6 @@ axum = {version = "0.6.2", features=['query']}
 prost = "0.11"
 tower-http = {version="0.4.0", features=['cors', 'fs']}
 tonic = "0.9.1"
-base64 = "0.21.0"
-tonic-build = {version= "0.9.1", features = ["prost"]}
-once_cell = "1.17.0"
-sea-query = {version="0.29.0-rc.1", features=['backend-postgres', 'derive', 'with-chrono']}
 base16 = "0.2.1"
 chrono = {version = "0.4.23", features = ['serde']}
 reqwest = "0.11.14"
@@ -39,3 +35,4 @@ path = "../tracing-config-helper"
 
 [dev-dependencies]
 insta = "1.29.0"
+tonic-build = {version= "0.9.1", features = ["prost"]}
