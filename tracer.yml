@@ -25,7 +25,7 @@ services:
       - ENVIRONMENT=local
       - DATABASE_URL=postgres://postgres:password@postgres:5432/postgres
     ports:
-      - "4317:4317" # port where traces should be sent to
+      - "4317:4317" # port where traces should be sent to in otel format
       - "4200:4200" # ui and api port
 
 networks:
