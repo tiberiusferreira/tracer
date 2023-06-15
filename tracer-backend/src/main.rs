@@ -92,7 +92,7 @@ async fn start_tasks(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 );
             (Some(pusher), Some(notifier_task_handle))
         } else {
-            info!("Missing Slack URL, not going to try to notify errors via slack");
+            info!("Missing Slack URL, not going to try to notify errors via Slack");
             (None, None)
         };
     let (incoming_traces_pusher, store_handle) =
