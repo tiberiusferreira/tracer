@@ -8,26 +8,24 @@ jobs:
       matrix:
         os: [ ubuntu-latest ]
     steps:
-    - uses: actions/checkout@v3
-    - name: docker login
-      env:
-        DOCKER_USER: ${{secrets.DOCKER_USER}}
-        DOCKER_PASSWORD: ${{secrets.DOCKER_PASSWORD}}
+    -
+      name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.$DOCKER_PASSWORD }}
       run: |
         docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
-    - name: Build the Docker image
-      env:
-        DOCKER_USER: ${{secrets.DOCKER_USER}}
-        FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: "http://127.0.0.1:4200"
-        API_SERVER_URL_NO_TRAILING_SLASH: "http://127.0.0.1:4200"
-      run: |
-        docker buildx create --use --driver=docker-container && \
-        docker buildx build . --file Dockerfile --tag $DOCKER_USER/tracer:latest \
-        --output type=docker \
-        --cache-to type=gha,mode=max --cache-from type=gha \
-        --build-arg API_SERVER_URL_NO_TRAILING_SLASH=$API_SERVER_URL_NO_TRAILING_SLASH \
-        --build-arg FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH=$FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH
-    - name: Docker Push
-      env:
-        DOCKER_USER: ${{secrets.DOCKER_USER}}
-      run: docker push $DOCKER_USER/tracer:latest
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    - name: Build and push
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{secrets.DOCKER_USER}}/tracer:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          API_SERVER_URL_NO_TRAILING_SLASH="http://127.0.0.1:4200"
+          FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH="http://127.0.0.1:4200"
