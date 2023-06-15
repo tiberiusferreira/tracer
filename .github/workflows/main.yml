@@ -18,7 +18,9 @@ jobs:
         FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: "http://127.0.0.1:4200"
         API_SERVER_URL_NO_TRAILING_SLASH: "http://127.0.0.1:4200"
       run: |
-        docker build . --file Dockerfile --tag $DOCKER_USER/tracer:latest \
+        docker buildx create --use --driver=docker-container && \
+        docker buildx build . --file Dockerfile --tag $DOCKER_USER/tracer:latest \
+        --cache-to type=gha,mode=max --cache-from type=gha \
         --build-arg API_SERVER_URL_NO_TRAILING_SLASH=$API_SERVER_URL_NO_TRAILING_SLASH \
         --build-arg FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH=$FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH
     - name: Docker Push
