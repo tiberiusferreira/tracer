@@ -3,7 +3,10 @@ on:
 jobs:
   my_job:
     name: build docker image
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ macos-latest, ubuntu-latest ]
     steps:
     - uses: actions/checkout@v3
     - name: docker login
