@@ -40,6 +40,7 @@ pub struct Config {
     pub collector_listen_port: u16,
     #[clap(long, env, default_value_t = 4200)]
     pub api_listen_port: u16,
+    #[clap(long, env)]
     pub environment: String,
     #[clap(long, env)]
     pub slack_notification_url: Option<String>,
