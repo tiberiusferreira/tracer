@@ -6,12 +6,14 @@
 use opentelemetry::sdk::trace;
 use opentelemetry::sdk::trace::{BatchConfig, Tracer};
 use opentelemetry_otlp::WithExportConfig;
+use std::mem::forget;
 use std::str::FromStr;
 use std::time::Duration;
 use tracing::subscriber::{self};
-use tracing_subscriber::filter::Directive;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Layer};
+use tracing_subscriber::filter::{Directive, Filtered};
+use tracing_subscriber::fmt::format::{Compact, DefaultFields, Format};
+use tracing_subscriber::layer::{Layered, SubscriberExt};
+use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 /// This is a guard that will shutdown the OpenTelemetry exporter on drop.
 /// TLDR; Keep this around in main to make sure it is dropped after the
@@ -97,7 +99,20 @@ pub fn setup_or_panic(
     }
 }
 
-pub fn setup_tracing_console_logging_for_test() {
+pub fn setup_test_tracing_logging_thread_local() {
+    let subscriber = test_tracing_config();
+    // never drop guard, since this is for tests
+    forget(subscriber::set_default(subscriber))
+}
+fn test_tracing_config() -> Layered<
+    Filtered<
+        tracing_subscriber::fmt::Layer<Registry, DefaultFields, Format<Compact>>,
+        EnvFilter,
+        Registry,
+    >,
+    Registry,
+    Registry,
+> {
     let filter = {
         let env_filter = EnvFilter::try_from_env("RUST_LOG").unwrap_or_else(|e| {
             let default_filter = "info";
@@ -117,7 +132,10 @@ pub fn setup_tracing_console_logging_for_test() {
         .with_ansi(true)
         .compact()
         .with_filter(filter);
-    let subscriber = tracing_subscriber::Registry::default().with(fmt);
+    tracing_subscriber::Registry::default().with(fmt)
+}
+pub fn setup_test_tracing_logging_global() {
+    let subscriber = test_tracing_config();
     subscriber::set_global_default(subscriber).unwrap();
 }
 
