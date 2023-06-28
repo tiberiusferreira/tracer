@@ -28,5 +28,5 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
-          API_SERVER_URL_NO_TRAILING_SLASH="http://127.0.0.1:4200"
-          FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH="http://127.0.0.1:4200"
+          API_SERVER_URL_NO_TRAILING_SLASH=http://127.0.0.1:4200
+          FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH=http://127.0.0.1:4200
