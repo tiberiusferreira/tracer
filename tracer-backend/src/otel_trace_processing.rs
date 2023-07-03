@@ -431,7 +431,7 @@ async fn insert_trace_span_and_events(
 
 #[derive(Debug, Clone, sqlx::Type)]
 #[sqlx(type_name = "severity_level", rename_all = "lowercase")]
-enum Level {
+pub enum Level {
     Trace,
     Debug,
     Info,
@@ -598,32 +598,32 @@ pub async fn stage_trace_fragment(
 }
 
 pub struct DbReadyTraceData {
-    timestamp: i64,
-    service_name: String,
-    duration: i64,
-    top_level_span_name: String,
-    has_errors: bool,
-    warning_count: u32,
-    spans: Vec<DbSpan>,
-    span_plus_events_count: usize,
+    pub timestamp: i64,
+    pub service_name: String,
+    pub duration: i64,
+    pub top_level_span_name: String,
+    pub has_errors: bool,
+    pub warning_count: u32,
+    pub spans: Vec<DbSpan>,
+    pub span_plus_events_count: usize,
 }
 #[derive(Debug)]
 pub struct DbSpan {
-    id: i64,
-    timestamp: i64,
-    parent_id: Option<i64>,
-    name: String,
-    duration: i64,
-    key_values: Vec<DbKeyValue>,
-    events: Vec<DbEvent>,
+    pub id: i64,
+    pub timestamp: i64,
+    pub parent_id: Option<i64>,
+    pub name: String,
+    pub duration: i64,
+    pub key_values: Vec<DbKeyValue>,
+    pub events: Vec<DbEvent>,
 }
 #[derive(Debug)]
 pub struct DbEvent {
-    id: i64,
-    timestamp: i64,
-    name: String,
-    key_values: Vec<DbKeyValue>,
-    severity: Level,
+    pub id: i64,
+    pub timestamp: i64,
+    pub name: String,
+    pub key_values: Vec<DbKeyValue>,
+    pub severity: Level,
 }
 #[derive(Debug)]
 pub struct DbKeyValue {

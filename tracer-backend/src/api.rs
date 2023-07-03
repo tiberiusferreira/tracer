@@ -1,4 +1,5 @@
-use crate::BYTES_IN_1MB;
+use crate::otel_trace_processing::{DbEvent, DbSpan};
+use crate::{otel_trace_processing, BYTES_IN_1MB};
 use api_structs::{ApiTraceGridRow, SearchFor, Span, Summary, SummaryRequest};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -91,6 +92,8 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         )
         .route("/api/summary", axum::routing::post(traces_summary))
         .route("/api/trace", axum::routing::get(get_single_trace))
+        .route("/collector/trace", axum::routing::post(post_single_trace))
+        .route("/collector/status", axum::routing::post(post_status))
         .route(
             "/api/autocomplete-data",
             axum::routing::post(get_autocomplete_data),
@@ -628,6 +631,101 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
+#[instrument(skip_all)]
+async fn post_status(
+    axum::extract::State(con): axum::extract::State<PgPool>,
+    status: Json<api_structs::exporter::StatusData>,
+) -> Result<(), ApiError> {
+    println!("{:#?}", status.0);
+    Ok(())
+}
+
+#[instrument(skip_all)]
+async fn post_single_trace(
+    axum::extract::State(con): axum::extract::State<PgPool>,
+    trace: Json<api_structs::exporter::Trace>,
+) -> Result<(), ApiError> {
+    println!("New trace!");
+    let trace = trace.0;
+    let mut span_id_to_idx =
+        trace
+            .children
+            .iter()
+            .enumerate()
+            .fold(HashMap::new(), |mut acc, (idx, curr)| {
+                acc.insert(curr.id, idx + 2);
+                acc
+            });
+    span_id_to_idx.insert(trace.id, 1);
+    let mut spans = vec![];
+    let mut root_events = vec![];
+    for (idx, e) in trace.events.into_iter().enumerate() {
+        root_events.push(DbEvent {
+            id: i64::try_from(idx + 1).expect("idx to fit i64"),
+            timestamp: i64::try_from(e.timestamp).expect("timestamp to fit i64"),
+            name: e.name,
+            key_values: vec![],
+            severity: otel_trace_processing::Level::Info,
+        });
+    }
+    spans.push(DbSpan {
+        id: 1,
+        timestamp: i64::try_from(trace.start).expect("timestamp to fit i64"),
+        parent_id: None,
+        name: trace.name.clone(),
+        duration: i64::try_from(trace.duration).expect("timestamp to fit i64"),
+        key_values: vec![],
+        events: root_events,
+    });
+    for span in trace.children.into_iter() {
+        let mut events = vec![];
+        for (idx, e) in span.events.into_iter().enumerate() {
+            events.push(DbEvent {
+                id: i64::try_from(idx + 1).expect("idx to fit i64"),
+                timestamp: i64::try_from(e.timestamp).expect("timestamp to fit i64"),
+                name: e.name,
+                key_values: vec![],
+                severity: otel_trace_processing::Level::Info,
+            });
+        }
+        spans.push(DbSpan {
+            id: i64::try_from(*span_id_to_idx.get(&span.id).expect("span id to exist"))
+                .expect("usize to fit i64"),
+            timestamp: i64::try_from(span.start).expect("timestamp to fit i64"),
+            parent_id: Some(
+                i64::try_from(
+                    *span_id_to_idx
+                        .get(&span.parent_id)
+                        .expect("parent id to exist"),
+                )
+                .expect("parent id to fit i64"),
+            ),
+            name: span.name,
+            duration: i64::try_from(span.duration).expect("duration to fit i64"),
+            key_values: vec![],
+            events,
+        });
+    }
+    let data = crate::otel_trace_processing::DbReadyTraceData {
+        timestamp: i64::try_from(trace.start).expect("timestamp to fit i64"),
+        service_name: trace.service_name,
+        duration: i64::try_from(trace.duration).expect("duration to fit i64"),
+        top_level_span_name: trace.name,
+        has_errors: false,
+        warning_count: 0,
+        spans,
+        span_plus_events_count: 0,
+    };
+    match crate::otel_trace_processing::store_trace(con, data).await {
+        Ok(id) => {
+            println!("Inserted: {}", id);
+        }
+        Err(e) => {
+            println!("{:#?}", e);
+        }
+    }
+    Ok(())
+}
 #[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
 async fn get_single_trace(
     axum::extract::Query(trace_id): axum::extract::Query<api_structs::TraceId>,

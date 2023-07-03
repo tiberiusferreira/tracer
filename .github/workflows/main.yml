@@ -4,6 +4,7 @@ jobs:
   my_job:
     name: build docker image
     runs-on: ${{ matrix.os }}
+    if: github.ref == 'refs/heads/master'
     strategy:
       matrix:
         os: [ ubuntu-latest ]
