@@ -1,34 +1,17 @@
-use api_structs::exporter::{SamplerStatus, TraceSummary};
+use api_structs::exporter::{SamplerLimits, TraceApplicationStats, TracerStats};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Whenever it returns true, it assumes the new trace, span or event was recorded
 pub trait Sampler {
-    fn allow_new_trace(
-        &mut self,
-        name: &str,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool;
-    fn allow_new_event(
-        &mut self,
-        name: &str,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool;
-    fn allow_new_orphan_event(
-        &mut self,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool;
-    fn allow_new_span(
-        &mut self,
-        name: &str,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool;
-    fn get_sampler_status(&self) -> SamplerStatus;
-    fn reset_hard_limit_hit(&mut self);
+    fn allow_new_trace(&mut self, name: &str) -> bool;
+    fn allow_new_event(&mut self, name: &str) -> bool;
+    fn allow_new_orphan_event(&mut self) -> bool;
+    fn allow_new_span(&mut self, name: &str) -> bool;
+    /// soe = span or event
+    fn register_soe_dropped_on_export(&mut self);
+    fn register_reconnect(&mut self);
+    fn get_tracer_stats(&mut self) -> TracerStats;
 }
 
 /// Doesn't allow any new data to be recorded after hard_se_storage_limit is hit
@@ -36,151 +19,147 @@ pub trait Sampler {
 /// budget limit is exceeded, making their budget negative.
 /// Overtime the budget recovers at per_trace_se_per_minute_limit rate.
 ///
+
+impl Sampler for TracerSampler {
+    fn allow_new_trace(&mut self, trace: &str) -> bool {
+        if self.is_over_usage_limit(trace) {
+            self.register_dropped_trace(trace);
+            false
+        } else {
+            self.register_single_span_or_event(trace);
+            true
+        }
+    }
+
+    fn allow_new_event(&mut self, trace: &str) -> bool {
+        self.register_single_span_or_event(trace);
+        true
+    }
+
+    fn allow_new_orphan_event(&mut self) -> bool {
+        if self.is_over_orphan_events_usage_limit() {
+            self.register_dropped_orphan_event();
+            false
+        } else {
+            self.register_orphan_event();
+            true
+        }
+    }
+
+    fn allow_new_span(&mut self, trace: &str) -> bool {
+        self.register_single_span_or_event(trace);
+        true
+    }
+
+    fn register_soe_dropped_on_export(&mut self) {
+        self.register_soe_dropped_on_export();
+    }
+    fn register_reconnect(&mut self) {
+        self.register_reconnect();
+    }
+
+    fn get_tracer_stats(&mut self) -> TracerStats {
+        TracerStats {
+            reconnects: self.reconnects,
+            spe_dropped_on_export: self.spe_dropped_on_export,
+            orphan_events_per_minute_usage: self.orphan_events_per_minute_usage,
+            orphan_events_per_minute_dropped: self.orphan_events_per_minute_dropped,
+            per_minute_trace_stats: self.trace_stats.clone(),
+        }
+    }
+}
+
 pub struct TracerSampler {
-    hard_se_storage_limit: usize,
-    quota_keeper: QuotaKeeper,
-    hard_limit_hit: bool,
+    current_window_start: Instant,
+    reconnects: u32,
+    spe_dropped_on_export: u32,
+    orphan_events_per_minute_usage: u32,
+    orphan_events_per_minute_dropped: u32,
+    // we never remove entries because spans should be static, they never get removed from the application
+    trace_stats: HashMap<String, TraceApplicationStats>,
+    pub sampler_limits: SamplerLimits,
 }
 
 impl TracerSampler {
-    pub fn new(hard_se_storage_limit: usize, se_per_minute_limit: i64) -> TracerSampler {
-        Self {
-            hard_se_storage_limit,
-            quota_keeper: QuotaKeeper::new(Duration::from_secs(60), se_per_minute_limit),
-            hard_limit_hit: false,
-        }
-    }
-    fn hard_limit_hit(&self, existing_traces: &[TraceSummary], orphan_events_len: usize) -> bool {
-        let se_total = existing_traces.iter().fold(0usize, |acc, curr| {
-            let se = curr.events + curr.spans;
-            se + acc
-        }) + orphan_events_len;
-
-        se_total >= self.hard_se_storage_limit
-    }
-}
-
-impl Sampler for TracerSampler {
-    fn allow_new_trace(
-        &mut self,
-        trace: &str,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool {
-        if self.hard_limit_hit(existing_traces, orphan_events_len) {
-            self.hard_limit_hit = true;
-            return false;
-        } else if self.quota_keeper.get_remaining_quota(trace) > 0 {
-            self.quota_keeper.decrease_quota(trace);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn allow_new_event(
-        &mut self,
-        trace: &str,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool {
-        return if self.hard_limit_hit(existing_traces, orphan_events_len) {
-            self.hard_limit_hit = true;
-            false
-        } else {
-            self.quota_keeper.decrease_quota(trace);
-            true
-        };
-    }
-
-    fn allow_new_orphan_event(
-        &mut self,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool {
-        return if self.hard_limit_hit(existing_traces, orphan_events_len) {
-            self.hard_limit_hit = true;
-            false
-        } else {
-            true
-        };
-    }
-
-    fn allow_new_span(
-        &mut self,
-        trace: &str,
-        existing_traces: &[TraceSummary],
-        orphan_events_len: usize,
-    ) -> bool {
-        return if self.hard_limit_hit(existing_traces, orphan_events_len) {
-            self.hard_limit_hit = true;
-            false
-        } else {
-            self.quota_keeper.decrease_quota(trace);
-            true
-        };
-    }
-
-    fn get_sampler_status(&self) -> SamplerStatus {
-        SamplerStatus {
-            hard_se_storage_limit: self.hard_se_storage_limit,
-            hard_limit_hit: self.hard_limit_hit,
-            window_duration: u64::try_from(self.quota_keeper.window_duration.as_nanos())
-                .expect("duration to fit u64"),
-            trace_se_quota_per_window: self.quota_keeper.trace_se_quota_per_window,
-        }
-    }
-
-    fn reset_hard_limit_hit(&mut self) {
-        self.hard_limit_hit = false;
-    }
-}
-
-struct QuotaKeeper {
-    current_window_start: Instant,
-    window_duration: Duration,
-    trace_se_quota_per_window: i64,
-    // we never remove entries because spans should be static, they never get removed from the application
-    remaining_se_quota_per_trace: HashMap<String, i64>,
-}
-
-impl QuotaKeeper {
-    fn new(window_duration: Duration, trace_se_quota_per_window: i64) -> Self {
+    pub(crate) fn new(sampler_limits: SamplerLimits) -> Self {
         Self {
             current_window_start: Instant::now(),
-            window_duration,
-            trace_se_quota_per_window,
-            remaining_se_quota_per_trace: HashMap::new(),
+            reconnects: 0,
+            sampler_limits,
+            spe_dropped_on_export: 0,
+            orphan_events_per_minute_usage: 0,
+            orphan_events_per_minute_dropped: 0,
+            trace_stats: HashMap::new(),
         }
     }
     fn window_reset_check(&mut self) {
         let current_window_start = self.current_window_start;
-        if current_window_start.elapsed() > self.window_duration {
+
+        if current_window_start.elapsed().as_secs() >= 60 {
             self.current_window_start = Instant::now();
-            for quota_remaining in self.remaining_se_quota_per_trace.values_mut() {
-                // add quota
-                (*quota_remaining) += self.trace_se_quota_per_window;
-                if (*quota_remaining) > self.trace_se_quota_per_window {
-                    // clamp it
-                    (*quota_remaining) = self.trace_se_quota_per_window;
-                }
+            self.orphan_events_per_minute_dropped = 0;
+            self.orphan_events_per_minute_usage = self
+                .orphan_events_per_minute_usage
+                .saturating_sub(self.sampler_limits.orphan_events_per_minute_limit);
+            for trace_stats in self.trace_stats.values_mut() {
+                trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_sub(
+                    self.sampler_limits
+                        .span_plus_event_per_minute_per_trace_limit,
+                );
+                trace_stats.dropped_per_minute = 0;
             }
         }
     }
-    pub fn get_remaining_quota(&mut self, trace: &str) -> i64 {
-        self.window_reset_check();
-        let se_quota_per_trace = self
-            .remaining_se_quota_per_trace
-            .entry(trace.to_string())
-            .or_insert(self.trace_se_quota_per_window);
-        return *se_quota_per_trace;
+    pub fn register_soe_dropped_on_export(&mut self) {
+        self.spe_dropped_on_export += 1;
     }
-    /// Returns false if ran out of quota
-    pub fn decrease_quota(&mut self, trace: &str) {
-        let se_quota_per_trace = self
-            .remaining_se_quota_per_trace
+    pub fn register_reconnect(&mut self) {
+        self.reconnects += 1;
+    }
+    pub fn register_dropped_trace(&mut self, trace: &str) {
+        let entry = self
+            .trace_stats
             .entry(trace.to_string())
-            .or_insert(self.trace_se_quota_per_window);
-        *se_quota_per_trace = se_quota_per_trace.saturating_sub(1);
+            .or_insert(TraceApplicationStats {
+                spe_usage_per_minute: 0,
+                dropped_per_minute: 0,
+            });
+        entry.dropped_per_minute += 1;
+    }
+    pub fn is_over_orphan_events_usage_limit(&mut self) -> bool {
+        self.window_reset_check();
+        self.orphan_events_per_minute_usage >= self.sampler_limits.orphan_events_per_minute_limit
+    }
+    pub fn is_over_usage_limit(&mut self, trace: &str) -> bool {
+        self.window_reset_check();
+
+        let trace_stats =
+            self.trace_stats
+                .entry(trace.to_string())
+                .or_insert(TraceApplicationStats {
+                    spe_usage_per_minute: 0,
+                    dropped_per_minute: 0,
+                });
+        return trace_stats.spe_usage_per_minute
+            >= self
+                .sampler_limits
+                .span_plus_event_per_minute_per_trace_limit;
+    }
+
+    pub fn register_dropped_orphan_event(&mut self) {
+        self.orphan_events_per_minute_dropped += 1;
+    }
+    pub fn register_single_span_or_event(&mut self, trace: &str) {
+        let trace_stats =
+            self.trace_stats
+                .entry(trace.to_string())
+                .or_insert(TraceApplicationStats {
+                    spe_usage_per_minute: 0,
+                    dropped_per_minute: 0,
+                });
+        trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_add(1);
+    }
+    pub fn register_orphan_event(&mut self) {
+        self.orphan_events_per_minute_usage += 1;
     }
 }

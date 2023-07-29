@@ -1,7 +1,7 @@
 create database tracer;
 ALTER DATABASE tracer set default_statistics_target = 1000;
-alter database tracer set plan_cache_mode='force_custom_plan';
-alter database tracer set work_mem='8MB';
+alter database tracer set plan_cache_mode = 'force_custom_plan';
+alter database tracer set work_mem = '8MB';
 
 create domain identifier as varchar(512)
     CHECK (
@@ -22,13 +22,6 @@ create domain ubigint AS bigint
 
 comment on domain ubigint is 'Positive Bigint';
 
-
-create table silenced_service_notification
-(
-    service_name        identifier not null,
-    top_level_span_name identifier not null,
-    primary key (service_name, top_level_span_name)
-);
 
 create table trace
 (
@@ -106,3 +99,45 @@ create table event_key_value
     primary key (trace_id, span_id, key, event_id) include (value)
 );
 create index on event_key_value (key, trace_id);
+
+
+drop table if exists service_traces;
+drop table if exists service;
+drop table if exists time_bucket;
+-- Service stats
+-- create table time_bucket
+-- (
+--     time timestamp primary key,
+--     check ( extract(minute from time)%5=0 and extract(microsecond from time)=0 )
+-- );
+--
+create table service
+(
+    time         timestamp  not null,
+    service_name identifier not null,
+    env          identifier not null,
+    primary key (time, service_name)
+);
+
+create table service_traces
+(
+    time                  timestamp  not null,
+    service_name          identifier not null,
+    env                   identifier not null,
+    trace_name            identifier not null,
+    service_uuid          identifier not null,
+
+    total_count           ubigint    not null default 0,
+    span_plus_event_count ubigint    not null default 0,
+    rate_limited_count    ubigint    not null default 0,
+    partial_count         ubigint    not null default 0,
+    orphan_log_count      ubigint    not null default 0,
+    warning_count         ubigint    not null default 0,
+    error_count           ubigint    not null default 0,
+    total_duration        ubigint    not null default 0,
+    max_duration          ubigint    not null default 0,
+    primary key (time, service_name, env, service_uuid),
+    check ( extract(minute from time) % 5 = 0 and extract(microsecond from time) = 0 )
+);
+
+

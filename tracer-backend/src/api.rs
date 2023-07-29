@@ -1,20 +1,25 @@
-use crate::otel_trace_processing::{DbEvent, DbSpan};
-use crate::{otel_trace_processing, BYTES_IN_1MB};
+use crate::api::new::{get_instances, update_filters, ws_handler};
+use crate::BYTES_IN_1MB;
+use api_structs::exporter::{InstanceStatus, TracerFilters};
 use api_structs::{ApiTraceGridRow, SearchFor, Span, Summary, SummaryRequest};
+use axum::extract::ConnectInfo;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{Json, ServiceExt};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, PgPool};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
+use std::net::SocketAddr;
 use std::ops::Deref;
+use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::instrument::Instrumented;
 use tracing::{error, info, info_span, instrument, Instrument};
 
+mod new;
 #[derive(Debug, Clone, Serialize)]
 struct RawDbSummary {
     service_name: String,
@@ -74,6 +79,48 @@ order by service_name, total_traces_with_error desc, total_traces desc;"
     Ok(Json(summary_data))
 }
 
+#[derive(Clone)]
+pub struct AppState {
+    // that holds some api specific state
+    con: PgPool,
+    instance_status_storage: InstanceStatusStorage,
+    pub client: reqwest::Client,
+}
+
+pub struct UpdateFilter(pub TracerFilters);
+
+#[derive(Debug, Clone)]
+pub struct TracerClientInfo {
+    status: InstanceStatus,
+    ws: std::sync::Weak<
+        tokio::sync::RwLock<
+            api_structs::websocket::WsClient<
+                api_structs::exporter::CollectorToApplicationMessage,
+                api_structs::exporter::ApplicationToCollectorMessage,
+                std::pin::Pin<Box<api_structs::websocket::axum_adapter::SenderWsSink>>,
+            >,
+        >,
+    >,
+}
+// the api specific state
+#[derive(Clone)]
+pub struct InstanceStatusStorage(
+    std::sync::Arc<parking_lot::RwLock<HashMap<String, TracerClientInfo>>>,
+);
+
+// support converting an `AppState` in an `ApiState`
+impl axum::extract::FromRef<AppState> for InstanceStatusStorage {
+    fn from_ref(app_state: &AppState) -> InstanceStatusStorage {
+        app_state.instance_status_storage.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for PgPool {
+    fn from_ref(app_state: &AppState) -> PgPool {
+        app_state.con.clone()
+    }
+}
+
 #[instrument(skip_all)]
 pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
     info!("Starting API");
@@ -83,8 +130,19 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
     let serve_ui = tower_http::services::ServeDir::new("./tracer-ui/dist").fallback(
         tower_http::services::ServeFile::new("./tracer-ui/dist/index.html"),
     );
-
+    let client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let app_state = AppState {
+        con,
+        instance_status_storage: InstanceStatusStorage(std::sync::Arc::new(
+            parking_lot::RwLock::new(HashMap::new()),
+        )),
+        client,
+    };
     let app = axum::Router::new()
+        .route("/websocket/collector", axum::routing::get(ws_handler))
         .route("/api/ready", axum::routing::get(ready))
         .route(
             "/api/traces-grid",
@@ -92,13 +150,17 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         )
         .route("/api/summary", axum::routing::post(traces_summary))
         .route("/api/trace", axum::routing::get(get_single_trace))
-        .route("/collector/trace", axum::routing::post(post_single_trace))
-        .route("/collector/status", axum::routing::post(post_status))
+        // .route(
+        //     "/collector/trace",
+        //     axum::routing::post(new::post_single_trace),
+        // )
+        .route("/api/instances", axum::routing::get(get_instances))
+        .route("/api/filters", axum::routing::post(update_filters))
         .route(
             "/api/autocomplete-data",
             axum::routing::post(get_autocomplete_data),
         )
-        .with_state(con)
+        .with_state(app_state)
         .fallback_service(serve_ui)
         .layer(tower_http::cors::CorsLayer::very_permissive());
     tokio::spawn(async move {
@@ -107,7 +169,7 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
                 .parse()
                 .expect("should be able to api server desired address and port"),
         )
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap()
     })
@@ -631,101 +693,6 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
-#[instrument(skip_all)]
-async fn post_status(
-    axum::extract::State(con): axum::extract::State<PgPool>,
-    status: Json<api_structs::exporter::StatusData>,
-) -> Result<(), ApiError> {
-    println!("{:#?}", status.0);
-    Ok(())
-}
-
-#[instrument(skip_all)]
-async fn post_single_trace(
-    axum::extract::State(con): axum::extract::State<PgPool>,
-    trace: Json<api_structs::exporter::Trace>,
-) -> Result<(), ApiError> {
-    println!("New trace!");
-    let trace = trace.0;
-    let mut span_id_to_idx =
-        trace
-            .children
-            .iter()
-            .enumerate()
-            .fold(HashMap::new(), |mut acc, (idx, curr)| {
-                acc.insert(curr.id, idx + 2);
-                acc
-            });
-    span_id_to_idx.insert(trace.id, 1);
-    let mut spans = vec![];
-    let mut root_events = vec![];
-    for (idx, e) in trace.events.into_iter().enumerate() {
-        root_events.push(DbEvent {
-            id: i64::try_from(idx + 1).expect("idx to fit i64"),
-            timestamp: i64::try_from(e.timestamp).expect("timestamp to fit i64"),
-            name: e.name,
-            key_values: vec![],
-            severity: otel_trace_processing::Level::Info,
-        });
-    }
-    spans.push(DbSpan {
-        id: 1,
-        timestamp: i64::try_from(trace.start).expect("timestamp to fit i64"),
-        parent_id: None,
-        name: trace.name.clone(),
-        duration: i64::try_from(trace.duration).expect("timestamp to fit i64"),
-        key_values: vec![],
-        events: root_events,
-    });
-    for span in trace.children.into_iter() {
-        let mut events = vec![];
-        for (idx, e) in span.events.into_iter().enumerate() {
-            events.push(DbEvent {
-                id: i64::try_from(idx + 1).expect("idx to fit i64"),
-                timestamp: i64::try_from(e.timestamp).expect("timestamp to fit i64"),
-                name: e.name,
-                key_values: vec![],
-                severity: otel_trace_processing::Level::Info,
-            });
-        }
-        spans.push(DbSpan {
-            id: i64::try_from(*span_id_to_idx.get(&span.id).expect("span id to exist"))
-                .expect("usize to fit i64"),
-            timestamp: i64::try_from(span.start).expect("timestamp to fit i64"),
-            parent_id: Some(
-                i64::try_from(
-                    *span_id_to_idx
-                        .get(&span.parent_id)
-                        .expect("parent id to exist"),
-                )
-                .expect("parent id to fit i64"),
-            ),
-            name: span.name,
-            duration: i64::try_from(span.duration).expect("duration to fit i64"),
-            key_values: vec![],
-            events,
-        });
-    }
-    let data = crate::otel_trace_processing::DbReadyTraceData {
-        timestamp: i64::try_from(trace.start).expect("timestamp to fit i64"),
-        service_name: trace.service_name,
-        duration: i64::try_from(trace.duration).expect("duration to fit i64"),
-        top_level_span_name: trace.name,
-        has_errors: false,
-        warning_count: 0,
-        spans,
-        span_plus_events_count: 0,
-    };
-    match crate::otel_trace_processing::store_trace(con, data).await {
-        Ok(id) => {
-            println!("Inserted: {}", id);
-        }
-        Err(e) => {
-            println!("{:#?}", e);
-        }
-    }
-    Ok(())
-}
 #[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
 async fn get_single_trace(
     axum::extract::Query(trace_id): axum::extract::Query<api_structs::TraceId>,

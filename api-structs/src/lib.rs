@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 pub mod exporter;
+pub mod websocket;
 pub const FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: &str =
     env!("FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH");
 
