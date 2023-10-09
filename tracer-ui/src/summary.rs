@@ -1,42 +1,41 @@
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use api_structs::{Summary, SummaryRequest};
-use leptos::{
-    component, log, view, HtmlElement, IntoView, Scope, SignalGet, SignalSet, WriteSignal,
-};
+use leptos::logging::log;
+use leptos::{component, view, HtmlElement, IntoView, SignalGet, SignalSet, WriteSignal};
 
 #[component]
-pub fn TracesSummary(cx: Scope, root_path: String) -> impl IntoView {
-    let (trace_spans_r, trace_spans_w) = leptos::create_signal(cx, Vec::new());
+pub fn TracesSummary(root_path: String) -> impl IntoView {
+    let (trace_spans_r, trace_spans_w) = leptos::create_signal(Vec::new());
     let _api_request_sender =
-        leptos::create_local_resource(cx, move || (), move |_| get_summary(trace_spans_w));
+        leptos::create_local_resource(move || (), move |_| get_summary(trace_spans_w));
 
     let html_headers = [
-        view! {cx,
+        view! {
             <th class="trace-table__cell">
                 <a>"Service Name"</a>
             </th>
         },
-        view! {cx,
+        view! {
             <th class="trace-table__cell">
                 <a>"Top Level Span"</a>
             </th>
         },
-        view! {cx,
+        view! {
             <th class="trace-table__cell" style="cursor: pointer" >
                 <a>"Total Traces"</a>
             </th>
         },
-        view! {cx,
+        view! {
             <th class="trace-table__cell">
                 <a>"Traces with Error"</a>
             </th>
         },
-        view! {cx,
+        view! {
             <th class="trace-table__cell">
                 <a>"Longest Trace (ms)"</a>
             </th>
         },
-        view! {cx,
+        view! {
             <th class="trace-table__cell">
                 <a>"➔"</a>
             </th>
@@ -46,7 +45,7 @@ pub fn TracesSummary(cx: Scope, root_path: String) -> impl IntoView {
     let html_rows = move |rows: Vec<Summary>| {
         let res: Vec<HtmlElement<_>> = rows.into_iter().map(|r|{
                 view! {
-                cx,
+
                 <tr class="row_container_class">
                         <td class="trace-table__cell">{r.service_name.clone()}</td>
                         <td class="trace-table__cell">{r.top_level_span_name.clone()}</td>
@@ -62,7 +61,7 @@ pub fn TracesSummary(cx: Scope, root_path: String) -> impl IntoView {
         res
     };
 
-    view! {cx,
+    view! {
         <div class="main-grid">
             <div class="main">
                 <table class="trace-table">

@@ -1,23 +1,16 @@
-use crate::otel_trace_processing::trace_fragment;
 use clap::Parser;
-use proto_generated::opentelemetry::proto::collector::trace::v1::{
-    trace_service_server::{TraceService, TraceServiceServer},
-    ExportTraceServiceRequest, ExportTraceServiceResponse,
-};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use std::fmt::{Debug, Formatter};
-use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
-use tonic::transport::Server;
-use tonic::{Request, Response, Status};
-use tracing::{info, info_span, instrument, Instrument};
+use tokio::task::spawn_local;
+use tracing::{info, info_span, instrument, trace, Instrument};
 
 mod api;
 mod notification_worthy_events;
-mod otel_trace_processing;
-mod proto_generated;
+// mod otel_trace_processing;
+// mod proto_generated;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;
 pub const MAX_BUFFERED_TRACES: u64 = 2000;
@@ -76,102 +69,114 @@ async fn connect_to_db(config: &Config) -> Result<PgPool, Box<dyn std::error::Er
 async fn start_tasks(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     info!("Using config: {:#?}", config);
     let con = connect_to_db(&config).await?;
-    let api_handle = api::start(con.clone(), config.api_listen_port);
-    let delete_handle = otel_trace_processing::start_background_delete_traces_task(
-        con.clone(),
-        Duration::from_secs(TIME_WAIT_BETWEEN_DELETE_TRACES_RUN_SECONDS),
-    );
-    let (notification_pusher, notification_task_handle) =
-        if let Some(slack_notification_url) = config.slack_notification_url {
-            info!("Going to try to notify errors via slack");
-            let (pusher, notifier_task_handle) =
-                notification_worthy_events::Notifier::initialize_and_start_notification_task(
-                    slack_notification_url,
-                    Duration::from_secs(u64::from(config.slack_notification_interval_seconds)),
-                    SPAN_PLUS_EVENTS_PER_SERVICE_PER_SECOND_NOTIFICATION_THRESHOLD,
-                );
-            (Some(pusher), Some(notifier_task_handle))
-        } else {
-            info!("Missing Slack URL, not going to try to notify errors via Slack");
-            (None, None)
-        };
-    let (incoming_traces_pusher, store_handle) =
-        otel_trace_processing::TraceStorage::initialize_and_start_storage_task(
-            con,
-            Duration::from_secs(TIME_WAIT_BETWEEN_STORE_TRACES_RUN_SECONDS),
-            notification_pusher.clone(),
-        );
-    let trace_collector = TraceCollector {
-        trace_fragment_pusher: incoming_traces_pusher,
-    };
-
-    let addr = SocketAddr::new(IpAddr::from([0, 0, 0, 0]), config.collector_listen_port);
-    let tonic_handle = tokio::spawn(async move {
-        Server::builder()
-            .add_service(TraceServiceServer::new(trace_collector))
-            .serve(addr)
-            .await
-            .expect("trace tonic collector to start")
+    let _api_handle = api::start(con.clone(), config.api_listen_port);
+    spawn_local(async {
+        loop {
+            trace!("background task iteration starting");
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
     });
-    tokio::time::sleep(Duration::from_secs(
-        TIME_WAIT_PANIC_TASKS_ON_STARTUP_SECONDS,
-    ))
-    .instrument(info_span!("Waiting to see if background tasks panic"))
-    .await;
-    let mut handles = vec![api_handle, delete_handle, store_handle, tonic_handle];
-    if let Some(handle) = notification_task_handle {
-        handles.push(handle);
-    }
-    let any_early_finished = handles.into_iter().any(|h| h.is_finished());
-    if any_early_finished {
-        let err: Box<dyn std::error::Error> =
-            String::from("Some task finished early, probably panicked!").into();
-        Err(err)
-    } else {
-        info!("Trace Collector listening on {}", addr);
-        Ok(())
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::var("RUST_LOG").ok().is_none() {
-        std::env::set_var("RUST_LOG", "info");
-        println!("Overwrote RUST_LOG env var")
-    }
-    // load env vars so clap can use it when parsing a config
-    dotenv::dotenv().ok();
-    let config = Config::parse();
-    let _tracing_shutdown_handle = tracing_config_helper::setup_or_panic(
-        env!("CARGO_BIN_NAME").to_string(),
-        config.environment.to_string(),
-        format!("https://127.0.0.1:{}", config.collector_listen_port),
-        // 5% because we end up in a loop of tracing ourselves easily
-        0.05,
-    );
-    start_tasks(config).await?;
-    tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
     Ok(())
+    // let delete_handle = otel_trace_processing::start_background_delete_traces_task(
+    //     con.clone(),
+    //     Duration::from_secs(TIME_WAIT_BETWEEN_DELETE_TRACES_RUN_SECONDS),
+    // );
+    // let (notification_pusher, notification_task_handle) =
+    //     if let Some(slack_notification_url) = config.slack_notification_url {
+    //         info!("Going to try to notify errors via slack");
+    //         let (pusher, notifier_task_handle) =
+    //             notification_worthy_events::Notifier::initialize_and_start_notification_task(
+    //                 slack_notification_url,
+    //                 Duration::from_secs(u64::from(config.slack_notification_interval_seconds)),
+    //                 SPAN_PLUS_EVENTS_PER_SERVICE_PER_SECOND_NOTIFICATION_THRESHOLD,
+    //             );
+    //         (Some(pusher), Some(notifier_task_handle))
+    //     } else {
+    //         info!("Missing Slack URL, not going to try to notify errors via Slack");
+    //         (None, None)
+    //     };
+    // let (incoming_traces_pusher, store_handle) =
+    //     otel_trace_processing::TraceStorage::initialize_and_start_storage_task(
+    //         con,
+    //         Duration::from_secs(TIME_WAIT_BETWEEN_STORE_TRACES_RUN_SECONDS),
+    //         notification_pusher.clone(),
+    //     );
+    // let trace_collector = TraceCollector {
+    //     trace_fragment_pusher: incoming_traces_pusher,
+    // };
+    //
+    // let addr = SocketAddr::new(IpAddr::from([0, 0, 0, 0]), config.collector_listen_port);
+    // let tonic_handle = tokio::spawn(async move {
+    //     Server::builder()
+    //         .add_service(TraceServiceServer::new(trace_collector))
+    //         .serve(addr)
+    //         .await
+    //         .expect("trace tonic collector to start")
+    // });
+    // tokio::time::sleep(Duration::from_secs(
+    //     TIME_WAIT_PANIC_TASKS_ON_STARTUP_SECONDS,
+    // ))
+    // .instrument(info_span!("Waiting to see if background tasks panic"))
+    // .await;
+    // let mut handles = vec![api_handle, delete_handle, store_handle, tonic_handle];
+    // if let Some(handle) = notification_task_handle {
+    //     handles.push(handle);
+    // }
+    // let any_early_finished = handles.into_iter().any(|h| h.is_finished());
+    // if any_early_finished {
+    //     let err: Box<dyn std::error::Error> =
+    //         String::from("Some task finished early, probably panicked!").into();
+    //     Err(err)
+    // } else {
+    //     info!("Trace Collector listening on {}", addr);
+    //     Ok(())
+    // }
 }
 
-pub struct TraceCollector {
-    /// We might get data for traces in "pieces" from multiple batches
-    /// this groups them and allows us to wait a little bit before processing them
-    /// to give time for other parts to arrive
-    trace_fragment_pusher: trace_fragment::Pusher,
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let current_thread_runner = tokio::task::LocalSet::new();
+    current_thread_runner
+        .run_until(async {
+            // load env vars so clap can use it when parsing a config
+            println!("Loading env vars");
+            dotenv::dotenv().ok();
+            if std::env::var("RUST_LOG").ok().is_none() {
+                std::env::set_var("RUST_LOG", "tracer_backend,tracing_config_helper=trace");
+                println!("Overwrote RUST_LOG env var")
+            }
+            let config = Config::parse();
+            tracing_config_helper::setup_or_panic(
+                env!("CARGO_BIN_NAME").to_string(),
+                config.environment.to_string(),
+                format!("https://127.0.0.1:{}", config.collector_listen_port),
+            )
+            .await;
+            start_tasks(config).await?;
+            tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
+            Ok(())
+        })
+        .await
 }
 
-#[tonic::async_trait]
-impl TraceService for TraceCollector {
-    #[instrument(skip_all)]
-    async fn new_otel_trace_fragment(
-        &self,
-        request: Request<ExportTraceServiceRequest>,
-    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        let request = request.into_inner();
-        otel_trace_processing::stage_trace_fragment(request, &self.trace_fragment_pusher).await;
-        Ok(Response::new(ExportTraceServiceResponse {
-            partial_success: None,
-        }))
-    }
-}
+// pub struct TraceCollector {
+//     /// We might get data for traces in "pieces" from multiple batches
+//     /// this groups them and allows us to wait a little bit before processing them
+//     /// to give time for other parts to arrive
+//     trace_fragment_pusher: trace_fragment::Pusher,
+// }
+
+// #[tonic::async_trait]
+// impl TraceService for TraceCollector {
+//     #[instrument(skip_all)]
+//     async fn new_otel_trace_fragment(
+//         &self,
+//         request: Request<ExportTraceServiceRequest>,
+//     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
+//         let request = request.into_inner();
+//         otel_trace_processing::stage_trace_fragment(request, &self.trace_fragment_pusher).await;
+//         Ok(Response::new(ExportTraceServiceResponse {
+//             partial_success: None,
+//         }))
+//     }
+// }

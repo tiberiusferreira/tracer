@@ -1,30 +1,28 @@
 use serde::{Deserialize, Serialize};
 pub mod exporter;
-pub mod websocket;
+pub mod sse;
+pub mod time_conversion;
 pub const FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: &str =
     env!("FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiTraceGridRow {
-    pub id: u64,
-    pub duration_ns: u64,
+    pub service_id: i64,
+    pub id: i64,
     pub service_name: String,
-    pub has_errors: bool,
-    pub warning_count: u32,
-    pub top_level_span_name: String,
-    pub key: Option<String>,
-    pub value: Option<String>,
-    pub span: Option<String>,
-    pub event: Option<String>,
     pub timestamp: u64,
+    pub top_level_span_name: String,
+    pub duration_ns: Option<u64>,
+    pub warning_count: u32,
+    pub has_errors: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct KeySpans {
+pub struct Autocomplete {
     pub service_names: Vec<String>,
     pub top_level_spans: Vec<String>,
-    pub spans: Vec<String>,
-    pub keys: Vec<String>,
+    // pub spans: Vec<String>,
+    // pub keys: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -94,13 +92,13 @@ pub struct SearchFor {
     pub to_date_unix: u64,
     pub service_name: String,
     pub top_level_span: String,
-    pub span: String,
+    // pub span: String,
     pub min_duration: u64,
     pub max_duration: Option<u64>,
     pub min_warns: u32,
-    pub key: String,
-    pub value: String,
-    pub event_name: String,
+    // pub key: String,
+    // pub value: String,
+    // pub event_name: String,
     pub only_errors: bool,
 }
 

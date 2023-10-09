@@ -11,7 +11,7 @@ pub trait Sampler {
     /// soe = span or event
     fn register_soe_dropped_on_export(&mut self);
     fn register_reconnect(&mut self);
-    fn get_tracer_stats(&mut self) -> TracerStats;
+    fn get_tracer_stats(&self) -> TracerStats;
 }
 
 /// Doesn't allow any new data to be recorded after hard_se_storage_limit is hit
@@ -58,17 +58,19 @@ impl Sampler for TracerSampler {
         self.register_reconnect();
     }
 
-    fn get_tracer_stats(&mut self) -> TracerStats {
+    fn get_tracer_stats(&self) -> TracerStats {
         TracerStats {
             reconnects: self.reconnects,
             spe_dropped_on_export: self.spe_dropped_on_export,
             orphan_events_per_minute_usage: self.orphan_events_per_minute_usage,
-            orphan_events_per_minute_dropped: self.orphan_events_per_minute_dropped,
+            logs_per_minute_dropped: self.orphan_events_per_minute_dropped,
+            sampler_limits: self.sampler_limits.clone(),
             per_minute_trace_stats: self.trace_stats.clone(),
         }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TracerSampler {
     current_window_start: Instant,
     reconnects: u32,
@@ -100,13 +102,13 @@ impl TracerSampler {
             self.orphan_events_per_minute_dropped = 0;
             self.orphan_events_per_minute_usage = self
                 .orphan_events_per_minute_usage
-                .saturating_sub(self.sampler_limits.orphan_events_per_minute_limit);
+                .saturating_sub(self.sampler_limits.logs_per_minute_limit);
             for trace_stats in self.trace_stats.values_mut() {
                 trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_sub(
                     self.sampler_limits
                         .span_plus_event_per_minute_per_trace_limit,
                 );
-                trace_stats.dropped_per_minute = 0;
+                trace_stats.dropped_traces_per_minute = 0;
             }
         }
     }
@@ -122,13 +124,13 @@ impl TracerSampler {
             .entry(trace.to_string())
             .or_insert(TraceApplicationStats {
                 spe_usage_per_minute: 0,
-                dropped_per_minute: 0,
+                dropped_traces_per_minute: 0,
             });
-        entry.dropped_per_minute += 1;
+        entry.dropped_traces_per_minute += 1;
     }
     pub fn is_over_orphan_events_usage_limit(&mut self) -> bool {
         self.window_reset_check();
-        self.orphan_events_per_minute_usage >= self.sampler_limits.orphan_events_per_minute_limit
+        self.orphan_events_per_minute_usage >= self.sampler_limits.logs_per_minute_limit
     }
     pub fn is_over_usage_limit(&mut self, trace: &str) -> bool {
         self.window_reset_check();
@@ -138,7 +140,7 @@ impl TracerSampler {
                 .entry(trace.to_string())
                 .or_insert(TraceApplicationStats {
                     spe_usage_per_minute: 0,
-                    dropped_per_minute: 0,
+                    dropped_traces_per_minute: 0,
                 });
         return trace_stats.spe_usage_per_minute
             >= self
@@ -155,7 +157,7 @@ impl TracerSampler {
                 .entry(trace.to_string())
                 .or_insert(TraceApplicationStats {
                     spe_usage_per_minute: 0,
-                    dropped_per_minute: 0,
+                    dropped_traces_per_minute: 0,
                 });
         trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_add(1);
     }

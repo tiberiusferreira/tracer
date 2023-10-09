@@ -1,19 +1,19 @@
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use api_structs::{Severity, Span};
 use leptos::ev::MouseEvent;
+use leptos::logging::log;
 use leptos::{
-    component, create_signal, log, view, Fragment, IntoView, Scope, Signal, SignalGet, SignalSet,
-    WriteSignal,
+    component, create_signal, view, Fragment, IntoView, Signal, SignalGet, SignalSet, WriteSignal,
 };
 use leptos_router::ParamsMap;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 
-fn span_detail(cx: Scope, trace_spans_r: Signal<Vec<Span>>) -> Fragment {
+fn span_detail(trace_spans_r: Signal<Vec<Span>>) -> Fragment {
     let spans = trace_spans_r.get();
     if spans.is_empty() {
-        return view! {cx, <><p style="color: white">{format!("Empty, crashed or still loading trace 😅. Check the network tab.")}</p></>};
+        return view! { <><p style="color: white">{format!("Empty, crashed or still loading trace 😅. Check the network tab.")}</p></>};
     }
     let el_count = spans
         .iter()
@@ -41,7 +41,6 @@ fn span_detail(cx: Scope, trace_spans_r: Signal<Vec<Span>>) -> Fragment {
     let mut html_span_and_children_summary = Vec::new();
     let mut max_depth = 0;
     create_summary_html_span_and_children_single_layer(
-        cx,
         root_start_time_unix_micros,
         root_duration_micros,
         &[root.clone()],
@@ -50,8 +49,8 @@ fn span_detail(cx: Scope, trace_spans_r: Signal<Vec<Span>>) -> Fragment {
         &mut html_span_and_children_summary,
         &mut max_depth,
     );
-    let container_ref = leptos::create_node_ref::<leptos::html::Div>(cx);
-    let (read_x_offset_percentage, write_percentage) = create_signal(cx, window_percentage / 2.);
+    let container_ref = leptos::create_node_ref::<leptos::html::Div>();
+    let (read_x_offset_percentage, write_percentage) = create_signal(window_percentage / 2.);
 
     let html_span_and_children = move || {
         let percentage = read_x_offset_percentage.get();
@@ -63,7 +62,6 @@ fn span_detail(cx: Scope, trace_spans_r: Signal<Vec<Span>>) -> Fragment {
             ((root_duration_micros as f64) * (start_percentage / 100.)) as u64;
         let new_root_start_micros = root_start_time_unix_micros + new_root_start_offset;
         create_html_span_and_children(
-            cx,
             new_root_start_micros,
             new_root_duration,
             &root,
@@ -94,14 +92,14 @@ fn span_detail(cx: Scope, trace_spans_r: Signal<Vec<Span>>) -> Fragment {
         let shadow_left_end = (x_offset_percentage - window_percentage / 2.).max(0.);
         let shadow_right_start = (x_offset_percentage + window_percentage / 2.).min(100.);
         let shadow_right_width = 100. - shadow_right_start;
-        view! {cx,
+        view! {
             <>
                 <div style=format!("margin-left:0%;width: {shadow_left_end:.2}%;height: {height}px;position: absolute;background-color: rgba(0, 0, 0, 0.6);z-index: 1;")></div>
                 <div style=format!("margin-left:{shadow_right_start:.2}%;width: {shadow_right_width:.2}%;height: {height}px;position: absolute;background-color: rgba(0, 0, 0, 0.6);z-index: 1;")></div>
             </>
         }
     };
-    view! {cx,
+    view! {
         <>
             <div _ref=container_ref on:click=click_handler style=format!("background-color: rgba(255,255,255,0.05); margin: 15px 0 15px 0; height: {height}px; position: relative")>
                 {shadows}
@@ -113,15 +111,14 @@ fn span_detail(cx: Scope, trace_spans_r: Signal<Vec<Span>>) -> Fragment {
 }
 
 #[component]
-pub fn TraceDetails(cx: Scope) -> impl IntoView {
-    let query_parameters = leptos_router::use_query_map(cx).get();
-    let (trace_spans_r, trace_spans_w) = leptos::create_signal(cx, Vec::new());
-    let _api_request_sender =
-        leptos::create_local_resource(cx, move || query_parameters.clone(), {
-            move |qp| get_single_trace(qp, trace_spans_w)
-        });
-    let html_spans = move || span_detail(cx, Signal::from(trace_spans_r));
-    view! {cx,
+pub fn TraceDetails() -> impl IntoView {
+    let query_parameters = leptos_router::use_query_map().get();
+    let (trace_spans_r, trace_spans_w) = leptos::create_signal(Vec::new());
+    let _api_request_sender = leptos::create_local_resource(move || query_parameters.clone(), {
+        move |qp| get_single_trace(qp, trace_spans_w)
+    });
+    let html_spans = move || span_detail(Signal::from(trace_spans_r));
+    view! {
         <div class="main-grid">
             <div class="main">
                 <div class="trace-details">
@@ -170,7 +167,6 @@ async fn get_single_trace(id: ParamsMap, w: WriteSignal<Vec<Span>>) {
 }
 
 fn create_html_span_and_children(
-    cx: Scope,
     root_start_time_unix_micros: u64,
     root_duration_micros: u64,
     span: &Span,
@@ -182,7 +178,6 @@ fn create_html_span_and_children(
     let mut children: Vec<Span> = spans_by_parent_id.get(&span.id).unwrap_or(&empty).clone();
     children.sort_by_key(|k| k.timestamp);
     if let Some(e) = create_html_span(
-        cx,
         root_start_time_unix_micros,
         root_duration_micros,
         span,
@@ -192,7 +187,6 @@ fn create_html_span_and_children(
     }
     for c in &children {
         create_html_span_and_children(
-            cx,
             root_start_time_unix_micros,
             root_duration_micros,
             c,
@@ -204,7 +198,6 @@ fn create_html_span_and_children(
 }
 
 fn create_summary_html_span_and_children_single_layer(
-    cx: Scope,
     root_start_time_unix_micros: u64,
     root_duration_micros: u64,
     spans: &[Span],
@@ -252,7 +245,6 @@ fn create_summary_html_span_and_children_single_layer(
         let overlap = last_end.saturating_sub(s.timestamp);
         if s.duration >= overlap * 2 {
             html_span_and_children_summary.push(create_span_summary_html(
-                cx,
                 root_start_time_unix_micros,
                 root_duration_micros,
                 s.timestamp,
@@ -265,7 +257,6 @@ fn create_summary_html_span_and_children_single_layer(
     }
     if !next_layer_spans.is_empty() {
         create_summary_html_span_and_children_single_layer(
-            cx,
             root_start_time_unix_micros,
             root_duration_micros,
             &next_layer_spans,
@@ -278,7 +269,6 @@ fn create_summary_html_span_and_children_single_layer(
 }
 
 fn create_span_summary_html(
-    cx: Scope,
     root_start_time_unix_micros: u64,
     root_duration_micros: u64,
     start_time_unix_micros: u64,
@@ -309,13 +299,13 @@ fn create_span_summary_html(
         depth_to_color.get(&(depth % 8)).unwrap()
     );
     let paragraph = if duration_percentage >= (span_name.len() as f64 / 2.) {
-        Some(view! {cx,
+        Some(view! {
             <p style="margin: 0; font-size: x-small; text-align: center">{span_name.to_string()}</p>
         })
     } else {
         None
     };
-    let span_html = view! {cx,
+    let span_html = view! {
         <>
         <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}>
             {paragraph}
@@ -326,7 +316,6 @@ fn create_span_summary_html(
 }
 
 fn create_html_span(
-    cx: Scope,
     root_timestamp: u64,
     root_duration: u64,
     span: &Span,
@@ -411,7 +400,7 @@ fn create_html_span(
                 100.*event_micros_after_trace_start as f64/ root_duration as f64;
             // don't got over 99.6 because we need to display the character itself too
             let event_percentage_into_trace_duration = event_percentage_into_trace_duration.min(99.6);
-            view! {cx,
+            view! {
                 <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
                     <p style={format!("margin-left: {event_percentage_into_trace_duration}%")} class="trace-details__event-timestamp">{"|"}</p>
                     <p class="trace-details__event" style={format!("color: {color}")}>{event_msg.to_string()}</p>
@@ -444,7 +433,7 @@ fn create_html_span(
     } else {
         span.name.to_string()
     };
-    let span_html = view! {cx,
+    let span_html = view! {
         <>
         <p class="trace-details__span-name">{format!("{} - {}ms{span_k_v}", span_with_code_namespace, span.duration/1000_000)}</p>
         <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}></div>

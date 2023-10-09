@@ -1,7 +1,7 @@
 version: "3.5"
 services:
   postgres:
-    image: postgres:15.2
+    image: postgres:16
     volumes:
       - ./shared/postgres/seed.sql:/docker-entrypoint-initdb.d/seed.sql
     environment:

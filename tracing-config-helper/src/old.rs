@@ -1,11 +1,8 @@
-use opentelemetry::sdk::trace;
-use opentelemetry::sdk::trace::{BatchConfig, Tracer};
-use opentelemetry_otlp::WithExportConfig;
+use api_structs::exporter::SamplerLimits;
+use opentelemetry::sdk::trace::Tracer;
 use std::fmt::Debug;
-use std::str::FromStr;
 use std::time::Duration;
 use tracing::subscriber::{self};
-use tracing_subscriber::filter::Directive;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
@@ -54,26 +51,16 @@ impl Drop for TraceShutdownGuard {
 /// Pay attention to the limits, specially max 1024 events (logs) per span and try to only create spans
 /// useful to debugging
 /// Careful with span creations in loops as they can make the output hard to read or too big to visualize
-pub fn setup_or_panic(
-    service_name: String,
-    environment: String,
-    collector_endpoint: String,
-    sample_rate_0_to_1: f64,
-) -> TraceShutdownGuard {
+pub async fn setup_or_panic(service_name: String, environment: String, collector_endpoint: String) {
     if service_name.trim().is_empty() {
         panic!("Service name can't be empty.");
     }
     if environment.trim().is_empty() {
         panic!("Environment can't be empty. Example: local, dev, stage, prod");
     }
-    if sample_rate_0_to_1 > 1. || sample_rate_0_to_1 < 0. {
-        panic!("Sample rate should be between 0 and 1");
-    }
-    let sample_rate_perc = sample_rate_0_to_1 * 100.;
     let service_name_with_env = format!("{service_name}-{environment}");
     println!(
         "Initializing tracing for service: {service_name_with_env}, \
-    sampling at: {sample_rate_perc:.0}%, \
     sending to collector at: {}",
         collector_endpoint
     );
@@ -81,11 +68,21 @@ pub fn setup_or_panic(
     match ONCE.set(true) {
         Ok(_) => {
             println!("Initializing tracing for {}", &service_name_with_env);
-            setup_or_panic_impl(
-                service_name_with_env,
-                collector_endpoint,
-                sample_rate_0_to_1,
-            )
+            crate::setup_tracer_client_or_panic(crate::TracerConfig {
+                collector_url: "ws://127.0.0.1:4200/websocket/collector".to_string(),
+                env: environment,
+                service_name,
+                filters: std::env::var("RUST_LOG").unwrap_or_default(),
+                export_timeout: Duration::from_secs(1),
+                status_send_period: Duration::from_secs(1),
+                maximum_spe_buffer: 100,
+                sampler_limits: SamplerLimits {
+                    span_plus_event_per_minute_per_trace_limit: 50,
+                    logs_per_minute_limit: 50,
+                },
+            })
+            .await;
+            println!("Tracing initialized");
         }
         Err(_) => {
             panic!("Tried to initialize tracing again, please, don't do this");
@@ -117,95 +114,7 @@ pub fn setup_tracing_console_logging_for_test() {
     subscriber::set_global_default(subscriber).unwrap();
 }
 
-fn setup_or_panic_impl(
-    service_name_with_env: String,
-    collector_endpoint: String,
-    sample_rate_0_to_1: f64,
-) -> TraceShutdownGuard {
-    if service_name_with_env.trim().is_empty() {
-        panic!("Service name shouldn't be empty!");
-    }
-    let open_tel_tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_batch_config(
-            // we want to allow big traces for nightly background jobs for example
-            // up to 500MB max for a single trace but also have a long queue
-            // to not drop the smaller ones.
-            // Most of these are the same as the default, but keeping it here
-            // so it doesnt change on lib updates since this is important
-            BatchConfig::default()
-                .with_max_queue_size(2048)
-                .with_scheduled_delay(Duration::from_secs(5))
-                .with_max_export_batch_size(512)
-                .with_max_export_timeout(Duration::from_secs(30))
-                .with_max_concurrent_exports(4),
-        )
-        .with_trace_config(
-            trace::Config::default()
-                // we don't want to lose any event, if possible
-                .with_max_events_per_span(500_000)
-                .with_resource(opentelemetry::sdk::Resource::new(vec![
-                    opentelemetry::KeyValue::new("service.name", service_name_with_env),
-                ]))
-                .with_sampler(trace::Sampler::TraceIdRatioBased(sample_rate_0_to_1)),
-        )
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(collector_endpoint),
-        )
-        .install_batch(opentelemetry::runtime::Tokio)
-        .unwrap();
-
-    // closure because filter is not clone
-    let get_filter = || {
-        let env_filter = EnvFilter::try_from_env("RUST_LOG").unwrap_or_else(|e| {
-            let default_filter = "info";
-            println!(
-                "Missing or invalid RUST_LOG, defaulting to {default_filter}. {:#?}",
-                e
-            );
-            EnvFilter::builder()
-                .parse(default_filter)
-                .unwrap_or_else(|_| panic!("{default_filter} should work as filter"))
-        });
-        // make sure we can log panics
-        let final_filter = env_filter.add_directive(
-            Directive::from_str(&format!("{}=info", env!("CARGO_CRATE_NAME")))
-                .expect("to be a valid filter"),
-        );
-        println!("Using env filter: {}", final_filter);
-        final_filter
-    };
-    let fmt = tracing_subscriber::fmt::layer()
-        // we normally look up logs in dash or kibana and it doesnt handle ansi, dash
-        // throws it away, kibana shows weird characters
-        // see: https://github.com/kubernetes/dashboard/issues/1035
-        .with_ansi(false)
-        .json()
-        .with_filter(get_filter());
-    let open_tel = tracing_opentelemetry::layer()
-        // remove these extra attributes because they are generated
-        // for _each_ span and event, generating _a lot_ of attributes
-        // per event and span
-        .with_threads(false)
-        .with_tracked_inactivity(false)
-        .with_location(false)
-        .with_exception_fields(false)
-        .with_exception_field_propagation(false)
-        .with_tracer(open_tel_tracer.clone())
-        .with_filter(get_filter());
-
-    install_global_export_traces_on_panic_hook();
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(open_tel)
-        .with(fmt);
-    subscriber::set_global_default(subscriber).unwrap();
-    TraceShutdownGuard {
-        tracer: open_tel_tracer,
-    }
-}
-
+#[allow(unused)]
 fn install_global_export_traces_on_panic_hook() {
     let current = std::panic::take_hook();
     println!("Installing panic hook");
