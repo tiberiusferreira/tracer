@@ -1,6 +1,7 @@
 use crate::api::new::{instances_filter_post, instances_get, logs_get, logs_service_names_get};
 use api_structs::exporter::{LiveServiceInstance, TracerFilters};
-use api_structs::SearchFor;
+use api_structs::time_conversion::db_i64_to_nanos;
+use api_structs::{SearchFor, Span};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -18,7 +19,7 @@ use std::ops::Deref;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::instrument::Instrumented;
-use tracing::{error, info, instrument, Instrument};
+use tracing::{debug, error, info, instrument, Instrument};
 
 pub mod new;
 #[derive(Debug, Clone, Serialize)]
@@ -176,7 +177,11 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         )
         .route("/api/traces-grid", axum::routing::post(traces_grid_post))
         // .route("/api/summary", axum::routing::post(traces_summary))
-        // .route("/api/trace", axum::routing::get(get_single_trace))
+        .route(
+            "/api/trace_chunk_list",
+            axum::routing::get(get_single_trace_chunk_list),
+        )
+        .route("/api/trace", axum::routing::get(get_single_trace))
         .route("/sse/:instance_id", axum::routing::get(sse_handler))
         .route(
             "/collector/trace_data",
@@ -410,8 +415,8 @@ where trace.timestamp >= $1::BIGINT
   and trace.timestamp <= $2::BIGINT
   and ($3::TEXT is null or trace.service_name = $3::TEXT)
   and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)
-  and trace.duration >= $5::BIGINT
-  and ($6::BIGINT is null or trace.duration <= $6::BIGINT)
+  and (trace.duration >= $5::BIGINT or trace.duration is null)
+  and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)
   and ($7::BOOL is null or trace.has_errors = $7::BOOL)
   and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT)
 order by trace.timestamp desc
@@ -658,10 +663,9 @@ async fn traces_grid_post(
 struct RawDbSpan {
     id: i64,
     timestamp: i64,
-    name: String,
-    duration: i64,
     parent_id: Option<i64>,
-    span_key_values: JsonValue,
+    duration: Option<i64>,
+    name: String,
     events: JsonValue,
 }
 
@@ -687,116 +691,238 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
-// #[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
-// async fn get_single_trace(
-//     axum::extract::Query(trace_id): axum::extract::Query<api_structs::TraceId>,
-//     axum::extract::State(con): axum::extract::State<PgPool>,
-// ) -> Result<impl IntoResponse, ApiError> {
-//     let trace_id = trace_id.trace_id;
-//     info!("Getting single trace: {trace_id}");
-//     let trace_from_db = sqlx::query_as!(RawDbSpan, "with event_kv_by_span_event as (select event_key_value.span_id,
-//                                                       event_key_value.event_id,
-//                                                       json_agg(json_build_object('key',
-//                                                                                  event_key_value.key,
-//                                                                                  'user_generated',
-//                                                                                  event_key_value.user_generated,
-//                                                                                  'value',
-//                                                                                  event_key_value.value)) as key_vals
-//                                                from event_key_value
-//                                                where event_key_value.trace_id = $1
-//                                                group by event_key_value.span_id, event_key_value.event_id),
-//                     event_with_kv_by_span as (select event.span_id,
-//                                                      COALESCE(jsonb_agg(json_build_object('timestamp',
-//                                                                                           event.timestamp,
-//                                                                                           'name',
-//                                                                                           event.name,
-//                                                                                           'severity',
-//                                                                                           event.severity,
-//                                                                                           'key_values',
-//                                                                                           COALESCE(event_kv_by_span_event.key_vals, '[]'))),
-//                                                               '[]') as events
-//                                               from event
-//                                                        left join event_kv_by_span_event on
-//                                                           event.trace_id = $1 and
-//                                                           event.span_id = event_kv_by_span_event.span_id and
-//                                                           event.id = event_kv_by_span_event.event_id
-//                                               where event.trace_id = $1
-//                                               group by event.span_id),
-//                     span_kv_by_id as (select span_key_value.span_id,
-//                                              jsonb_agg(json_build_object('key',
-//                                                                         span_key_value.key,
-//                                                                         'user_generated',
-//                                                                         span_key_value.user_generated,
-//                                                                         'value',
-//                                                                         span_key_value.value)) as key_vals
-//                                       from span_key_value
-//                                       where span_key_value.trace_id = $1
-//                                       group by span_key_value.span_id),
-//                     span_with_events as (select span.id,
-//                                                 span.timestamp,
-//                                                 span.name,
-//                                                 span.duration,
-//                                                 span.parent_id,
-//                                                 COALESCE(
-//                                                         span_kv_by_id.key_vals,
-//                                                         '[]') as span_key_values,
-//                                                 COALESCE(event_with_kv_by_span.events, '[]') as events
-//                                          from span
-//                                                   left join event_with_kv_by_span on
-//                                                      span.trace_id = $1 and
-//                                                      span.id = event_with_kv_by_span.span_id
-//                                                   left join span_kv_by_id on span_kv_by_id.span_id = span.id
-//                                          where span.trace_id = $1
-//                                          group by span.id, span.timestamp, span.name, span.duration, span.parent_id,
-//                                                   event_with_kv_by_span.events, span_kv_by_id.key_vals)
-//                select span_with_events.id,
-//                       span_with_events.timestamp,
-//                       span_with_events.name,
-//                       span_with_events.duration,
-//                       span_with_events.parent_id,
-//                       span_with_events.span_key_values as \"span_key_values!\",
-//                       span_with_events.events          as \"events!\"
-//                from span_with_events;",
-//         trace_id,
-//     )
-//             .fetch_all(&con)
-//             .await?;
-//     let resp = trace_from_db
-//         .into_iter()
-//         .map(|span| Span {
-//             id: u64::try_from(span.id).expect("span.id to fit u64"),
-//             name: span.name,
-//             timestamp: u64::try_from(span.timestamp).expect("unix timestamp to fit u64"),
-//             duration: u64::try_from(span.duration).expect("span duration to fit u64"),
-//             parent_id: span
-//                 .parent_id
-//                 .map(|ts| u64::try_from(ts).expect("span parent_id to fit u64")),
-//             key_values: serde_json::from_value(span.span_key_values)
-//                 .expect("db to generate valid json"),
-//             events: serde_json::from_value(span.events).expect("db to generate valid json"),
-//         })
-//         .collect::<Vec<Span>>();
-//     info!("Got it, compressing");
-//     let lg_window_size = 21;
-//     let quality = 4;
-//     let json = serde_json::to_string(&resp).expect("to be able to serialize response");
-//     let mut input =
-//         brotli::CompressorReader::new(json.as_bytes(), 4096, quality as u32, lg_window_size as u32);
-//     let mut resp: Vec<u8> = Vec::with_capacity(10 * BYTES_IN_1MB);
-//     input.read_to_end(&mut resp).unwrap();
-//     info!("Compressed, sending");
-//     Ok((
-//         StatusCode::OK,
-//         [
-//             (
-//                 axum::http::header::CONTENT_TYPE,
-//                 "application/json; charset=UTF-8",
-//             ),
-//             (axum::http::header::CONTENT_ENCODING, "br"),
-//         ],
-//         resp,
-//     ))
-// }
+#[instrument]
+async fn example_1() {
+    for i in 0..5 {
+        debug!("Inside fn1 : {}", i);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[instrument]
+async fn example_0() {
+    for i in 0..5 {
+        debug!("Inside fn0 : {}", i);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        example_1().await;
+    }
+}
+
+pub struct TraceId {
+    pub service_id: i64,
+    pub trace_id: i64,
+}
+
+#[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
+pub async fn get_trace_timestamp_chunks(
+    con: &PgPool,
+    trace_id: TraceId,
+) -> Result<Vec<u64>, ApiError> {
+    // example_0().await;
+    let start: Option<i64> = sqlx::query_scalar!(
+        "select timestamp as \"timestamp!\" from ((select timestamp 
+    from span
+    where span.service_id = $1
+      and span.trace_id = $2 and span.timestamp >= $3)
+      union all
+    (select timestamp 
+    from event
+             where event.service_id=$1
+                 and event.trace_id=$2)
+    order by timestamp limit 1);",
+        trace_id.service_id,
+        trace_id.trace_id,
+        0
+    )
+    .fetch_optional(con)
+    .await?;
+    let end: i64 = sqlx::query_scalar!(
+        "select timestamp as \"timestamp!\" from ((select timestamp 
+    from span
+    where span.service_id = $1
+      and span.trace_id = $2 and span.timestamp >= $3)
+      union all
+    (select timestamp 
+    from event
+             where event.service_id=$1
+                 and event.trace_id=$2)
+    order by timestamp desc limit 1);",
+        trace_id.service_id,
+        trace_id.trace_id,
+        0
+    )
+    .fetch_optional(con)
+    .await?
+    .expect("end to exist");
+    let start = match start {
+        None => {
+            return Ok(vec![]);
+        }
+        Some(start) => start,
+    };
+    let mut timestamp_chunks: Vec<i64> = vec![start];
+    loop {
+        let last_timestamp = timestamp_chunks
+            .last()
+            .expect("to have at least one element, since we put one in");
+        let timestamp: Option<i64> = sqlx::query_scalar!(
+            "select timestamp as \"timestamp!\" from ((select timestamp 
+    from span
+    where span.service_id = $1
+      and span.trace_id = $2 and span.timestamp >= $3)
+      union all
+    (select timestamp 
+    from event
+             where event.service_id=$1
+                 and event.trace_id=$2 and event.timestamp >= $3)
+    order by timestamp offset 10 limit 1);",
+            trace_id.service_id,
+            trace_id.trace_id,
+            last_timestamp
+        )
+        .fetch_optional(con)
+        .await?;
+        match timestamp {
+            None => {
+                if timestamp_chunks.last().expect("last to exist") != &end {
+                    timestamp_chunks.push(end);
+                }
+                return Ok(timestamp_chunks.into_iter().map(db_i64_to_nanos).collect());
+            }
+            Some(new_timestamp) => {
+                // if new_timestamp == *last_timestamp {
+                //     return Ok(timestamp_chunks.into_iter().map(db_i64_to_nanos).collect());
+                // } else {
+                println!("{}", new_timestamp);
+                timestamp_chunks.push(new_timestamp);
+                // }
+            }
+        }
+    }
+}
+
+#[instrument(skip_all, fields(trace_id=single_trace_query.trace_id))]
+async fn get_single_trace_chunk_list(
+    axum::extract::Query(single_trace_query): axum::extract::Query<api_structs::TraceId>,
+    axum::extract::State(app_state): axum::extract::State<AppState>,
+) -> Result<Json<Vec<u64>>, ApiError> {
+    let con = app_state.con;
+    let service_id = single_trace_query.service_id;
+    let trace_id = single_trace_query.trace_id;
+    let trace_ids = get_trace_timestamp_chunks(
+        &con,
+        TraceId {
+            service_id,
+            trace_id,
+        },
+    )
+    .await?;
+    Ok(Json(trace_ids))
+}
+
+#[instrument(skip_all)]
+async fn get_single_trace(
+    axum::extract::Query(single_trace_query): axum::extract::Query<
+        api_structs::SingleChunkTraceQuery,
+    >,
+    axum::extract::State(app_state): axum::extract::State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let con = app_state.con;
+    let service_id = single_trace_query.trace_id.service_id;
+    let trace_id = single_trace_query.trace_id.trace_id;
+    let start_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.start_timestamp)?;
+    let end_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.end_timestamp)?;
+    info!("Getting single trace: {trace_id}");
+    let trace_from_db: Vec<RawDbSpan> = sqlx::query_as!(RawDbSpan, "select span_events.id,
+                                                      span_events.timestamp,
+                                                      span_events.parent_id,
+                                                      span_events.duration,
+                                                      span_events.name,
+                                                      COALESCE(jsonb_agg(
+                                                               json_build_object('timestamp',
+                                                                                 span_events.event_timestamp,
+                                                                                 'name',
+                                                                                 span_events.event_name,
+                                                                                 'severity',
+                                                                                 span_events.severity
+                                                               )
+                                                                        )
+                                                               filter ( where span_events.event_timestamp is not null),
+                                                               '[]') as events
+                                               from (select span.id,
+                                                            span.timestamp,
+                                                            span.parent_id,
+                                                            span.duration,
+                                                            span.name,
+                                                            event.timestamp as event_timestamp,
+                                                            event.name      as event_name,
+                                                            event.severity
+                                                     from span
+                                                              left join event
+                                                                        on event.service_id = span.service_id and
+                                                                           event.trace_id = span.trace_id
+                                                                            and event.span_id = span.id
+                                                     where span.service_id = $1
+                                                         and span.trace_id = $2
+                                                         and
+                                                         -- (start inside window or end inside window)
+                                                           ((
+                                                                   (span.timestamp >= $3 and span.timestamp <= $4)
+                                                                   or
+                                                                   (span.duration is null or
+                                                                   ((span.timestamp + span.duration) >= $3 and
+                                                                    (span.timestamp + span.duration) <= $4))
+                                                               )
+                                                        -- or
+                                                        -- start before window and end after window
+                                                        or (span.timestamp <= $3 and (span.duration is null or (span.timestamp + span.duration) > $4)))
+                                                         and (event.timestamp is null or (event.timestamp >= $3 and event.timestamp <= $4))
+                                                     order by event.timestamp) span_events
+
+                                               group by span_events.id, span_events.timestamp, span_events.parent_id,
+                                                        span_events.duration, span_events.name
+                                                order by span_events.timestamp;",
+        service_id,
+        trace_id,
+        start_timestamp,
+        end_timestamp
+    )
+            .fetch_all(&con)
+            .await?;
+    let resp = trace_from_db
+        .into_iter()
+        .map(|span| Span {
+            id: span.id,
+            name: span.name,
+            timestamp: api_structs::time_conversion::db_i64_to_nanos(span.timestamp),
+            duration: span
+                .duration
+                .map(|d| api_structs::time_conversion::db_i64_to_nanos(d)),
+            parent_id: span.parent_id,
+            events: serde_json::from_value(span.events).expect("db to generate valid json"),
+        })
+        .collect::<Vec<Span>>();
+    info!("Got it, compressing");
+    let lg_window_size = 21;
+    let quality = 4;
+    let json = serde_json::to_string(&resp).expect("to be able to serialize response");
+    let mut input =
+        brotli::CompressorReader::new(json.as_bytes(), 4096, quality as u32, lg_window_size as u32);
+    let mut resp: Vec<u8> = Vec::with_capacity(10 * crate::BYTES_IN_1MB);
+    input.read_to_end(&mut resp).unwrap();
+    info!("Compressed, sending");
+    Ok((
+        StatusCode::OK,
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/json; charset=UTF-8",
+            ),
+            (axum::http::header::CONTENT_ENCODING, "br"),
+        ],
+        resp,
+    ))
+}
 
 async fn ready() -> impl IntoResponse {
     (

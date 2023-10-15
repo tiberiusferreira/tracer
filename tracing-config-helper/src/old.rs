@@ -75,10 +75,10 @@ pub async fn setup_or_panic(service_name: String, environment: String, collector
                 filters: std::env::var("RUST_LOG").unwrap_or_default(),
                 export_timeout: Duration::from_secs(1),
                 status_send_period: Duration::from_secs(1),
-                maximum_spe_buffer: 100,
+                maximum_spe_buffer: 10_000,
                 sampler_limits: SamplerLimits {
-                    span_plus_event_per_minute_per_trace_limit: 50,
-                    logs_per_minute_limit: 50,
+                    span_plus_event_per_minute_per_trace_limit: 1000,
+                    logs_per_minute_limit: 1000,
                 },
             })
             .await;

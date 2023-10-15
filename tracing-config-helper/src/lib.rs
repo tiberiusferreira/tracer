@@ -285,12 +285,13 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 let new_span_allowed = w_sampler.allow_new_span(root_span.name());
                 drop(w_sampler);
                 if new_span_allowed {
+                    let parent_id = span.parent().expect("parent to exist if non-root").id();
                     print_if_dbg(context, "Allowed by sampler, sending to exporter");
                     self.send_subscriber_event_to_export(SubscriberEvent::NewSpan(NewSpan {
                         id: id.into_non_zero_u64(),
                         trace_id: root_span.id().into_non_zero_u64(),
                         name: span_name.to_string(),
-                        parent_id: Some(root_span.id().into_non_zero_u64()),
+                        parent_id: Some(parent_id.into_non_zero_u64()),
                         timestamp: u64::try_from(
                             chrono::Utc::now()
                                 .naive_utc()

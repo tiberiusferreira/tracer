@@ -69,7 +69,7 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<Vec<T
     let trace_grid: Vec<TraceGridRow> = resp
         .into_iter()
         .map(|e| TraceGridRow {
-            service_id: 0,
+            service_id: e.service_id,
             id: e.id,
             duration: e.duration_ns,
             service_name: e.service_name,
@@ -655,7 +655,7 @@ pub fn TraceTable(
                         </td>
                         <td class="trace-table__cell">{row.warning_count}</td>
                         <td class="trace-table__cell">
-                            <a href={format!("{}trace/?trace_id={}", root_path, row.id)}>{"➔"}</a>
+                            <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, row.service_id, row.id, row.timestamp)}>{"➔"}</a>
                         </td>
                 </tr>
             };

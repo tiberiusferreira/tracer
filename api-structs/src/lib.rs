@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 pub mod exporter;
 pub mod sse;
 pub mod time_conversion;
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
+
 pub const FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: &str =
     env!("FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH");
 
@@ -25,19 +28,39 @@ pub struct Autocomplete {
     // pub keys: Vec<String>,
 }
 
+#[serde_as]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct TraceId {
+    #[serde_as(as = "DisplayFromStr")]
+    pub service_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
     pub trace_id: i64,
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct TraceChunkId {
+    #[serde_as(as = "DisplayFromStr")]
+    pub start_timestamp: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub end_timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct SingleChunkTraceQuery {
+    #[serde(flatten)]
+    pub trace_id: TraceId,
+    #[serde(flatten)]
+    pub chunk_id: TraceChunkId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Span {
-    pub id: u64,
+    pub id: i64,
     pub timestamp: u64,
-    pub duration: u64,
-    pub parent_id: Option<u64>,
+    pub parent_id: Option<i64>,
+    pub duration: Option<u64>,
     pub name: String,
-    pub key_values: Vec<KeyValue>,
     pub events: Vec<Events>,
 }
 
@@ -64,10 +87,10 @@ pub enum Severity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Events {
+    pub timestamp: u64,
     pub name: String,
     pub severity: Severity,
-    pub timestamp: u64,
-    pub key_values: Vec<KeyValue>,
+    // pub key_values: Vec<KeyValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

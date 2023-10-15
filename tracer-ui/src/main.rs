@@ -49,9 +49,11 @@ pub fn App() -> impl IntoView {
                             />
                         <Route
                               path=format!("{}trace", root_path)
-                              view=move || view! {
-
-                                    <TraceDetails/>
+                              view={
+                                    let root_path= root_path.to_string();
+                                    move || view! {
+                                    <TraceDetails root_path=root_path.clone()/>
+                                    }
                                 }
                             />
                         <Route
@@ -92,6 +94,21 @@ fn printable_local_date(timestamp: u64) -> String {
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
 }
+
+fn printable_local_date_ms(timestamp: u64) -> String {
+    let timestamp = i64::try_from(timestamp).unwrap();
+    let nanos_in_1_sec = 1_000_000_000;
+    let offset_minutes = js_sys::Date::new_0().get_timezone_offset() as i64;
+    let timestamp = chrono::NaiveDateTime::from_timestamp_opt(
+        timestamp / nanos_in_1_sec,
+        u32::try_from(timestamp % nanos_in_1_sec).unwrap(),
+    )
+    .unwrap();
+    grid::utc_to_local_date(timestamp, offset_minutes)
+        .format("%Y-%m-%d %H:%M:%.6f")
+        .to_string()
+}
+
 fn secs_since(timestamp: u64) -> u64 {
     let timestamp_ms = js_sys::Date::now() as u64;
     let nanos_in_1_ms = 1_000_000;
