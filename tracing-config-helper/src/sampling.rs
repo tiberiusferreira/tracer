@@ -22,7 +22,7 @@ pub trait Sampler {
 
 impl Sampler for TracerSampler {
     fn allow_new_trace(&mut self, trace: &str) -> bool {
-        if self.is_over_usage_limit(trace) {
+        if self.is_over_usage_limit_for_new_trace(trace) {
             self.register_dropped_trace(trace);
             false
         } else {
@@ -32,8 +32,13 @@ impl Sampler for TracerSampler {
     }
 
     fn allow_new_event(&mut self, trace: &str) -> bool {
-        self.register_single_span_or_event(trace);
-        true
+        if self.is_over_usage_limit_for_existing_trace(trace) {
+            self.register_dropped_trace(trace);
+            false
+        } else {
+            self.register_single_span_or_event(trace);
+            true
+        }
     }
 
     fn allow_new_orphan_event(&mut self) -> bool {
@@ -106,7 +111,7 @@ impl TracerSampler {
             for trace_stats in self.trace_stats.values_mut() {
                 trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_sub(
                     self.sampler_limits
-                        .span_plus_event_per_minute_per_trace_limit,
+                        .new_trace_span_plus_event_per_minute_per_trace_limit,
                 );
                 trace_stats.dropped_traces_per_minute = 0;
             }
@@ -132,7 +137,7 @@ impl TracerSampler {
         self.window_reset_check();
         self.orphan_events_per_minute_usage >= self.sampler_limits.logs_per_minute_limit
     }
-    pub fn is_over_usage_limit(&mut self, trace: &str) -> bool {
+    pub fn is_over_usage_limit_for_new_trace(&mut self, trace: &str) -> bool {
         self.window_reset_check();
 
         let trace_stats =
@@ -145,7 +150,22 @@ impl TracerSampler {
         return trace_stats.spe_usage_per_minute
             >= self
                 .sampler_limits
-                .span_plus_event_per_minute_per_trace_limit;
+                .new_trace_span_plus_event_per_minute_per_trace_limit;
+    }
+    pub fn is_over_usage_limit_for_existing_trace(&mut self, trace: &str) -> bool {
+        self.window_reset_check();
+
+        let trace_stats =
+            self.trace_stats
+                .entry(trace.to_string())
+                .or_insert(TraceApplicationStats {
+                    spe_usage_per_minute: 0,
+                    dropped_traces_per_minute: 0,
+                });
+        return trace_stats.spe_usage_per_minute
+            >= self
+                .sampler_limits
+                .existing_trace_span_plus_event_per_minute_limit;
     }
 
     pub fn register_dropped_orphan_event(&mut self) {

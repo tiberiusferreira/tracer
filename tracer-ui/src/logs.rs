@@ -1,26 +1,48 @@
-use crate::{printable_local_date, API_SERVER_URL_NO_TRAILING_SLASH};
+use crate::grid::DatePicker;
+use crate::grid::{local_date_to_utc, utc_to_local_date};
+use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use api_structs::exporter::{Log, NewFiltersRequest, ServiceLogRequest, ServiceNameList, Severity};
+use chrono::{Duration, NaiveDateTime};
+use js_sys::Date;
+use leptos::ev::{Event, MouseEvent};
 use leptos::logging::log;
-use leptos::{component, view, CollectView, IntoView, SignalGet, SignalSet, WriteSignal};
+use leptos::*;
+use leptos::{component, SignalGet, SignalSet, WriteSignal};
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserSearchInput {
+    search_for: ServiceLogRequest,
+}
 
+impl Default for UserSearchInput {
+    fn default() -> Self {
+        let now = NaiveDateTime::from_timestamp_millis(Date::now().round() as i64).unwrap();
+        Self {
+            search_for: ServiceLogRequest {
+                service_name: "".to_string(),
+                from_date_unix: u64::try_from(
+                    (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
+                )
+                .expect("timestamp to fit u64"),
+                to_date_unix: u64::try_from(
+                    (now + Duration::days(1)).timestamp_nanos_opt().unwrap(),
+                )
+                .expect("timestamp to fit u64"),
+            },
+        }
+    }
+}
 #[component]
 pub fn Logs(root_path: String) -> impl IntoView {
-    let (service_name_list_r, service_name_list_w) =
-        leptos::create_signal(Option::<ServiceNameList>::None);
-    let (selected_service_name_r, selected_service_name_w) =
-        leptos::create_signal(Option::<String>::None);
+    let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
+    let (service_name_list_r, service_name_list_w) = create_signal(Option::<ServiceNameList>::None);
     let (logs_r, logs_w) = leptos::create_signal(Option::<Vec<Log>>::None);
     let _api_service_names_request =
-        leptos::create_local_resource(move || (), move |_| get_service_list(service_name_list_w));
-    let _api_service_logs_request = leptos::create_local_resource(
-        move || selected_service_name_r.get(),
-        move |service_name| get_logs(logs_w, service_name),
+        create_local_resource(move || (), move |_| get_service_list(service_name_list_w));
+    let _api_service_logs_request = create_local_resource(
+        move || user_search_input_r.get(),
+        move |user_search_input| get_logs(logs_w, user_search_input),
     );
-    let on_selected = move |ev: leptos::ev::Event| {
-        let selected = leptos::event_target_value(&ev);
-        log!("{:?}", selected);
-        selected_service_name_w.set(Some(selected));
-    };
+
     let logs_view = move || {
         let logs = logs_r.get();
         match logs {
@@ -62,46 +84,132 @@ pub fn Logs(root_path: String) -> impl IntoView {
             }
         }
     };
-    let view = move || match service_name_list_r.get() {
-        None => {
-            view! {
-                <div style="padding: 20px; color: white">
-                   <p>"Loading, maybe failed, check logs"</p>
-                </div>
-            }
-        }
-        Some(instance) if instance.is_empty() => {
-            view! {
-                <div style="padding: 20px; color: white">
-                   <p>"Loaded, but no instances running"</p>
-                </div>
-            }
-        }
 
-        Some(instances) => {
-            selected_service_name_w.set(instances.get(0).cloned());
-            let options = instances
-                .iter()
-                .map(|service| {
-                    view! {
-                        <option value={service}>{service}</option>
-                    }
-                })
-                .collect_view();
-            view! {
-                <div style="padding: 20px; color: white">
-                    <select on:change=on_selected name="service-names" id="service-names">
-                        {options}
-                    </select>
-                </div>
-            }
-        }
+    let current_from_datetime = Signal::derive(move || {
+        let offset = js_sys::Date::new_0().get_timezone_offset() as i64;
+
+        user_search_input_r.with(|r| {
+            let timestamp =
+                i64::try_from(r.search_for.from_date_unix).expect("timestamp to fit i64");
+            utc_to_local_date(
+                NaiveDateTime::from_timestamp_opt(
+                    timestamp / 1_000_000_000,
+                    (timestamp % 1_000_000_000) as u32,
+                )
+                .unwrap(),
+                offset,
+            )
+        })
+    });
+
+    let service_name_changed = move |ev: Event| {
+        let val = event_target_value(&ev);
+        log!("Universal changed to: {}", val);
+        user_search_input_w.update(|v| v.search_for.service_name = val);
     };
+
+    let current_to_datetime = Signal::derive(move || {
+        let offset = js_sys::Date::new_0().get_timezone_offset() as i64;
+        user_search_input_r.with(|r| {
+            let timestamp = i64::try_from(r.search_for.to_date_unix).expect("timestamp to fit i64");
+            utc_to_local_date(
+                NaiveDateTime::from_timestamp_opt(
+                    timestamp / 1_000_000_000,
+                    (timestamp % 1_000_000_000) as u32,
+                )
+                .unwrap(),
+                offset,
+            )
+        })
+    });
+
+    let tracer_counter = move || {
+        let number_logs = logs_r.get().unwrap_or_default().len();
+        // let request_in_progress = request_in_progress.get();
+        // let text = if number_logs >= 100 {
+        //     "99+ logs".to_string()
+        // } else {
+        let text = format!("{} logs", number_logs);
+        // };
+        // if request_in_progress {
+        //     view! { <p style="margin: 0; background-color: yellow">{"Updating..."}</p>}
+        // } else {
+        view! { <p style="margin: 0">{text}</p>}
+        // }
+    };
+
+    let from_changed = move |new_datetime: NaiveDateTime| {
+        user_search_input_w.update(|v| {
+            let offset_minutes = js_sys::Date::new_0().get_timezone_offset() as i64;
+            if let Ok(timestamp_nanos) = u64::try_from(
+                local_date_to_utc(new_datetime, offset_minutes)
+                    .timestamp_nanos_opt()
+                    .unwrap(),
+            ) {
+                v.search_for.from_date_unix = timestamp_nanos;
+            } else {
+                log!("From date out of bounds!")
+            }
+        });
+    };
+    let to_changed = move |new_datetime: NaiveDateTime| {
+        let offset_minutes = js_sys::Date::new_0().get_timezone_offset() as i64;
+        user_search_input_w.update(|v| {
+            if let Ok(timestamp_nanos) = u64::try_from(
+                local_date_to_utc(new_datetime, offset_minutes)
+                    .timestamp_nanos_opt()
+                    .unwrap(),
+            ) {
+                v.search_for.to_date_unix = timestamp_nanos;
+            } else {
+                log!("From date out of bounds!")
+            }
+        });
+    };
+
     view! {
-        <>
-        {view}
-        {logs_view}
-        </>
+        <div class="main-grid">
+            <div class="main">
+                {logs_view}
+            </div>
+            <div class="search-panel">
+                    <h1 class="traces-counter">{tracer_counter}</h1>
+                    <DatePicker
+                        label="From (local):".to_string()
+                        date_to_display=current_from_datetime
+                        on_change=Box::new(from_changed)
+                    />
+                    <DatePicker
+                        label="To (local):".to_string()
+                        date_to_display=current_to_datetime
+                        on_change=Box::new(to_changed)
+                    />
+                    <label class="search-panel__label">
+                        "Service Name:"
+                        <input on:input=service_name_changed
+                            prop:value={move || user_search_input_r.with(|r| r.search_for.service_name.to_string())}
+                            class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                            list="service-name-list"
+                        />
+                    </label>
+                    {
+                        move || {
+                            let service_name_list = service_name_list_r.get().unwrap_or_default();
+                            let spans: Vec<_> = service_name_list.iter().map(|s|{
+                                view!{
+                                    <option value={s}></option>
+                                }
+                            }).collect();
+                            view!{
+                                <datalist id="service-name-list">
+                                  {spans}
+                                </datalist>
+                            }
+                        }
+                    }
+            </div>
+        </div>
+        // {view}
     }
 }
 
@@ -144,24 +252,20 @@ async fn get_service_list(w: WriteSignal<Option<ServiceNameList>>) {
     w.set(Some(service_list));
 }
 
-async fn get_logs(w: WriteSignal<Option<Vec<Log>>>, service_name: Option<String>) {
-    let service_name = match service_name {
-        None => {
-            log!("Empty service name");
-            return;
-        }
-        Some(service_name) => service_name,
-    };
-    log!("Service name: {}", service_name);
-    let query_params = ServiceLogRequest {
-        service_name,
-        start_time: 0,
-    };
+async fn get_logs(w: WriteSignal<Option<Vec<Log>>>, user_search_input: UserSearchInput) {
+    log!("Log search: {:#?}", user_search_input);
     let logs: Vec<Log> =
         gloo_net::http::Request::get(&format!("{}/api/logs", API_SERVER_URL_NO_TRAILING_SLASH))
             .query([
-                ("service_name", query_params.service_name),
-                ("start_time", query_params.start_time.to_string()),
+                ("service_name", user_search_input.search_for.service_name),
+                (
+                    "from_date_unix",
+                    user_search_input.search_for.from_date_unix.to_string(),
+                ),
+                (
+                    "to_date_unix",
+                    user_search_input.search_for.to_date_unix.to_string(),
+                ),
             ])
             .send()
             .await

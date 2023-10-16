@@ -44,13 +44,17 @@ pub fn Services(root_path: String) -> impl IntoView {
                     let logs_per_minute_limit = stats.sampler_limits.logs_per_minute_limit;
                     let spe_per_minute_limit = stats
                         .sampler_limits
-                        .span_plus_event_per_minute_per_trace_limit;
+                        .new_trace_span_plus_event_per_minute_per_trace_limit;
                     let mut html_trace_stats = vec![];
                     for (trace_name, trace_stats) in stats.per_minute_trace_stats {
                         let dropped_traces_per_minute = trace_stats.dropped_traces_per_minute;
                         let spe_usage_per_minute = trace_stats.spe_usage_per_minute;
                         html_trace_stats.push(view!{
-                            <p>{format!("{trace_name:-<150} - Usage (SpE/min): {spe_usage_per_minute}/{spe_per_minute_limit} Dropped (Traces/min): {dropped_traces_per_minute}")}</p>
+                            <tr class={"row-container"}>
+                                <td class="trace-table__cell">{{trace_name}}</td>
+                                <td class="trace-table__cell">{format!("{}", spe_usage_per_minute)}</td>
+                                <td class="trace-table__cell">{format!("{}", dropped_traces_per_minute)}</td>
+                            </tr>
                         });
                     }
                     let input_element: NodeRef<Input> = create_node_ref();
@@ -67,8 +71,21 @@ pub fn Services(root_path: String) -> impl IntoView {
                         <label for="filters">"RUST_LOG Filters: "</label>
                         <input type="text" id="filters" name="filters" node_ref=input_element value={instance.filters} size="100" />
                         <button style="margin-left: 5px" on:click=increment>"Apply"</button>
-                        <p>{format!("Logs Usage (events/minute): {}/{} Logs Dropped: {}", stats.orphan_events_per_minute_usage, logs_per_minute_limit, stats.logs_per_minute_dropped)}</p>
-                        {html_trace_stats}
+                        <p>{format!("{}/{} (logs per/min)   {} (logs dropped per/min)  {} open trace SpE limit", stats.orphan_events_per_minute_usage, logs_per_minute_limit, stats.logs_per_minute_dropped, stats.sampler_limits.existing_trace_span_plus_event_per_minute_limit)}</p>
+                        <table class="trace-table">
+                            <tr class="row-container">
+                                <th class="trace-table__cell">
+                                    <a>"Trace Name"</a>
+                                </th>
+                                <th class="trace-table__cell">
+                                    <a>{format!("SpE/min New Trace Limit {} - Existing Trace Limit {}", stats.sampler_limits.new_trace_span_plus_event_per_minute_per_trace_limit, stats.sampler_limits.existing_trace_span_plus_event_per_minute_limit)}</a>
+                                </th>
+                                <th class="trace-table__cell">
+                                    <a>"Dropped SpE/min"</a>
+                                </th>
+                            </tr>
+                            {html_trace_stats}
+                        </table>
                     </>
                 });
                 }

@@ -110,7 +110,7 @@ async fn get_autocomplete_data(search_data: SearchFor, api_response_w: WriteSign
 pub fn utc_to_local_date(utc: NaiveDateTime, offset_minutes: i64) -> NaiveDateTime {
     utc - Duration::minutes(offset_minutes)
 }
-fn local_date_to_utc(local: NaiveDateTime, offset_minutes: i64) -> NaiveDateTime {
+pub fn local_date_to_utc(local: NaiveDateTime, offset_minutes: i64) -> NaiveDateTime {
     local + Duration::minutes(offset_minutes)
 }
 
@@ -199,26 +199,6 @@ pub fn TraceGrid(root_path: String) -> impl IntoView {
         user_search_input_w.update(|v| v.search_for.top_level_span = val);
     };
 
-    // let span_name_changed = move |ev: Event| {
-    //     let val = event_target_value(&ev);
-    //     log!("Span changed to: {}", val);
-    //     user_search_input_w.update(|v| v.search_for.span = val);
-    // };
-    // let span_key_changed = move |ev: Event| {
-    //     let val = event_target_value(&ev);
-    //     log!("Span Key changed to: {}", val);
-    //     user_search_input_w.update(|v| v.search_for.key = val);
-    // };
-    // let span_value_changed = move |ev: Event| {
-    //     let val = event_target_value(&ev);
-    //     log!("Span Value changed to: {}", val);
-    //     user_search_input_w.update(|v| v.search_for.value = val);
-    // };
-    // let event_name_changed = move |ev: Event| {
-    //     let val = event_target_value(&ev);
-    //     log!("Event Name changed to: {}", val);
-    //     user_search_input_w.update(|v| v.search_for.event_name = val);
-    // };
     let min_duration_changed = move |ev: Event| {
         let val = event_target_value(&ev);
         log!("Min Duration Value changed to: {}", val);
@@ -437,65 +417,6 @@ pub fn TraceGrid(root_path: String) -> impl IntoView {
                             class="search-panel__input search-panel__input__inline" type="text" maxlength="5" size="2"
                         />
                 </label>
-                // <label class="search-panel__label">
-                //     "Span:"
-                //     <input // on:input=span_name_changed
-                //         // prop:value={move || user_search_input_r.with(|r| r.search_for.span.to_string())}
-                //         list="span-list"
-                //         class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
-                //     />
-                // </label>
-                // {
-                //     move || {
-                //         let auto_complete_data = api_autocomplete_r.get();
-                //         let spans: Vec<_> = auto_complete_data.spans.iter().map(|s|{
-                //             view!{
-                //                 <option value={s}></option>
-                //             }
-                //         }).collect();
-                //         view!{
-                //             <datalist id="span-list">
-                //               {spans}
-                //             </datalist>
-                //         }
-                //     }
-                // }
-                // <label class="search-panel__label">
-                //     "Key:"
-                //     <input // on:input=span_key_changed
-                //         // prop:value={move || user_search_input_r.with(|r| r.search_for.key.to_string())}
-                //         list="key-list"
-                //         class="search-panel__input" type="text" maxlength="50" size="20"
-                //     />
-                // </label>
-                // {
-                //     move || {
-                //         let auto_complete_data = api_autocomplete_r.get();
-                //         let keys: Vec<_> = auto_complete_data.keys.iter().map(|k|{
-                //             view!{
-                //                 <option value={k}></option>
-                //             }
-                //         }).collect();
-                //         view!{
-                //             <datalist id="key-list">
-                //               {keys}
-                //             </datalist>
-                //         }
-                //     }
-                // }
-                // <label class="search-panel__label">
-                //     "Value:"
-                //     <input // on:input=span_value_changed
-                //         // prop:value={move || user_search_input_r.with(|r| r.search_for.value.to_string())}
-                //         class="search-panel__input" type="text" maxlength="50" size="20"
-                //     />
-                // </label>
-                // <label class="search-panel__label">
-                //     "Log:"
-                //     <input // on:input=event_name_changed
-                //          // prop:value={move || user_search_input_r.with(|r| r.search_for.event_name.to_string())}
-                //         class="search-panel__input" type="text" maxlength="50" size="20"/>
-                // </label>
             </div>
         </div>
     }

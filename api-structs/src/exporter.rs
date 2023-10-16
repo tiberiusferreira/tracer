@@ -41,7 +41,8 @@ impl FromStr for Severity {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SamplerLimits {
-    pub span_plus_event_per_minute_per_trace_limit: u32,
+    pub new_trace_span_plus_event_per_minute_per_trace_limit: u32,
+    pub existing_trace_span_plus_event_per_minute_limit: u32,
     pub logs_per_minute_limit: u32,
 }
 
@@ -60,10 +61,11 @@ pub struct LiveInstances {
     pub instances: HashMap<ServiceName, Vec<LiveServiceInstance>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServiceLogRequest {
     pub service_name: String,
-    pub start_time: u64,
+    pub from_date_unix: u64,
+    pub to_date_unix: u64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

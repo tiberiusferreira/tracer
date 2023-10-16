@@ -691,23 +691,6 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
-#[instrument]
-async fn example_1() {
-    for i in 0..5 {
-        debug!("Inside fn1 : {}", i);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-#[instrument]
-async fn example_0() {
-    for i in 0..5 {
-        debug!("Inside fn0 : {}", i);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        example_1().await;
-    }
-}
-
 pub struct TraceId {
     pub service_id: i64,
     pub trace_id: i64,
@@ -718,7 +701,6 @@ pub async fn get_trace_timestamp_chunks(
     con: &PgPool,
     trace_id: TraceId,
 ) -> Result<Vec<u64>, ApiError> {
-    // example_0().await;
     let start: Option<i64> = sqlx::query_scalar!(
         "select timestamp as \"timestamp!\" from ((select timestamp 
     from span
@@ -790,12 +772,7 @@ pub async fn get_trace_timestamp_chunks(
                 return Ok(timestamp_chunks.into_iter().map(db_i64_to_nanos).collect());
             }
             Some(new_timestamp) => {
-                // if new_timestamp == *last_timestamp {
-                //     return Ok(timestamp_chunks.into_iter().map(db_i64_to_nanos).collect());
-                // } else {
-                println!("{}", new_timestamp);
                 timestamp_chunks.push(new_timestamp);
-                // }
             }
         }
     }

@@ -267,16 +267,14 @@ pub(crate) async fn instances_filter_post(
     };
 }
 
-#[axum::debug_handler]
 #[instrument(skip_all)]
 pub(crate) async fn logs_get(
     service_log_request: Query<ServiceLogRequest>,
     State(app_state): State<AppState>,
 ) -> Result<Json<Vec<Log>>, ApiError> {
-    let start_timestamp =
-        api_structs::time_conversion::nanos_to_db_i64(service_log_request.start_time);
+    let from_timestamp = nanos_to_db_i64(service_log_request.from_date_unix);
+    let to_timestamp = nanos_to_db_i64(service_log_request.to_date_unix);
     let service_name = &service_log_request.service_name;
-    // select timestamp, severity, value from log;
     pub struct DbLog {
         pub timestamp: i64,
         pub severity: Severity,
@@ -284,8 +282,9 @@ pub(crate) async fn logs_get(
     }
     let service_list: Vec<DbLog> = sqlx::query_as!(
         DbLog,
-        r#"select timestamp, severity as "severity: Severity", value from log where timestamp>$1 and service_name=$2;"#,
-        start_timestamp,
+        r#"select timestamp, severity as "severity: Severity", value from log where timestamp >= $1 and timestamp <= $2 and service_name=$3 order by timestamp desc limit 100000;"#,
+        from_timestamp,
+        to_timestamp,
         service_name
     )
     .fetch_all(&app_state.con)

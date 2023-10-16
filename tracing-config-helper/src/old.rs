@@ -77,7 +77,8 @@ pub async fn setup_or_panic(service_name: String, environment: String, collector
                 status_send_period: Duration::from_secs(1),
                 maximum_spe_buffer: 10_000,
                 sampler_limits: SamplerLimits {
-                    span_plus_event_per_minute_per_trace_limit: 1000,
+                    new_trace_span_plus_event_per_minute_per_trace_limit: 1000,
+                    existing_trace_span_plus_event_per_minute_limit: 2000,
                     logs_per_minute_limit: 1000,
                 },
             })

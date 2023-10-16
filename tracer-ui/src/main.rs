@@ -6,7 +6,6 @@ mod logs;
 use grid::TraceGrid;
 mod details;
 mod services;
-mod summary;
 use details::TraceDetails;
 use leptos_router::*;
 use logs::Logs;
@@ -29,7 +28,7 @@ pub fn App() -> impl IntoView {
                 <nav class="navigation">
                     <div class="navigation__button"></div>
                     <a class="navigation__button" href={&root_path}>"Trace Search"</a>
-                    <a class="navigation__button" href=format!("{}summary", root_path)>"Summary"</a>
+                    // <a class="navigation__button" href=format!("{}summary", root_path)>"Summary"</a>
                     <a class="navigation__button" href=format!("{}services", root_path)>"Services Health"</a>
                     <a class="navigation__button" href=format!("{}logs", root_path)>"Logs"</a>
                 </nav>
