@@ -41,7 +41,12 @@ impl FromStr for Severity {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SamplerLimits {
+    /// After this limit is reached, new traces will be dropped until the minute is elapsed
     pub new_trace_span_plus_event_per_minute_per_trace_limit: u32,
+    /// Even if the limit above is hit, existing trace continue recording data until this limit is reached
+    /// at which point they stop recording data too. This is meant to allow existing traces to complete.
+    /// It's usually better to have few complete traces than multiple incomplete ones
+    /// This also is the limit for long running traces, for background tasks for example
     pub existing_trace_span_plus_event_per_minute_limit: u32,
     pub logs_per_minute_limit: u32,
 }
@@ -94,7 +99,6 @@ pub struct NewFiltersRequest {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TracerStats {
-    pub reconnects: u32,
     pub spe_dropped_on_export: u32,
     pub orphan_events_per_minute_usage: u32,
     pub logs_per_minute_dropped: u32,

@@ -1,19 +1,12 @@
 use crate::api::{ApiError, AppState, ChangeFilterInternalRequest, ServiceName};
-use api_structs::exporter::{
-    LiveServiceInstance, Log, ServiceLogRequest, SubscriberEvent, TracerStats,
-};
-use api_structs::time_conversion::{nanos_to_db_i64, time_from_nanos};
+use api_structs::exporter::{LiveServiceInstance, Log, ServiceLogRequest, SubscriberEvent};
+use api_structs::time_conversion::time_from_nanos;
 use axum::extract::{Query, State};
-use axum::{Json, RequestExt};
-use chrono::NaiveDateTime;
+use axum::Json;
 use reqwest::StatusCode;
-use sqlx::database::HasValueRef;
-use sqlx::error::BoxDynError;
-use sqlx::{Decode, PgPool, Postgres};
+use sqlx::PgPool;
 use std::collections::HashMap;
-use std::iter::Map;
 use std::ops::DerefMut;
-use std::vec::IntoIter;
 use tracing::{debug, error, instrument, trace};
 
 #[derive(Debug, Clone, sqlx::Type)]
@@ -67,7 +60,7 @@ pub(crate) async fn process_orphan_event(
     service_name: &str,
     orphan_event: api_structs::exporter::NewOrphanEvent,
 ) -> Result<(), ApiError> {
-    let timestamp = nanos_to_db_i64(orphan_event.timestamp);
+    let timestamp = nanos_to_db_i64(orphan_event.timestamp)?;
     let level = Severity::from(orphan_event.level);
     sqlx::query!(
         "insert into log (timestamp, service_name, severity, value) VALUES ($1::ubigint, $2, $3, $4);",
@@ -104,7 +97,6 @@ pub(crate) async fn insert_new_trace(
 
 pub(crate) async fn insert_new_span(
     con: &PgPool,
-    service_name: &str,
     service_id: i64,
     new_span: &api_structs::exporter::NewSpan,
 ) -> Result<(), ApiError> {
@@ -198,9 +190,9 @@ pub(crate) async fn process_new_span(
             });
         }
         insert_new_trace(con, service_name, service_id, &new_span).await?;
-        insert_new_span(con, service_name, service_id, &new_span).await?;
+        insert_new_span(con, service_id, &new_span).await?;
     } else {
-        insert_new_span(con, service_name, service_id, &new_span).await?;
+        insert_new_span(con, service_id, &new_span).await?;
     }
     Ok(())
 }
@@ -267,13 +259,26 @@ pub(crate) async fn instances_filter_post(
     };
 }
 
+pub fn nanos_to_db_i64(nanos: u64) -> Result<i64, ApiError> {
+    i64::try_from(nanos).map_err(|_| ApiError {
+        code: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("Error converting nanos {nanos} to i64"),
+    })
+}
+pub fn db_i64_to_nanos(db_i64: i64) -> Result<u64, ApiError> {
+    u64::try_from(db_i64).map_err(|_| ApiError {
+        code: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("Error converting db_i64 {db_i64} to u64"),
+    })
+}
+
 #[instrument(skip_all)]
 pub(crate) async fn logs_get(
     service_log_request: Query<ServiceLogRequest>,
     State(app_state): State<AppState>,
 ) -> Result<Json<Vec<Log>>, ApiError> {
-    let from_timestamp = nanos_to_db_i64(service_log_request.from_date_unix);
-    let to_timestamp = nanos_to_db_i64(service_log_request.to_date_unix);
+    let from_timestamp = nanos_to_db_i64(service_log_request.from_date_unix)?;
+    let to_timestamp = nanos_to_db_i64(service_log_request.to_date_unix)?;
     let service_name = &service_log_request.service_name;
     pub struct DbLog {
         pub timestamp: i64,
@@ -282,7 +287,8 @@ pub(crate) async fn logs_get(
     }
     let service_list: Vec<DbLog> = sqlx::query_as!(
         DbLog,
-        r#"select timestamp, severity as "severity: Severity", value from log where timestamp >= $1 and timestamp <= $2 and service_name=$3 order by timestamp desc limit 100000;"#,
+        r#"select timestamp, severity as "severity: Severity", value from log
+         where timestamp >= $1 and timestamp <= $2 and service_name=$3 order by timestamp desc limit 100000;"#,
         from_timestamp,
         to_timestamp,
         service_name
@@ -294,7 +300,7 @@ pub(crate) async fn logs_get(
         service_list
             .into_iter()
             .map(|e| Log {
-                timestamp: api_structs::time_conversion::db_i64_to_nanos(e.timestamp),
+                timestamp: db_i64_to_nanos(e.timestamp).expect("db timestamp to fit u64"),
                 severity: e.severity.to_api(),
                 value: e.value,
             })
@@ -338,7 +344,7 @@ pub(crate) async fn instances_get(
                 }
             })
         }
-        instances.retain(|service_name, instances| !instances.is_empty());
+        instances.retain(|_service_name, instances| !instances.is_empty());
         instances.clone()
     };
     Ok(Json(api_structs::exporter::LiveInstances { instances }))

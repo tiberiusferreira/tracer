@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::task::spawn_local;
 use tracing::{info, info_span, instrument, trace, Instrument};
+use tracing_config_helper::{Env, TracerConfig};
 
 mod api;
 mod notification_worthy_events;
@@ -142,16 +143,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Loading env vars");
             dotenv::dotenv().ok();
             if std::env::var("RUST_LOG").ok().is_none() {
-                std::env::set_var("RUST_LOG", "tracer_backend,tracing_config_helper=trace");
-                println!("Overwrote RUST_LOG env var")
+                let new_env_var = "tracer_backend,tracing_config_helper=trace";
+                std::env::set_var("RUST_LOG", new_env_var);
+                println!(
+                    "Overwrote RUST_LOG env var to {} because it was empty",
+                    new_env_var
+                )
             }
             let config = Config::parse();
-            tracing_config_helper::setup_or_panic(
+            let tracer_config = TracerConfig::new(
+                Env::Local,
                 env!("CARGO_BIN_NAME").to_string(),
-                config.environment.to_string(),
-                format!("https://127.0.0.1:{}", config.collector_listen_port),
-            )
-            .await;
+                "http://127.0.0.1:4200".to_string(),
+            );
+            tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
             start_tasks(config).await?;
             tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
             Ok(())

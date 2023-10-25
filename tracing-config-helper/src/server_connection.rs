@@ -23,66 +23,58 @@ impl ToEnvFilter for api_structs::exporter::TracerFilters {
 }
 
 pub async fn continuously_handle_server_sent_events(
+    collector_url: String,
     filter_reload_handle: Handle<EnvFilter, Registry>,
     client_id: i64,
 ) {
     let context = "continuously_handle_server_sent_events";
     loop {
         print_if_dbg(context, "Starting sse loop");
-        let mut es = reqwest_eventsource::EventSource::get(format!(
-            "http://127.0.0.1:4200/sse/{}",
-            client_id
-        ));
+        let mut event_source =
+            reqwest_eventsource::EventSource::get(format!("{collector_url}/see/{client_id}"));
         print_if_dbg(context, "sse connected");
-        while let Some(event) = es.next().await {
+        while let Some(event) = event_source.next().await {
             match event {
                 Ok(Event::Open) => {
                     print_if_dbg(context, "sse open event");
                 }
                 Ok(Event::Message(message)) => {
                     print_if_dbg(context, format!("sse message: {:#?}", message));
-                    let request: api_structs::sse::SseRequest =
-                        match serde_json::from_str(&message.data) {
-                            Ok(sse_request) => sse_request,
-                            Err(e) => {
-                                print_if_dbg(
-                                    context,
-                                    format!("Could not parse sse message: {:?}", e),
-                                );
-                                continue;
-                            }
-                        };
+                    let request: SseRequest = match serde_json::from_str(&message.data) {
+                        Ok(sse_request) => sse_request,
+                        Err(e) => {
+                            println!(
+                                "{context} - Could not parse sse message: {:?} - msg: {}",
+                                e, message.data
+                            );
+                            continue;
+                        }
+                    };
                     match request {
                         SseRequest::NewFilter { filter } => {
                             let new_env_filter = match EnvFilter::try_new(&filter) {
                                 Ok(new_env_filter) => new_env_filter,
                                 Err(e) => {
-                                    print_if_dbg(
-                                        context,
-                                        format!(
-                                            "Could not create env filter using: {} {:?}",
-                                            filter, e
-                                        ),
+                                    println!(
+                                        "{context} - Could not create env filter using: {filter} {:?}",
+                                        e
                                     );
                                     continue;
                                 }
                             };
                             if let Err(e) = filter_reload_handle.reload(new_env_filter) {
-                                print_if_dbg(context, format!("Failed to reload filters: {:?}", e));
+                                println!("{context} - Failed to reload filters: {:?}", e);
                             }
                         }
                     }
                 }
                 Err(err) => {
-                    print_if_dbg(context, format!("sse: {:?}", err));
+                    println!("{context} - sse error: {:?}", err);
                 }
             }
         }
         let sleep_time_s = 10;
-        print_if_dbg(
-            context,
-            format!("Server Sent Events connection failed, retrying in: {sleep_time_s}s"),
-        );
+        println!("{context} - Server Sent Events connection failed, retrying in: {sleep_time_s}s");
         tokio::time::sleep(Duration::from_secs(sleep_time_s)).await;
     }
 }

@@ -1,11 +1,10 @@
 use crate::api::new::{instances_filter_post, instances_get, logs_get, logs_service_names_get};
-use api_structs::exporter::{LiveServiceInstance, TracerFilters};
-use api_structs::time_conversion::db_i64_to_nanos;
+use api_structs::exporter::LiveServiceInstance;
 use api_structs::{SearchFor, Span};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::{Json, ServiceExt};
+use axum::Json;
 use chrono::NaiveDateTime;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -16,10 +15,9 @@ use std::convert::Infallible;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::ops::Deref;
-use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::instrument::Instrumented;
-use tracing::{debug, error, info, instrument, Instrument};
+use tracing::{error, info, instrument, Instrument};
 
 pub mod new;
 #[derive(Debug, Clone, Serialize)]
@@ -88,8 +86,6 @@ pub struct AppState {
     live_instances: LiveInstances,
 }
 
-pub struct UpdateFilter(pub TracerFilters);
-
 // #[derive(Debug, Clone)]
 // pub struct TracerClientInfo {
 //     status: InstanceStatus,
@@ -120,7 +116,7 @@ async fn sse_handler(
     impl futures::stream::Stream<Item = Result<axum::response::sse::Event, Infallible>>,
 > {
     let mut w_lock = app_state.live_instances.see_handle.write();
-    let (s, mut r) = tokio::sync::mpsc::channel(1);
+    let (s, r) = tokio::sync::mpsc::channel(1);
     if let Some(_existing) = w_lock.insert(instance_id, s) {
         error!("overwrote existing sse channel for {}", instance_id);
     }
@@ -226,33 +222,33 @@ struct GridErrorSample {
     event_timestamp_unix_ms: i64,
 }
 
-fn into_escaped_like_search(search_term: &str) -> String {
-    let search_term = search_term.replace('%', "\\%");
-    format!("%{}%", search_term)
-}
+// fn into_escaped_like_search(search_term: &str) -> String {
+//     let search_term = search_term.replace('%', "\\%");
+//     format!("%{}%", search_term)
+// }
 
-const MAX_GRID_COL_LEN: usize = 30;
+// const MAX_GRID_COL_LEN: usize = 30;
 
-fn cut_matching_text_part(text: String, searched_term: String) -> String {
-    let first_matching_bytes = text.find(&searched_term);
-    match first_matching_bytes {
-        None => text.chars().take(MAX_GRID_COL_LEN).collect(),
-        Some(first_matching_bytes) => {
-            let start = first_matching_bytes;
-            let end = first_matching_bytes + searched_term.len();
-            let slack = MAX_GRID_COL_LEN.saturating_sub(end - start);
-            let mut new_start = start.saturating_sub(slack / 2);
-            let mut new_end = end.saturating_add(slack / 2).min(text.len());
-            while !text.is_char_boundary(new_start) {
-                new_start -= new_start;
-            }
-            while !text.is_char_boundary(new_end) {
-                new_end += new_end;
-            }
-            text[new_start..new_end].to_string()
-        }
-    }
-}
+// fn cut_matching_text_part(text: String, searched_term: String) -> String {
+//     let first_matching_bytes = text.find(&searched_term);
+//     match first_matching_bytes {
+//         None => text.chars().take(MAX_GRID_COL_LEN).collect(),
+//         Some(first_matching_bytes) => {
+//             let start = first_matching_bytes;
+//             let end = first_matching_bytes + searched_term.len();
+//             let slack = MAX_GRID_COL_LEN.saturating_sub(end - start);
+//             let mut new_start = start.saturating_sub(slack / 2);
+//             let mut new_end = end.saturating_add(slack / 2).min(text.len());
+//             while !text.is_char_boundary(new_start) {
+//                 new_start -= new_start;
+//             }
+//             while !text.is_char_boundary(new_end) {
+//                 new_end += new_end;
+//             }
+//             text[new_start..new_end].to_string()
+//         }
+//     }
+// }
 
 #[cfg(test)]
 #[test]
@@ -266,27 +262,20 @@ fn get_matching_text_part_works() {
     );
 }
 
-fn trim_and_highlight_search_term(
-    specific_searched_term: &str,
-    generic_search: &str,
-    text: String,
-) -> String {
-    if !specific_searched_term.is_empty() {
-        cut_matching_text_part(text, specific_searched_term.to_string())
-    } else if !generic_search.is_empty() {
-        cut_matching_text_part(text, generic_search.to_string())
-    } else {
-        text.chars().take(MAX_GRID_COL_LEN).collect()
-    }
-}
+// fn trim_and_highlight_search_term(
+//     specific_searched_term: &str,
+//     generic_search: &str,
+//     text: String,
+// ) -> String {
+//     if !specific_searched_term.is_empty() {
+//         cut_matching_text_part(text, specific_searched_term.to_string())
+//     } else if !generic_search.is_empty() {
+//         cut_matching_text_part(text, generic_search.to_string())
+//     } else {
+//         text.chars().take(MAX_GRID_COL_LEN).collect()
+//     }
+// }
 
-pub fn u64_to_naive_date_time(val: u64) -> Result<NaiveDateTime, ApiError> {
-    let as_i64 = u64_nanos_to_db_i64(val)?;
-    let naive_date_time =
-        NaiveDateTime::from_timestamp_opt(as_i64 / 1_000_000_000, (as_i64 % 1_000_000_000) as u32)
-            .expect("Value to fit");
-    Ok(naive_date_time)
-}
 pub fn u64_nanos_to_db_i64(val: u64) -> Result<i64, ApiError> {
     let as_i64 = i64::try_from(val).map_err(|_| ApiError {
         code: StatusCode::BAD_REQUEST,
@@ -438,11 +427,11 @@ limit 100;",
             service_id: e.service_id,
             id: e.id,
             service_name: e.service_name,
-            timestamp: api_structs::time_conversion::db_i64_to_nanos(e.timestamp),
+            timestamp: new::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
             top_level_span_name: e.top_level_span_name,
             duration_ns: e
                 .duration
-                .map(|dur| api_structs::time_conversion::db_i64_to_nanos(dur)),
+                .map(|dur| new::db_i64_to_nanos(dur).expect("db duration to fit i64")),
             warning_count: u32::try_from(e.warning_count).expect("warning count to fit u32"),
             has_errors: e.has_errors,
         })
@@ -497,7 +486,7 @@ async fn get_top_level_span_autocomplete_data(
   and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
             query_params.from,
             query_params.to,
-            query_params.service_name,
+            service_name,
             query_params.top_level_span,
             query_params.min_duration,
             query_params.max_duration,
@@ -512,10 +501,10 @@ async fn get_top_level_span_autocomplete_data(
     }
 }
 
-struct SpanAndKeys {
-    spans: Vec<String>,
-    keys: Vec<String>,
-}
+// struct SpanAndKeys {
+//     spans: Vec<String>,
+//     keys: Vec<String>,
+// }
 // #[instrument(skip_all)]
 // async fn get_span_and_keys_autocomplete_data(
 //     con: &PgPool,
@@ -769,7 +758,10 @@ pub async fn get_trace_timestamp_chunks(
                 if timestamp_chunks.last().expect("last to exist") != &end {
                     timestamp_chunks.push(end);
                 }
-                return Ok(timestamp_chunks.into_iter().map(db_i64_to_nanos).collect());
+                return Ok(timestamp_chunks
+                    .into_iter()
+                    .map(|e| new::db_i64_to_nanos(e).expect("timestamp chunks to fit i64"))
+                    .collect());
             }
             Some(new_timestamp) => {
                 timestamp_chunks.push(new_timestamp);
@@ -871,10 +863,10 @@ async fn get_single_trace(
         .map(|span| Span {
             id: span.id,
             name: span.name,
-            timestamp: api_structs::time_conversion::db_i64_to_nanos(span.timestamp),
+            timestamp: new::db_i64_to_nanos(span.timestamp).expect("db timestamp to fit u64"),
             duration: span
                 .duration
-                .map(|d| api_structs::time_conversion::db_i64_to_nanos(d)),
+                .map(|d| new::db_i64_to_nanos(d).expect("db durations to fit u64")),
             parent_id: span.parent_id,
             events: serde_json::from_value(span.events).expect("db to generate valid json"),
         })
