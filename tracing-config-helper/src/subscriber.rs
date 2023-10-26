@@ -25,12 +25,22 @@ impl TracerTracingSubscriber {
         };
         tracer
     }
-
+    fn set_span_as_entered<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<S>) {
+        let mut extensions = span.extensions_mut();
+        extensions.insert(TracerSpanData {
+            first_entered_at: std::time::Instant::now(),
+        });
+    }
+    fn span_was_already_entered<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<S>) -> bool {
+        let mut extensions = span.extensions_mut();
+        let tracer_span_data: Option<&mut TracerSpanData> = extensions.get_mut();
+        return tracer_span_data.is_some();
+    }
     fn span_root<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
-        id: Id,
+        span_id: Id,
         ctx: &'a Context<S>,
     ) -> Option<SpanRef<'a, S>> {
-        let root = ctx.span(&id)?.scope().from_root().next()?;
+        let root = ctx.span(&span_id)?.scope().from_root().next()?;
         Some(root)
     }
     fn trace_was_dropped<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
@@ -44,6 +54,25 @@ impl TracerTracingSubscriber {
             .expect("root span to have TracerRootSpanData");
         tracer_root_span_data.dropped
     }
+
+    fn extract_event_information(event: &Event) -> EventData {
+        let mut event_visitor = EventVisitor::new();
+        event.record(&mut event_visitor);
+        let level = match event.metadata().level() {
+            &tracing::metadata::Level::TRACE => Severity::Trace,
+            &tracing::metadata::Level::DEBUG => Severity::Debug,
+            &tracing::metadata::Level::INFO => Severity::Info,
+            &tracing::metadata::Level::WARN => Severity::Warn,
+            &tracing::metadata::Level::ERROR => Severity::Error,
+        };
+        EventData {
+            message: event_visitor.message,
+            timestamp: api_structs::time_conversion::now_nanos_u64(),
+            level,
+            key_vals: event_visitor.key_vals,
+        }
+    }
+    // Tries to send the event to the export, dropping it if buffer is full
     fn send_subscriber_event_to_export(&self, subscriber_event: SubscriberEvent) {
         let context = "send_subscriber_event_to_export";
         match self
@@ -64,27 +93,46 @@ impl TracerTracingSubscriber {
     }
 }
 
-struct MyV {
-    message: Option<String>,
+struct EventVisitor {
+    pub message: Option<String>,
+    pub key_vals: HashMap<String, String>,
 }
-impl Visit for MyV {
+
+impl EventVisitor {
+    pub fn new() -> Self {
+        Self {
+            message: None,
+            key_vals: HashMap::new(),
+        }
+    }
+}
+impl Visit for EventVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = Some(format!("{:?}", value));
+        let key = field.name();
+        let val = format!("{:?}", value);
+        if key == "message" {
+            self.message = Some(val);
+        } else {
+            self.key_vals.insert(key.to_string(), val);
         }
     }
 }
 
+/// This is our custom data, created and attached to every single span when it is first entered
 struct TracerSpanData {
+    // we use this data to calculate the span duration when it gets closed
     first_entered_at: std::time::Instant,
 }
+
+/// This is another piece of custom data, but only created and attached to Root Spans.
+/// We use this to detect traces that were dropped
 struct TracerRootSpanData {
     dropped: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SpanEvent {
-    pub name: String,
+pub struct EventData {
+    pub message: Option<String>,
     pub timestamp: u64,
     pub level: Severity,
     pub key_vals: HashMap<String, String>,
@@ -98,81 +146,67 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let context = "on_event";
         let span = ctx.event_span(event);
-        let event_data = {
-            let mut my_v = MyV { message: None };
-            event.record(&mut my_v);
-            let name = if let Some(msg) = my_v.message {
-                print_if_dbg(context, format!("New event: {msg}"));
-                msg
-            } else {
-                print_if_dbg(context, format!("New empty event, dropping it"));
-                println!("ALERT: Empty events are not supported yet!");
-                return;
-            };
-            let level = match event.metadata().level() {
-                &tracing::metadata::Level::TRACE => Severity::Trace,
-                &tracing::metadata::Level::DEBUG => Severity::Debug,
-                &tracing::metadata::Level::INFO => Severity::Info,
-                &tracing::metadata::Level::WARN => Severity::Warn,
-                &tracing::metadata::Level::ERROR => Severity::Error,
-            };
-            SpanEvent {
-                name,
-                timestamp: api_structs::time_conversion::now_nanos_u64(),
-                level,
-                key_vals: Default::default(),
+        let event_data = Self::extract_event_information(event);
+
+        let span = match span {
+            None => {
+                print_if_dbg(context, "Event is orphan");
+                let new_orphan_event_allowed = {
+                    let mut w_sampler = self.sampler.write();
+                    w_sampler.allow_new_orphan_event()
+                };
+                return if new_orphan_event_allowed {
+                    print_if_dbg(context, "Allowed by sampler, sending to exporter");
+                    self.send_subscriber_event_to_export(SubscriberEvent::NewOrphanEvent(
+                        NewOrphanEvent {
+                            message: event_data.message,
+                            timestamp: event_data.timestamp,
+                            level: event_data.level,
+                            key_vals: event_data.key_vals,
+                        },
+                    ));
+                } else {
+                    print_if_dbg(context, "Not Allowed by sampler, dropping");
+                };
+            }
+            Some(span) => {
+                print_if_dbg(context, "Event belongs to a span");
+                span
             }
         };
 
-        let Some(span) = span else {
-            print_if_dbg(context, format!("Event is orphan"));
-            let mut w_sampler = self.sampler.write();
-            let new_orphan_event_allowed = w_sampler.allow_new_orphan_event();
-            drop(w_sampler);
-            return if new_orphan_event_allowed {
-                print_if_dbg(context, format!("Allowed by sampler, sending to exporter"));
-                self.send_subscriber_event_to_export(SubscriberEvent::NewOrphanEvent(
-                    NewOrphanEvent {
-                        name: event_data.name,
-                        timestamp: event_data.timestamp,
-                        level: event_data.level,
-                        key_vals: event_data.key_vals,
-                    },
-                ));
-            } else {
-                print_if_dbg(context, format!("Not Allowed by sampler, dropping"));
-            };
-        };
         if Self::trace_was_dropped(span.id(), &ctx) {
             print_if_dbg(
                 context,
-                format!("Event belongs to trace previously dropped, dropping event."),
+                "Event belongs to trace previously dropped, dropping event.",
             );
             return;
         }
-        let mut w_sampler = self.sampler.write();
         let root = Self::span_root(span.id(), &ctx).expect("root span to exist");
-        let new_event_allowed = w_sampler.allow_new_event(root.name());
-        drop(w_sampler);
+        let new_event_allowed = {
+            let mut w_sampler = self.sampler.write();
+            w_sampler.allow_new_event(root.name())
+        };
         if new_event_allowed {
-            print_if_dbg(context, format!("Allowed by sampler, sending to exporter."));
+            print_if_dbg(context, "Allowed by sampler, sending to exporter.");
             self.send_subscriber_event_to_export(SubscriberEvent::NewSpanEvent(NewSpanEvent {
                 trace_id: root.id().into_non_zero_u64(),
                 span_id: span.id().into_non_zero_u64(),
-                name: event_data.name,
+                message: event_data.message,
                 timestamp: event_data.timestamp,
                 level: event_data.level,
                 key_vals: event_data.key_vals,
             }));
+        } else {
+            print_if_dbg(context, "Not allowed by sampler, discarding event.");
         }
     }
+
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
         let context = "on_enter";
         let span = ctx.span(id).expect("entered span to exist!");
         let span_name = span.name();
-        let mut extensions = span.extensions_mut();
-        let tracer_span_data: Option<&mut TracerSpanData> = extensions.get_mut();
-        if tracer_span_data.is_some() {
+        if Self::span_was_already_entered(&span) {
             print_if_dbg(context, format!("span {span_name} entered again"));
             return;
         } else {
@@ -180,32 +214,27 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 context,
                 format!("span {span_name} entered for the first time"),
             );
-            extensions.insert(TracerSpanData {
-                first_entered_at: std::time::Instant::now(),
-            });
+            Self::set_span_as_entered(&span);
         }
-        drop(extensions);
         let root_span = Self::span_root(id.clone(), &ctx).expect("root span to exist");
 
+        // if span and root_span are the same, we are the root span, so a new trace is being born here
         if root_span.id() == *id {
             print_if_dbg(context, format!("Span is root. Id: {}", id.into_u64()));
-            let mut w_sampler = self.sampler.write();
-            let new_trace_allowed = w_sampler.allow_new_trace(&root_span.name());
-            drop(w_sampler);
+            // check is this new trace is not over the limit
+            let new_trace_allowed = {
+                let mut w_sampler = self.sampler.write();
+                w_sampler.allow_new_trace(&root_span.name())
+            };
             if new_trace_allowed {
                 print_if_dbg(context, "Allowed by sampler, sending to exporter");
+                tracing::info_span!("new");
                 self.send_subscriber_event_to_export(SubscriberEvent::NewSpan(NewSpan {
                     id: id.into_non_zero_u64(),
                     trace_id: root_span.id().into_non_zero_u64(),
                     name: span_name.to_string(),
                     parent_id: None,
-                    timestamp: u64::try_from(
-                        chrono::Utc::now()
-                            .naive_utc()
-                            .timestamp_nanos_opt()
-                            .unwrap(),
-                    )
-                    .unwrap(),
+                    timestamp: api_structs::time_conversion::now_nanos_u64(),
                     key_vals: Default::default(),
                 }));
                 root_span
@@ -228,9 +257,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 return;
             } else {
                 print_if_dbg(context, "Span belongs to non-dropped trace");
-                let mut w_sampler = self.sampler.write();
-                let new_span_allowed = w_sampler.allow_new_span(root_span.name());
-                drop(w_sampler);
+                let new_span_allowed = {
+                    let mut w_sampler = self.sampler.write();
+                    w_sampler.allow_new_span(root_span.name())
+                };
                 if new_span_allowed {
                     let parent_id = span.parent().expect("parent to exist if non-root").id();
                     print_if_dbg(context, "Allowed by sampler, sending to exporter");
@@ -239,13 +269,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                         trace_id: root_span.id().into_non_zero_u64(),
                         name: span_name.to_string(),
                         parent_id: Some(parent_id.into_non_zero_u64()),
-                        timestamp: u64::try_from(
-                            chrono::Utc::now()
-                                .naive_utc()
-                                .timestamp_nanos_opt()
-                                .unwrap(),
-                        )
-                        .unwrap(),
+                        timestamp: api_structs::time_conversion::now_nanos_u64(),
                         key_vals: Default::default(),
                     }));
                 } else {

@@ -15,9 +15,10 @@ use std::convert::Infallible;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::ops::Deref;
-use tokio::task::JoinHandle;
+use std::time::Duration;
+use tokio::task::{spawn_local, JoinHandle};
 use tracing::instrument::Instrumented;
-use tracing::{error, info, instrument, Instrument};
+use tracing::{debug, error, info, instrument, trace, Instrument};
 
 pub mod new;
 #[derive(Debug, Clone, Serialize)]
@@ -96,7 +97,6 @@ pub type InstanceId = i64;
 
 pub struct ChangeFilterInternalRequest {
     filters: String,
-    // respond_to: tokio::sync::oneshot::Sender<Result<(), ApiError>>,
 }
 #[derive(Clone)]
 pub struct LiveInstances {
@@ -141,6 +141,59 @@ async fn sse_handler(
     axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
+fn clean_up_service_instances_task(live_instances: LiveInstances) -> JoinHandle<()> {
+    trace!("Starting clean_up_services_task");
+    spawn_local(async move {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        clean_up_service_instances(&live_instances);
+    })
+}
+
+#[instrument(skip_all)]
+fn clean_up_service_instances(live_instances: &LiveInstances) {
+    trace!("cleaning up service");
+    live_instances.see_handle.write().retain(|id, val| {
+        if val.is_closed() {
+            debug!("dropping sse_handle for instance with id: {id}");
+            false
+        } else {
+            true
+        }
+    });
+    live_instances
+        .trace_data
+        .write()
+        .retain(|service_name, instance_list| {
+            instance_list.retain(|single_instance| {
+                let date = api_structs::time_conversion::time_from_nanos(
+                    single_instance.last_seen_timestamp,
+                );
+                let last_seen_as_secs = chrono::Utc::now()
+                    .naive_utc()
+                    .signed_duration_since(date)
+                    .num_seconds();
+                if last_seen_as_secs > 5 * 60 {
+                    debug!(
+                        "dropping instance {} - id: {} - last seen {}s ago",
+                        single_instance.service_name, single_instance.service_id, last_seen_as_secs
+                    );
+                    false
+                } else {
+                    true
+                }
+            });
+            if instance_list.is_empty(){
+                debug!(
+                        "Last instance of {service_name} was dropped, removing it from list of services",
+                    );
+                false
+            }else{
+                true
+            }
+
+        });
+}
+
 #[instrument(skip_all)]
 pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
     info!("Starting API");
@@ -158,6 +211,8 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
             see_handle: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
         },
     };
+    let _clean_up_service_instances_task =
+        clean_up_service_instances_task(app_state.live_instances.clone());
 
     let app = axum::Router::new()
         .route("/api/ready", axum::routing::get(ready))

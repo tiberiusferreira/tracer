@@ -138,12 +138,28 @@ pub struct NewSpan {
     pub name: String,
     pub key_vals: HashMap<String, String>,
 }
+/*
+   TODO: add below
+  target: &'a str,
+  level: Level,
+  /// The name of the Rust module where the span occurred, or `None` if this
+  /// could not be determined.
+  module_path: Option<&'a str>,
+
+  /// The name of the source code file where the span occurred, or `None` if
+  /// this could not be determined.
+  file: Option<&'a str>,
+
+  /// The line number in the source code file where the span occurred, or
+  /// `None` if this could not be determined.
+  line: Option<u32>,
+*/
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NewSpanEvent {
     pub trace_id: NonZeroU64,
     pub span_id: NonZeroU64,
-    pub name: String,
+    pub message: Option<String>,
     pub timestamp: u64,
     pub level: Severity,
     pub key_vals: HashMap<String, String>,
@@ -151,7 +167,7 @@ pub struct NewSpanEvent {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NewOrphanEvent {
-    pub name: String,
+    pub message: Option<String>,
     pub timestamp: u64,
     pub level: Severity,
     pub key_vals: HashMap<String, String>,

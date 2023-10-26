@@ -26,7 +26,6 @@ impl Sampler for TracerSampler {
 
     fn allow_new_event(&mut self, trace: &'static str) -> bool {
         if self.is_over_usage_limit_for_existing_trace(trace) {
-            self.register_dropped_trace(trace);
             false
         } else {
             self.register_single_span_or_event(trace);
@@ -45,8 +44,12 @@ impl Sampler for TracerSampler {
     }
 
     fn allow_new_span(&mut self, trace: &'static str) -> bool {
-        self.register_single_span_or_event(trace);
-        true
+        if self.is_over_usage_limit_for_existing_trace(trace) {
+            false
+        } else {
+            self.register_single_span_or_event(trace);
+            true
+        }
     }
 
     fn register_soe_dropped_on_export(&mut self) {
@@ -55,7 +58,7 @@ impl Sampler for TracerSampler {
 
     fn get_tracer_stats(&self) -> TracerStats {
         TracerStats {
-            spe_dropped_on_export: self.spe_dropped_on_export,
+            spe_dropped_on_export: self.spe_dropped_buffer_full,
             orphan_events_per_minute_usage: self.orphan_events_per_minute_usage,
             logs_per_minute_dropped: self.orphan_events_per_minute_dropped,
             sampler_limits: self.sampler_limits.clone(),
@@ -71,7 +74,7 @@ impl Sampler for TracerSampler {
 #[derive(Debug, Clone)]
 pub struct TracerSampler {
     current_window_start: Instant,
-    spe_dropped_on_export: u32,
+    spe_dropped_buffer_full: u32,
     orphan_events_per_minute_usage: u32,
     orphan_events_per_minute_dropped: u32,
     // we never remove entries because spans should be static, they never get removed from the application
@@ -84,7 +87,7 @@ impl TracerSampler {
         Self {
             current_window_start: Instant::now(),
             sampler_limits,
-            spe_dropped_on_export: 0,
+            spe_dropped_buffer_full: 0,
             orphan_events_per_minute_usage: 0,
             orphan_events_per_minute_dropped: 0,
             trace_stats: HashMap::new(),
@@ -109,7 +112,7 @@ impl TracerSampler {
         }
     }
     pub fn register_soe_dropped_on_export(&mut self) {
-        self.spe_dropped_on_export += 1;
+        self.spe_dropped_buffer_full += 1;
     }
 
     pub fn register_dropped_trace(&mut self, trace: &'static str) {

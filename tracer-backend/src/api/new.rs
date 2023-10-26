@@ -1,12 +1,11 @@
 use crate::api::{ApiError, AppState, ChangeFilterInternalRequest, ServiceName};
 use api_structs::exporter::{LiveServiceInstance, Log, ServiceLogRequest, SubscriberEvent};
-use api_structs::time_conversion::time_from_nanos;
 use axum::extract::{Query, State};
 use axum::Json;
 use reqwest::StatusCode;
 use sqlx::PgPool;
 use std::collections::HashMap;
-use std::ops::DerefMut;
+use std::ops::Deref;
 use tracing::{debug, error, instrument, trace};
 
 #[derive(Debug, Clone, sqlx::Type)]
@@ -67,7 +66,7 @@ pub(crate) async fn process_orphan_event(
         timestamp as _,
         service_name as _,
         &level as &Severity,
-        orphan_event.name as _
+        orphan_event.message as _
     ).execute(con).await?;
     Ok(())
 }
@@ -140,7 +139,7 @@ pub(crate) async fn process_new_span_event(
         trace_id,
         span_id,
         timestamp as _,
-        span_event.name as _,
+        span_event.message as _,
         level as Severity
     )
     .execute(con)
@@ -325,28 +324,8 @@ pub(crate) async fn logs_service_names_get(
 pub(crate) async fn instances_get(
     State(app_state): State<AppState>,
 ) -> Result<Json<api_structs::exporter::LiveInstances>, ApiError> {
-    let instances: HashMap<ServiceName, Vec<LiveServiceInstance>> = {
-        trace!("cleaning up old instances");
-        let mut instances = app_state.live_instances.trace_data.write();
-        let instances = instances.deref_mut();
-
-        for (_service_name, live_services) in &mut *instances {
-            live_services.retain(|l| {
-                let last_seen = time_from_nanos(l.last_seen_timestamp);
-                let now = chrono::Utc::now().naive_utc();
-                let last_seen_minutes_ago = (now - last_seen).num_minutes();
-                trace!("instance {l:?} last seen {last_seen_minutes_ago} minutes ago");
-                if last_seen_minutes_ago > 1 {
-                    trace!("removing instance last seen {last_seen_minutes_ago} minutes ago");
-                    false
-                } else {
-                    true
-                }
-            })
-        }
-        instances.retain(|_service_name, instances| !instances.is_empty());
-        instances.clone()
-    };
+    let instances: HashMap<ServiceName, Vec<LiveServiceInstance>> =
+        app_state.live_instances.trace_data.read().deref().clone();
     Ok(Json(api_structs::exporter::LiveInstances { instances }))
 }
 
@@ -367,6 +346,7 @@ pub(crate) async fn collector_trace_data_post(
             filters: trace_data.filters,
             tracer_stats: trace_data.tracer_stats,
         };
+        // there won't be many instances of the same service
         match entry
             .iter_mut()
             .find(|i| i.service_id == trace_data.service_id)
