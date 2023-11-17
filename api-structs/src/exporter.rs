@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::num::NonZeroU64;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -49,15 +48,6 @@ pub struct SamplerLimits {
     /// This also is the limit for long running traces, for background tasks for example
     pub existing_trace_span_plus_event_per_minute_limit: u32,
     pub logs_per_minute_limit: u32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Config {
-    pub uuid: String,
-    pub service_name: String,
-    pub env: String,
-    pub filters: TracerFilters,
-    pub sampler_limits: SamplerLimits,
 }
 
 pub type ServiceName = String;
@@ -116,49 +106,44 @@ pub struct TraceApplicationStats {
 pub struct ExportedServiceTraceData {
     pub service_id: i64,
     pub service_name: String,
-    pub events: Vec<SubscriberEvent>,
+    pub total_span_count: u32,
+    pub total_event_count: u32,
+    pub trace_fragments: HashMap<u64, TraceFragment>,
+    pub closed_spans: Vec<ClosedSpan>,
+    pub orphan_events: Vec<NewOrphanEvent>,
     pub filters: String,
     pub tracer_stats: TracerStats,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum SubscriberEvent {
-    NewSpan(NewSpan),
-    NewSpanEvent(NewSpanEvent),
-    ClosedSpan(ClosedSpan),
-    NewOrphanEvent(NewOrphanEvent),
+pub struct TraceFragment {
+    pub trace_id: u64,
+    pub trace_name: String,
+    pub trace_timestamp: u64,
+    pub spe_count: SpanEventCount,
+    pub new_spans: Vec<NewSpan>,
+    pub new_events: Vec<NewSpanEvent>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpanEventCount {
+    pub span_count: u32,
+    pub event_count: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NewSpan {
-    pub id: NonZeroU64,
-    pub trace_id: NonZeroU64,
+    pub id: u64,
     pub timestamp: u64,
-    pub parent_id: Option<NonZeroU64>,
+    pub duration: Option<u64>,
+    pub parent_id: Option<u64>,
     pub name: String,
     pub key_vals: HashMap<String, String>,
 }
-/*
-   TODO: add below
-  target: &'a str,
-  level: Level,
-  /// The name of the Rust module where the span occurred, or `None` if this
-  /// could not be determined.
-  module_path: Option<&'a str>,
-
-  /// The name of the source code file where the span occurred, or `None` if
-  /// this could not be determined.
-  file: Option<&'a str>,
-
-  /// The line number in the source code file where the span occurred, or
-  /// `None` if this could not be determined.
-  line: Option<u32>,
-*/
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NewSpanEvent {
-    pub trace_id: NonZeroU64,
-    pub span_id: NonZeroU64,
+    pub span_id: u64,
     pub message: Option<String>,
     pub timestamp: u64,
     pub level: Severity,
@@ -175,7 +160,8 @@ pub struct NewOrphanEvent {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClosedSpan {
-    pub id: NonZeroU64,
+    pub trace_id: u64,
+    pub span_id: u64,
     pub duration: u64,
 }
 

@@ -23,6 +23,7 @@ serde.workspace = true
 parking_lot = "0.12"
 uuid = {version="1"}
 tokio-util = "0.7"
+indexmap = "2.1.0"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true

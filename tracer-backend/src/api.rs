@@ -1,4 +1,6 @@
-use crate::api::new::{instances_filter_post, instances_get, logs_get, logs_service_names_get};
+use crate::api::handlers::{
+    instances_filter_post, instances_get, logs_get, logs_service_names_get,
+};
 use api_structs::exporter::LiveServiceInstance;
 use api_structs::{SearchFor, Span};
 use axum::extract::{Path, State};
@@ -13,72 +15,13 @@ use sqlx::{Error, FromRow, PgPool};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::Read;
-use std::net::SocketAddr;
 use std::ops::Deref;
 use std::time::Duration;
 use tokio::task::{spawn_local, JoinHandle};
 use tracing::instrument::Instrumented;
 use tracing::{debug, error, info, instrument, trace, Instrument};
 
-pub mod new;
-#[derive(Debug, Clone, Serialize)]
-struct RawDbSummary {
-    service_name: String,
-    top_level_span_name: String,
-    total_traces: i64,
-    total_traces_with_error: i64,
-    longest_trace_id: i64,
-    longest_trace_duration: i64,
-    longest_trace_duration_service_name: String,
-}
-
-// #[instrument(skip_all)]
-// async fn traces_summary(
-//     axum::extract::State(con): axum::extract::State<PgPool>,
-//     _summary_request: Json<SummaryRequest>,
-// ) -> Result<Json<Vec<Summary>>, ApiError> {
-//     let summary_data = sqlx::query_as!(
-//         RawDbSummary,
-//         "with trace_services_summary as (select trace.service_name,
-//                                        trace.top_level_span_name,
-//                                        COUNT(trace.timestamp)        as total_traces,
-//                                        SUM((has_errors = true)::INT) as total_traces_with_error,
-//                                        MAX(duration)
-//                                                                      as longest_trace_duration
-//                                 from trace
-//                                 group by trace.service_name, trace.top_level_span_name)
-// select trace_services_summary.service_name,
-//        trace_services_summary.top_level_span_name,
-//        total_traces            as \"total_traces!\",
-//        total_traces_with_error as \"total_traces_with_error!\",
-//        trace.id                as \"longest_trace_id!\",
-//        trace.service_name      as \"longest_trace_duration_service_name!\",
-//        trace.duration          as \"longest_trace_duration!\"
-// from trace_services_summary
-//          join lateral (select id, trace.service_name, duration
-//                        from trace
-//                        where trace.service_name = trace_services_summary.service_name
-//                          and trace.top_level_span_name = trace_services_summary.top_level_span_name
-//                          and trace.duration = trace_services_summary.longest_trace_duration
-//                        limit 1) trace on true
-// order by service_name, total_traces_with_error desc, total_traces desc;"
-//     )
-//     .fetch_all(&con)
-//     .await?;
-//     let summary_data: Vec<Summary> = summary_data
-//         .into_iter()
-//         .map(|s| Summary {
-//             service_name: s.service_name,
-//             top_level_span_name: s.top_level_span_name,
-//             total_traces: s.total_traces,
-//             total_traces_with_error: s.total_traces_with_error,
-//             longest_trace_id: u64::try_from(s.longest_trace_id).expect("trace_id to fit u64"),
-//             longest_trace_duration: u64::try_from(s.longest_trace_duration)
-//                 .expect("trace duration to fit u64"),
-//         })
-//         .collect();
-//     Ok(Json(summary_data))
-// }
+pub mod handlers;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -86,11 +29,6 @@ pub struct AppState {
     con: PgPool,
     live_instances: LiveInstances,
 }
-
-// #[derive(Debug, Clone)]
-// pub struct TracerClientInfo {
-//     status: InstanceStatus,
-// }
 
 pub type ServiceName = String;
 pub type InstanceId = i64;
@@ -115,6 +53,7 @@ async fn sse_handler(
 ) -> axum::response::Sse<
     impl futures::stream::Stream<Item = Result<axum::response::sse::Event, Infallible>>,
 > {
+    trace!("New SSE connection request for {}", instance_id);
     let mut w_lock = app_state.live_instances.see_handle.write();
     let (s, r) = tokio::sync::mpsc::channel(1);
     if let Some(_existing) = w_lock.insert(instance_id, s) {
@@ -129,15 +68,6 @@ async fn sse_handler(
         Some((see, r))
     })
     .map(Ok);
-    // A `Stream` that repeats an event every second
-    // let stream = futures::stream::repeat_with(move || {
-    //     let e = r.recv();
-    //     axum::response::sse::Event::default().data("hi!")
-    // })
-    // .map(Ok)
-    // .throttle(Duration::from_secs(30));
-
-    // axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
     axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
@@ -233,10 +163,13 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
             axum::routing::get(get_single_trace_chunk_list),
         )
         .route("/api/trace", axum::routing::get(get_single_trace))
-        .route("/sse/:instance_id", axum::routing::get(sse_handler))
+        .route(
+            "/collector/sse/:instance_id",
+            axum::routing::get(sse_handler),
+        )
         .route(
             "/collector/trace_data",
-            axum::routing::post(new::collector_trace_data_post),
+            axum::routing::post(handlers::collector_trace_data_post),
         )
         .route(
             "/api/autocomplete-data",
@@ -253,7 +186,7 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
                 .parse()
                 .expect("should be able to api server desired address and port"),
         )
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+        .serve(app.into_make_service())
         .await
         .unwrap()
     })
@@ -277,60 +210,6 @@ struct GridErrorSample {
     event_timestamp_unix_ms: i64,
 }
 
-// fn into_escaped_like_search(search_term: &str) -> String {
-//     let search_term = search_term.replace('%', "\\%");
-//     format!("%{}%", search_term)
-// }
-
-// const MAX_GRID_COL_LEN: usize = 30;
-
-// fn cut_matching_text_part(text: String, searched_term: String) -> String {
-//     let first_matching_bytes = text.find(&searched_term);
-//     match first_matching_bytes {
-//         None => text.chars().take(MAX_GRID_COL_LEN).collect(),
-//         Some(first_matching_bytes) => {
-//             let start = first_matching_bytes;
-//             let end = first_matching_bytes + searched_term.len();
-//             let slack = MAX_GRID_COL_LEN.saturating_sub(end - start);
-//             let mut new_start = start.saturating_sub(slack / 2);
-//             let mut new_end = end.saturating_add(slack / 2).min(text.len());
-//             while !text.is_char_boundary(new_start) {
-//                 new_start -= new_start;
-//             }
-//             while !text.is_char_boundary(new_end) {
-//                 new_end += new_end;
-//             }
-//             text[new_start..new_end].to_string()
-//         }
-//     }
-// }
-
-#[cfg(test)]
-#[test]
-fn get_matching_text_part_works() {
-    println!(
-        "{}",
-        cut_matching_text_part(
-            "SQL query: SELECT * FROM (select disti".to_string(),
-            "selec".to_string()
-        )
-    );
-}
-
-// fn trim_and_highlight_search_term(
-//     specific_searched_term: &str,
-//     generic_search: &str,
-//     text: String,
-// ) -> String {
-//     if !specific_searched_term.is_empty() {
-//         cut_matching_text_part(text, specific_searched_term.to_string())
-//     } else if !generic_search.is_empty() {
-//         cut_matching_text_part(text, generic_search.to_string())
-//     } else {
-//         text.chars().take(MAX_GRID_COL_LEN).collect()
-//     }
-// }
-
 pub fn u64_nanos_to_db_i64(val: u64) -> Result<i64, ApiError> {
     let as_i64 = i64::try_from(val).map_err(|_| ApiError {
         code: StatusCode::BAD_REQUEST,
@@ -348,10 +227,6 @@ struct QueryReadyParameters {
     min_warn_count: Option<i64>,
     only_errors: Option<bool>,
     top_level_span: Option<String>,
-    // span_name: Option<String>,
-    // key: Option<String>,
-    // value: Option<String>,
-    // event_name: Option<String>,
     service_name: Option<String>,
 }
 
@@ -388,32 +263,8 @@ impl QueryReadyParameters {
             None
         };
         let only_errors = if search.only_errors { Some(true) } else { None };
-        // let span_name = if search.span.is_empty() {
-        //     None
-        // } else {
-        //     Some(search.span)
-        // };
-        // let event_name = if search.event_name.is_empty() {
-        //     None
-        // } else {
-        //     Some(into_escaped_like_search(&search.event_name))
-        // };
-        // let key = if search.key.is_empty() {
-        //     None
-        // } else {
-        //     Some(search.key)
-        // };
-        // let value = if search.value.is_empty() {
-        //     None
-        // } else {
-        //     Some(into_escaped_like_search(&search.value))
-        // };
         Ok(QueryReadyParameters {
-            // key,
-            // value,
             top_level_span,
-            // span_name,
-            // event_name,
             from,
             to,
             min_duration: min_duration_micros,
@@ -482,11 +333,11 @@ limit 100;",
             service_id: e.service_id,
             id: e.id,
             service_name: e.service_name,
-            timestamp: new::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
+            timestamp: handlers::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
             top_level_span_name: e.top_level_span_name,
             duration_ns: e
                 .duration
-                .map(|dur| new::db_i64_to_nanos(dur).expect("db duration to fit i64")),
+                .map(|dur| handlers::db_i64_to_nanos(dur).expect("db duration to fit i64")),
             warning_count: u32::try_from(e.warning_count).expect("warning count to fit u32"),
             has_errors: e.has_errors,
         })
@@ -555,110 +406,6 @@ async fn get_top_level_span_autocomplete_data(
         Ok(vec![])
     }
 }
-
-// struct SpanAndKeys {
-//     spans: Vec<String>,
-//     keys: Vec<String>,
-// }
-// #[instrument(skip_all)]
-// async fn get_span_and_keys_autocomplete_data(
-//     con: &PgPool,
-//     query_params: &QueryReadyParameters,
-// ) -> Result<SpanAndKeys, ApiError> {
-// if let (Some(service_name), Some(top_level_span_name)) =
-//     (&query_params.service_name, &query_params.top_level_span)
-// {
-//     let spans = sqlx::query_scalar!(
-//         "select distinct span.name
-//             from trace
-//             inner join span on span.trace_id=trace.id
-//         where
-//              trace.timestamp >= $1::BIGINT
-//              and trace.timestamp <= $2::BIGINT
-//              and trace.duration  >= $3::BIGINT
-//              and ($4::BIGINT is null or trace.duration <= $4::BIGINT)
-//              and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)
-//              and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)
-//              and ($7::TEXT = trace.service_name)
-//              and ($8::TEXT = trace.top_level_span_name);",
-//         query_params.from.timestamp_nanos_opt().unwrap(),
-//         query_params.to.timestamp_nanos_opt().unwrap(),
-//         query_params.min_duration,
-//         query_params.max_duration,
-//         query_params.min_warn_count,
-//         query_params.only_errors,
-//         service_name,
-//         top_level_span_name
-//     )
-//     .fetch_all(con)
-//     .instrument(info_span!("get_span_autocomplete"));
-//     let span_keys = sqlx::query_scalar!(
-//         "select distinct span_key_value.key
-//                 from trace
-//                 inner join span_key_value
-//                     on span_key_value.trace_id=trace.id
-//             where
-//                  trace.timestamp >= $1::BIGINT
-//                  and trace.timestamp <= $2::BIGINT
-//                  and trace.duration  >= $3::BIGINT
-//                  and ($4::BIGINT is null or trace.duration <= $4::BIGINT)
-//                  and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)
-//                  and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)
-//                  and ($7::TEXT = trace.service_name)
-//                  and ($8::TEXT = trace.top_level_span_name)
-//                  and span_key_value.user_generated=true;",
-//         query_params.from.timestamp_nanos_opt().unwrap(),
-//         query_params.to.timestamp_nanos_opt().unwrap(),
-//         query_params.min_duration,
-//         query_params.max_duration,
-//         query_params.min_warn_count,
-//         query_params.only_errors,
-//         service_name,
-//         top_level_span_name
-//     )
-//     .fetch_all(con)
-//     .instrument(info_span!("get_span_key_autocomplete"));
-//     let event_keys = sqlx::query_scalar!(
-//         "select distinct event_key_value.key
-//                 from trace
-//                 inner join event_key_value
-//                     on event_key_value.trace_id=trace.id
-//             where
-//                  trace.timestamp >= $1::BIGINT
-//                  and trace.timestamp <= $2::BIGINT
-//                  and trace.duration  >= $3::BIGINT
-//                  and ($4::BIGINT is null or trace.duration <= $4::BIGINT)
-//                  and ($5::BIGINT is null or trace.warning_count >= $5::BIGINT)
-//                  and ($6::BOOLEAN is null or trace.has_errors = $6::BOOLEAN)
-//                  and ($7::TEXT = trace.service_name)
-//                  and ($8::TEXT = trace.top_level_span_name)
-//                  and event_key_value.user_generated=true;",
-//         query_params.from.timestamp_nanos_opt().unwrap(),
-//         query_params.to.timestamp_nanos_opt().unwrap(),
-//         query_params.min_duration,
-//         query_params.max_duration,
-//         query_params.min_warn_count,
-//         query_params.only_errors,
-//         service_name,
-//         top_level_span_name
-//     )
-//     .fetch_all(con)
-//     .instrument(info_span!("get_event_key_autocomplete"));
-//     let (spans, span_keys, event_keys) = tokio::try_join!(spans, span_keys, event_keys)?;
-//     let mut key_set: HashSet<String> = span_keys.into_iter().collect();
-//     key_set.extend(event_keys);
-//     Ok(SpanAndKeys {
-//         spans,
-//         keys: key_set.into_iter().collect(),
-//     })
-// } else {
-//     Ok(SpanAndKeys {
-//         spans: vec![],
-//         keys: vec![],
-//     })
-// }
-// unimplemented!()
-// }
 
 #[instrument(skip_all)]
 async fn autocomplete_data_post(
@@ -815,7 +562,7 @@ pub async fn get_trace_timestamp_chunks(
                 }
                 return Ok(timestamp_chunks
                     .into_iter()
-                    .map(|e| new::db_i64_to_nanos(e).expect("timestamp chunks to fit i64"))
+                    .map(|e| handlers::db_i64_to_nanos(e).expect("timestamp chunks to fit i64"))
                     .collect());
             }
             Some(new_timestamp) => {
@@ -918,10 +665,10 @@ async fn get_single_trace(
         .map(|span| Span {
             id: span.id,
             name: span.name,
-            timestamp: new::db_i64_to_nanos(span.timestamp).expect("db timestamp to fit u64"),
+            timestamp: handlers::db_i64_to_nanos(span.timestamp).expect("db timestamp to fit u64"),
             duration: span
                 .duration
-                .map(|d| new::db_i64_to_nanos(d).expect("db durations to fit u64")),
+                .map(|d| handlers::db_i64_to_nanos(d).expect("db durations to fit u64")),
             parent_id: span.parent_id,
             events: serde_json::from_value(span.events).expect("db to generate valid json"),
         })

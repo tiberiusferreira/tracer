@@ -78,60 +78,6 @@ async fn start_tasks(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     Ok(())
-    // let delete_handle = otel_trace_processing::start_background_delete_traces_task(
-    //     con.clone(),
-    //     Duration::from_secs(TIME_WAIT_BETWEEN_DELETE_TRACES_RUN_SECONDS),
-    // );
-    // let (notification_pusher, notification_task_handle) =
-    //     if let Some(slack_notification_url) = config.slack_notification_url {
-    //         info!("Going to try to notify errors via slack");
-    //         let (pusher, notifier_task_handle) =
-    //             notification_worthy_events::Notifier::initialize_and_start_notification_task(
-    //                 slack_notification_url,
-    //                 Duration::from_secs(u64::from(config.slack_notification_interval_seconds)),
-    //                 SPAN_PLUS_EVENTS_PER_SERVICE_PER_SECOND_NOTIFICATION_THRESHOLD,
-    //             );
-    //         (Some(pusher), Some(notifier_task_handle))
-    //     } else {
-    //         info!("Missing Slack URL, not going to try to notify errors via Slack");
-    //         (None, None)
-    //     };
-    // let (incoming_traces_pusher, store_handle) =
-    //     otel_trace_processing::TraceStorage::initialize_and_start_storage_task(
-    //         con,
-    //         Duration::from_secs(TIME_WAIT_BETWEEN_STORE_TRACES_RUN_SECONDS),
-    //         notification_pusher.clone(),
-    //     );
-    // let trace_collector = TraceCollector {
-    //     trace_fragment_pusher: incoming_traces_pusher,
-    // };
-    //
-    // let addr = SocketAddr::new(IpAddr::from([0, 0, 0, 0]), config.collector_listen_port);
-    // let tonic_handle = tokio::spawn(async move {
-    //     Server::builder()
-    //         .add_service(TraceServiceServer::new(trace_collector))
-    //         .serve(addr)
-    //         .await
-    //         .expect("trace tonic collector to start")
-    // });
-    // tokio::time::sleep(Duration::from_secs(
-    //     TIME_WAIT_PANIC_TASKS_ON_STARTUP_SECONDS,
-    // ))
-    // .instrument(info_span!("Waiting to see if background tasks panic"))
-    // .await;
-    // let mut handles = vec![api_handle, delete_handle, store_handle, tonic_handle];
-    // if let Some(handle) = notification_task_handle {
-    //     handles.push(handle);
-    // }
-    // let any_early_finished = handles.into_iter().any(|h| h.is_finished());
-    // if any_early_finished {
-    //     let err: Box<dyn std::error::Error> =
-    //         String::from("Some task finished early, probably panicked!").into();
-    //     Err(err)
-    // } else {
-    //     info!("Trace Collector listening on {}", addr);
-    //     Ok(())
-    // }
 }
 
 #[tokio::main(flavor = "current_thread")]

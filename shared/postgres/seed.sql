@@ -50,20 +50,37 @@ create index on logs_key_value (key, log_id);
 
 create table trace
 (
-    service_id          bigint,
-    id                  bigint,
-    service_name        identifier not null,
-    timestamp           ubigint    not null,
-    top_level_span_name identifier not null,
-    duration            ubigint    null,
-    warning_count       ubigint    not null,
-    has_errors          boolean    not null,
+    service_id           bigint,
+    id                   bigint,
+    service_name         identifier            not null,
+    timestamp            ubigint               not null,
+    top_level_span_name  identifier            not null,
+    duration             ubigint               null,
+    original_span_count  ubigint default 0     not null,
+    original_event_count ubigint default 0     not null,
+    stored_span_count    ubigint default 0     not null,
+    stored_event_count   ubigint default 0     not null,
+    event_char_count     ubigint default 0     not null,
+    warning_count        ubigint default 0     not null,
+    has_errors           boolean default false not null,
+    updated_at           ubigint               not null,
     primary key (service_id, id)
 );
 create unique index on trace (timestamp, service_name, top_level_span_name, duration, id, service_id);
 create index on trace (warning_count);
 create index on trace (has_errors);
 
+update trace
+set duration=$3,
+    original_span_count=$4,
+    original_event_count=$5,
+    stored_span_count=(stored_span_count + $5),
+    stored_event_count=(stored_event_count + $6),
+    event_char_count=(event_char_count + $7),
+    warning_count=(warning_count + $8),
+    has_errors=(has_errors or $9)
+where service_id = $1
+  and id = $2;
 
 create table span
 (
@@ -74,6 +91,7 @@ create table span
     parent_id  ubigint,
     duration   ubigint    null,
     name       identifier not null,
+    relocated  boolean    not null,
     foreign key (service_id, trace_id) references trace (service_id, id) on delete cascade,
     primary key (service_id, trace_id, id),
     foreign key (service_id, trace_id, parent_id) references span (service_id, trace_id, id) on delete cascade
@@ -110,6 +128,7 @@ create table event
     timestamp  ubigint        not null,
     name       text_value     not null,
     severity   severity_level not null,
+    relocated  boolean        not null,
     foreign key (service_id, trace_id, span_id) REFERENCES span (service_id, trace_id, id) on delete cascade,
     primary key (service_id, trace_id, span_id, id)
 );

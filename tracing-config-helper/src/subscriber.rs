@@ -1,8 +1,7 @@
 use crate::sampling::{Sampler, TracerSampler};
-use crate::{print_if_dbg, TracerTracingSubscriber};
-use api_structs::exporter::{
-    ClosedSpan, NewOrphanEvent, NewSpan, NewSpanEvent, SamplerLimits, Severity, SubscriberEvent,
-};
+use crate::{print_if_dbg, NewSpan, NewSpanEvent, SubscriberEvent, TracerTracingSubscriber};
+use api_structs::exporter::{ClosedSpan, NewOrphanEvent, SamplerLimits, Severity, SpanEventCount};
+use api_structs::time_conversion::now_nanos_u64;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -55,6 +54,50 @@ impl TracerTracingSubscriber {
         tracer_root_span_data.dropped
     }
 
+    fn trace_timestamp<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
+        span_id: Id,
+        ctx: &'a Context<S>,
+    ) -> u64 {
+        let root_span = Self::span_root(span_id, &ctx).expect("root to exist even if itself");
+        let root_extensions = root_span.extensions();
+        let tracer_root_span_data: &TracerRootSpanData = root_extensions
+            .get()
+            .expect("root span to have TracerRootSpanData");
+        tracer_root_span_data.timestamp
+    }
+
+    fn increment_trace_span_count<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
+        span_id: Id,
+        ctx: &'a Context<S>,
+    ) -> SpanEventCount {
+        let root_span =
+            Self::span_root(span_id.clone(), &ctx).expect("root to exist even if itself");
+        let mut root_extensions = root_span.extensions_mut();
+        let tracer_root_span_data: &mut TracerRootSpanData = root_extensions
+            .get_mut()
+            .expect("root span to have TracerRootSpanData");
+        tracer_root_span_data.span_count += 1;
+        SpanEventCount {
+            span_count: tracer_root_span_data.span_count,
+            event_count: tracer_root_span_data.event_count,
+        }
+    }
+    fn increment_trace_event_count<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
+        span_id: Id,
+        ctx: &'a Context<S>,
+    ) -> SpanEventCount {
+        let root_span = Self::span_root(span_id, &ctx).expect("root to exist even if itself");
+        let mut root_extensions = root_span.extensions_mut();
+        let tracer_root_span_data: &mut TracerRootSpanData = root_extensions
+            .get_mut()
+            .expect("root span to have TracerRootSpanData");
+        tracer_root_span_data.event_count += 1;
+        SpanEventCount {
+            span_count: tracer_root_span_data.span_count,
+            event_count: tracer_root_span_data.event_count,
+        }
+    }
+
     fn extract_event_information(event: &Event) -> EventData {
         let mut event_visitor = EventVisitor::new();
         event.record(&mut event_visitor);
@@ -67,7 +110,7 @@ impl TracerTracingSubscriber {
         };
         EventData {
             message: event_visitor.message,
-            timestamp: api_structs::time_conversion::now_nanos_u64(),
+            timestamp: now_nanos_u64(),
             level,
             key_vals: event_visitor.key_vals,
         }
@@ -126,7 +169,11 @@ struct TracerSpanData {
 
 /// This is another piece of custom data, but only created and attached to Root Spans.
 /// We use this to detect traces that were dropped
+#[derive(Clone, Debug)]
 struct TracerRootSpanData {
+    timestamp: u64,
+    span_count: u32,
+    event_count: u32,
     dropped: bool,
 }
 
@@ -183,6 +230,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             return;
         }
         let root = Self::span_root(span.id(), &ctx).expect("root span to exist");
+        let spe_count = Self::increment_trace_event_count(span.id(), &ctx);
         let new_event_allowed = {
             let mut w_sampler = self.sampler.write();
             w_sampler.allow_new_event(root.name())
@@ -190,15 +238,27 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         if new_event_allowed {
             print_if_dbg(context, "Allowed by sampler, sending to exporter.");
             self.send_subscriber_event_to_export(SubscriberEvent::NewSpanEvent(NewSpanEvent {
-                trace_id: root.id().into_non_zero_u64(),
-                span_id: span.id().into_non_zero_u64(),
+                trace_id: root.id().into_non_zero_u64().get(),
+                trace_name: root.name(),
+                spe_count,
+                trace_timestamp: Self::trace_timestamp(span.id(), &ctx),
+                span_id: span.id().into_u64(),
                 message: event_data.message,
                 timestamp: event_data.timestamp,
                 level: event_data.level,
                 key_vals: event_data.key_vals,
             }));
         } else {
-            print_if_dbg(context, "Not allowed by sampler, discarding event.");
+            print_if_dbg(
+                context,
+                format!("Not allowed by sampler, discarding event SpE.",),
+            );
+            self.send_subscriber_event_to_export(SubscriberEvent::SpanEventCountUpdate {
+                trace_id: root.id().into_non_zero_u64().get(),
+                trace_name: root.name(),
+                trace_timestamp: Self::trace_timestamp(span.id(), &ctx),
+                spe_count,
+            });
         }
     }
 
@@ -228,23 +288,35 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             };
             if new_trace_allowed {
                 print_if_dbg(context, "Allowed by sampler, sending to exporter");
-                tracing::info_span!("new");
+                let now_nanos = now_nanos_u64();
                 self.send_subscriber_event_to_export(SubscriberEvent::NewSpan(NewSpan {
-                    id: id.into_non_zero_u64(),
-                    trace_id: root_span.id().into_non_zero_u64(),
+                    id: id.into_u64(),
+                    trace_id: id.into_non_zero_u64().get(),
                     name: span_name.to_string(),
                     parent_id: None,
-                    timestamp: api_structs::time_conversion::now_nanos_u64(),
+                    timestamp: now_nanos,
                     key_vals: Default::default(),
+                    trace_name: root_span.name(),
+                    spe_count: SpanEventCount {
+                        span_count: 1,
+                        event_count: 0,
+                    },
+                    trace_timestamp: now_nanos,
                 }));
-                root_span
-                    .extensions_mut()
-                    .insert(TracerRootSpanData { dropped: false })
+                root_span.extensions_mut().insert(TracerRootSpanData {
+                    timestamp: now_nanos,
+                    span_count: 1,
+                    event_count: 0,
+                    dropped: false,
+                })
             } else {
                 print_if_dbg(context, "Not Allowed by sampler");
-                root_span
-                    .extensions_mut()
-                    .insert(TracerRootSpanData { dropped: true })
+                root_span.extensions_mut().insert(TracerRootSpanData {
+                    timestamp: 0,
+                    span_count: 0,
+                    event_count: 0,
+                    dropped: true,
+                })
             }
         } else {
             // we are not root, check if current trace was dropped
@@ -256,6 +328,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 );
                 return;
             } else {
+                let spe_count = Self::increment_trace_span_count(id.clone(), &ctx);
                 print_if_dbg(context, "Span belongs to non-dropped trace");
                 let new_span_allowed = {
                     let mut w_sampler = self.sampler.write();
@@ -265,15 +338,24 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     let parent_id = span.parent().expect("parent to exist if non-root").id();
                     print_if_dbg(context, "Allowed by sampler, sending to exporter");
                     self.send_subscriber_event_to_export(SubscriberEvent::NewSpan(NewSpan {
-                        id: id.into_non_zero_u64(),
-                        trace_id: root_span.id().into_non_zero_u64(),
+                        id: id.into_u64(),
+                        trace_id: root_span.id().into_non_zero_u64().get(),
                         name: span_name.to_string(),
-                        parent_id: Some(parent_id.into_non_zero_u64()),
-                        timestamp: api_structs::time_conversion::now_nanos_u64(),
+                        parent_id: Some(parent_id.into_u64()),
+                        timestamp: now_nanos_u64(),
                         key_vals: Default::default(),
+                        trace_name: root_span.name(),
+                        spe_count,
+                        trace_timestamp: Self::trace_timestamp(id.clone(), &ctx),
                     }));
                 } else {
-                    print_if_dbg(context, "Not Allowed by sampler");
+                    print_if_dbg(context, format!("Span Not Allowed by sampler"));
+                    self.send_subscriber_event_to_export(SubscriberEvent::SpanEventCountUpdate {
+                        trace_id: root_span.id().into_non_zero_u64().get(),
+                        trace_name: root_span.name(),
+                        trace_timestamp: Self::trace_timestamp(span.id(), &ctx),
+                        spe_count,
+                    });
                 }
             }
         }
@@ -288,6 +370,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             );
             return;
         }
+        let root_span_id = Self::span_root(span_id.clone(), &ctx)
+            .expect("root span to exist")
+            .id();
+
         let extensions = span.extensions();
         let tracer_span_data: &TracerSpanData = extensions
             .get()
@@ -297,9 +383,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             format!("Span {} closed. Sending to exporter", span_id.into_u64()),
         );
         self.send_subscriber_event_to_export(SubscriberEvent::ClosedSpan(ClosedSpan {
-            id: span_id.into_non_zero_u64(),
+            trace_id: root_span_id.into_non_zero_u64().get(),
             duration: u64::try_from(tracer_span_data.first_entered_at.elapsed().as_nanos())
                 .expect("span duration in nanos to fit u64"),
+            span_id: span_id.into_u64(),
         }));
     }
 }

@@ -6,22 +6,6 @@ use std::time::Duration;
 use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{EnvFilter, Registry};
 
-pub trait ToEnvFilter {
-    fn to_env_filter(&self) -> Result<EnvFilter, String>;
-}
-impl ToEnvFilter for api_structs::exporter::TracerFilters {
-    fn to_env_filter(&self) -> Result<EnvFilter, String> {
-        let desired_filter_as_str = self.to_filter_str();
-        let filter = EnvFilter::builder().parse(&desired_filter_as_str).unwrap();
-        // let obtained_filter_as_str = filter.to_string();
-        // if desired_filter_as_str == obtained_filter_as_str {
-        Ok(filter)
-        // } else {
-        //     Err(format!("Desired and obtained filters don't match: {desired_filter_as_str} vs {obtained_filter_as_str}"))
-        // }
-    }
-}
-
 pub async fn continuously_handle_server_sent_events(
     collector_url: String,
     filter_reload_handle: Handle<EnvFilter, Registry>,
@@ -29,9 +13,9 @@ pub async fn continuously_handle_server_sent_events(
 ) {
     let context = "continuously_handle_server_sent_events";
     loop {
-        print_if_dbg(context, "Starting sse loop");
-        let mut event_source =
-            reqwest_eventsource::EventSource::get(format!("{collector_url}/see/{client_id}"));
+        let url = format!("{collector_url}/collector/sse/{client_id}");
+        print_if_dbg(context, format!("Starting sse loop, connecting to {url}"));
+        let mut event_source = reqwest_eventsource::EventSource::get(url);
         print_if_dbg(context, "sse connected");
         while let Some(event) = event_source.next().await {
             match event {
