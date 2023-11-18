@@ -1,11 +1,11 @@
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
-use api_structs::exporter::{LiveInstances, NewFiltersRequest};
-use api_structs::{Summary, SummaryRequest};
+use api_structs::ui::live_services::LiveInstances;
+use api_structs::ui::NewFiltersRequest;
 use leptos::html::Input;
 use leptos::logging::log;
 use leptos::{
-    component, create_action, create_node_ref, view, HtmlElement, IntoView, NodeRef, SignalGet,
-    SignalSet, WriteSignal,
+    component, create_action, create_node_ref, view, IntoView, NodeRef, SignalGet, SignalSet,
+    WriteSignal,
 };
 
 #[component]

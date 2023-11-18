@@ -60,7 +60,7 @@ create table trace
     original_event_count ubigint default 0     not null,
     stored_span_count    ubigint default 0     not null,
     stored_event_count   ubigint default 0     not null,
-    event_char_count     ubigint default 0     not null,
+    event_bytes_count    ubigint default 0     not null,
     warning_count        ubigint default 0     not null,
     has_errors           boolean default false not null,
     updated_at           ubigint               not null,
@@ -69,18 +69,6 @@ create table trace
 create unique index on trace (timestamp, service_name, top_level_span_name, duration, id, service_id);
 create index on trace (warning_count);
 create index on trace (has_errors);
-
-update trace
-set duration=$3,
-    original_span_count=$4,
-    original_event_count=$5,
-    stored_span_count=(stored_span_count + $5),
-    stored_event_count=(stored_event_count + $6),
-    event_char_count=(event_char_count + $7),
-    warning_count=(warning_count + $8),
-    has_errors=(has_errors or $9)
-where service_id = $1
-  and id = $2;
 
 create table span
 (
@@ -126,7 +114,7 @@ create table event
     span_id    bigint         not null,
     id         bigserial      not null,
     timestamp  ubigint        not null,
-    name       text_value     not null,
+    name       text_value     null,
     severity   severity_level not null,
     relocated  boolean        not null,
     foreign key (service_id, trace_id, span_id) REFERENCES span (service_id, trace_id, id) on delete cascade,

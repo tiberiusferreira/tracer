@@ -1,5 +1,5 @@
 use crate::print_if_dbg;
-use api_structs::sse::SseRequest;
+use api_structs::exporter::SseRequest;
 use futures_util::StreamExt;
 use reqwest_eventsource::Event;
 use std::time::Duration;

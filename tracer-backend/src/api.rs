@@ -1,8 +1,9 @@
 use crate::api::handlers::{
     instances_filter_post, instances_get, logs_get, logs_service_names_get,
 };
-use api_structs::exporter::LiveServiceInstance;
-use api_structs::{SearchFor, Span};
+use api_structs::ui::live_services::LiveServiceInstance;
+use api_structs::ui::search_grid::{ApiTraceGridRow, Autocomplete, SearchFor};
+use api_structs::ui::trace_view::{SingleChunkTraceQuery, Span, TraceId};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -17,6 +18,7 @@ use std::convert::Infallible;
 use std::io::Read;
 use std::ops::Deref;
 use std::time::Duration;
+use tokio::sync::mpsc::Receiver;
 use tokio::task::{spawn_local, JoinHandle};
 use tracing::instrument::Instrumented;
 use tracing::{debug, error, info, instrument, trace, Instrument};
@@ -33,6 +35,7 @@ pub struct AppState {
 pub type ServiceName = String;
 pub type InstanceId = i64;
 
+#[derive(Debug, Clone)]
 pub struct ChangeFilterInternalRequest {
     filters: String,
 }
@@ -47,6 +50,31 @@ pub struct LiveInstances {
     >,
 }
 
+#[instrument(skip_all)]
+async fn change_filter_request(
+    mut r: Receiver<ChangeFilterInternalRequest>,
+) -> Option<(
+    axum::response::sse::Event,
+    Receiver<ChangeFilterInternalRequest>,
+)> {
+    info!("Waiting for new ChangeFilterInternalRequest");
+    let request = match r.recv().await {
+        None => {
+            info!("Channel closed, closing sse channel.");
+            return None;
+        }
+        Some(request) => request,
+    };
+    info!("new internal change filter request: {:?}", request);
+
+    let data = api_structs::exporter::SseRequest::NewFilter {
+        filter: request.filters,
+    };
+    let see = axum::response::sse::Event::default()
+        .data(serde_json::to_string(&data).expect("to be serializable"));
+    Some((see, r))
+}
+#[instrument(skip_all)]
 async fn sse_handler(
     State(app_state): State<AppState>,
     Path(instance_id): Path<i64>,
@@ -59,15 +87,7 @@ async fn sse_handler(
     if let Some(_existing) = w_lock.insert(instance_id, s) {
         error!("overwrote existing sse channel for {}", instance_id);
     }
-    let stream = futures::stream::unfold(r, |mut r| async {
-        let request = r.recv().await?;
-        let data = api_structs::sse::SseRequest::NewFilter {
-            filter: request.filters,
-        };
-        let see = axum::response::sse::Event::default().data(serde_json::to_string(&data).unwrap());
-        Some((see, r))
-    })
-    .map(Ok);
+    let stream = futures::stream::unfold(r, |r| change_filter_request(r)).map(Ok);
     axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
@@ -102,7 +122,7 @@ fn clean_up_service_instances(live_instances: &LiveInstances) {
                     .naive_utc()
                     .signed_duration_since(date)
                     .num_seconds();
-                if last_seen_as_secs > 5 * 60 {
+                if last_seen_as_secs > 12 * 60 * 60 {
                     debug!(
                         "dropping instance {} - id: {} - last seen {}s ago",
                         single_instance.service_name, single_instance.service_id, last_seen_as_secs
@@ -157,7 +177,6 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
             axum::routing::post(instances_filter_post),
         )
         .route("/api/traces-grid", axum::routing::post(traces_grid_post))
-        // .route("/api/summary", axum::routing::post(traces_summary))
         .route(
             "/api/trace_chunk_list",
             axum::routing::get(get_single_trace_chunk_list),
@@ -177,8 +196,8 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         )
         .with_state(app_state)
         .fallback_service(serve_ui)
-        // 10 MB
-        .layer(axum::extract::DefaultBodyLimit::max(1048576))
+        // 100 MB
+        .layer(axum::extract::DefaultBodyLimit::max(104857600))
         .layer(tower_http::cors::CorsLayer::very_permissive());
     tokio::spawn(async move {
         axum::Server::bind(
@@ -284,15 +303,21 @@ pub struct RawDbTraceGrid {
     timestamp: i64,
     top_level_span_name: String,
     duration: Option<i64>,
+    original_span_count: i64,
+    original_event_count: i64,
+    stored_span_count: i64,
+    stored_event_count: i64,
+    event_bytes_count: i64,
     warning_count: i64,
     has_errors: bool,
+    updated_at: i64,
 }
 
 #[instrument(skip_all)]
 pub async fn get_grid_data(
     con: &PgPool,
     search: SearchFor,
-) -> Result<Vec<api_structs::ApiTraceGridRow>, ApiError> {
+) -> Result<Vec<ApiTraceGridRow>, ApiError> {
     let query_params = QueryReadyParameters::from_search(search)?;
     info!("Query Parameters: {:#?}", query_params);
     let res: Vec<RawDbTraceGrid> = sqlx::query_as!(
@@ -303,18 +328,24 @@ pub async fn get_grid_data(
        trace.timestamp,
        trace.top_level_span_name,
        trace.duration,
+       trace.original_span_count,
+       trace.original_event_count,
+       trace.stored_span_count,
+       trace.stored_event_count,
+       trace.event_bytes_count,
        trace.warning_count,
-       trace.has_errors
+       trace.has_errors,
+       trace.updated_at
 from trace
-where trace.timestamp >= $1::BIGINT
-  and trace.timestamp <= $2::BIGINT
+where trace.updated_at >= $1::BIGINT
+  and trace.updated_at <= $2::BIGINT
   and ($3::TEXT is null or trace.service_name = $3::TEXT)
   and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)
   and (trace.duration >= $5::BIGINT or trace.duration is null)
   and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)
   and ($7::BOOL is null or trace.has_errors = $7::BOOL)
   and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT)
-order by trace.timestamp desc
+order by trace.updated_at desc
 limit 100;",
         query_params.from,
         query_params.to,
@@ -329,17 +360,23 @@ limit 100;",
     .await?;
     let res = res
         .into_iter()
-        .map(|e| api_structs::ApiTraceGridRow {
+        .map(|e| ApiTraceGridRow {
             service_id: e.service_id,
             id: e.id,
             service_name: e.service_name,
-            timestamp: handlers::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
+            started_at: handlers::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
             top_level_span_name: e.top_level_span_name,
             duration_ns: e
                 .duration
                 .map(|dur| handlers::db_i64_to_nanos(dur).expect("db duration to fit i64")),
+            original_span_count: e.original_span_count as u64,
+            original_event_count: e.original_event_count as u64,
+            stored_span_count: e.stored_span_count as u64,
+            stored_event_count: e.stored_event_count as u64,
+            event_bytes_count: e.event_bytes_count as u64,
             warning_count: u32::try_from(e.warning_count).expect("warning count to fit u32"),
             has_errors: e.has_errors,
+            updated_at: e.updated_at as u64,
         })
         .collect();
     Ok(res)
@@ -411,7 +448,7 @@ async fn get_top_level_span_autocomplete_data(
 async fn autocomplete_data_post(
     axum::extract::State(app_state): axum::extract::State<AppState>,
     search_for: Json<SearchFor>,
-) -> Result<Json<api_structs::Autocomplete>, ApiError> {
+) -> Result<Json<Autocomplete>, ApiError> {
     let con = app_state.con;
     let query_params = QueryReadyParameters::from_search(search_for.deref().clone())?;
     let closure_query_params = query_params.clone();
@@ -436,7 +473,7 @@ async fn autocomplete_data_post(
                 message: "Internal error!".to_string(),
             }
         })?;
-    Ok(Json(api_structs::Autocomplete {
+    Ok(Json(Autocomplete {
         service_names: service_names?,
         top_level_spans: top_level_spans?,
     }))
@@ -445,7 +482,7 @@ async fn autocomplete_data_post(
 async fn traces_grid_post(
     axum::extract::State(app_state): axum::extract::State<AppState>,
     search_for: Json<SearchFor>,
-) -> Result<Json<Vec<api_structs::ApiTraceGridRow>>, ApiError> {
+) -> Result<Json<Vec<ApiTraceGridRow>>, ApiError> {
     let con = app_state.con;
     let resp = get_grid_data(&con, search_for.0.clone()).await?;
     Ok(Json(resp))
@@ -480,11 +517,6 @@ impl From<sqlx::Error> for ApiError {
             message: "DB error when handling the request".to_string(),
         }
     }
-}
-
-pub struct TraceId {
-    pub service_id: i64,
-    pub trace_id: i64,
 }
 
 #[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
@@ -548,7 +580,7 @@ pub async fn get_trace_timestamp_chunks(
     from event
              where event.service_id=$1
                  and event.trace_id=$2 and event.timestamp >= $3)
-    order by timestamp offset 10 limit 1);",
+    order by timestamp offset 300 limit 1);",
             trace_id.service_id,
             trace_id.trace_id,
             last_timestamp
@@ -574,7 +606,7 @@ pub async fn get_trace_timestamp_chunks(
 
 #[instrument(skip_all, fields(trace_id=single_trace_query.trace_id))]
 async fn get_single_trace_chunk_list(
-    axum::extract::Query(single_trace_query): axum::extract::Query<api_structs::TraceId>,
+    axum::extract::Query(single_trace_query): axum::extract::Query<TraceId>,
     axum::extract::State(app_state): axum::extract::State<AppState>,
 ) -> Result<Json<Vec<u64>>, ApiError> {
     let con = app_state.con;
@@ -591,11 +623,9 @@ async fn get_single_trace_chunk_list(
     Ok(Json(trace_ids))
 }
 
-#[instrument(skip_all)]
+#[instrument(skip_all, err(Debug))]
 async fn get_single_trace(
-    axum::extract::Query(single_trace_query): axum::extract::Query<
-        api_structs::SingleChunkTraceQuery,
-    >,
+    axum::extract::Query(single_trace_query): axum::extract::Query<SingleChunkTraceQuery>,
     axum::extract::State(app_state): axum::extract::State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let con = app_state.con;

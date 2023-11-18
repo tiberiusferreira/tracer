@@ -1,6 +1,8 @@
 use crate::sampling::{Sampler, TracerSampler};
 use crate::{print_if_dbg, NewSpan, NewSpanEvent, SubscriberEvent, TracerTracingSubscriber};
-use api_structs::exporter::{ClosedSpan, NewOrphanEvent, SamplerLimits, Severity, SpanEventCount};
+use api_structs::exporter::trace_exporting::{
+    ClosedSpan, NewOrphanEvent, SamplerLimits, Severity, SpanEventCount,
+};
 use api_structs::time_conversion::now_nanos_u64;
 use std::collections::HashMap;
 use std::sync::Arc;

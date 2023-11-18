@@ -18,14 +18,6 @@ fn time_from_nanos_doesnt_panic() {
     println!("{}", time_from_nanos(0));
 }
 
-// pub fn nanos_to_db_i64(nanos: u64) -> i64 {
-//     i64::try_from(nanos).expect("nanos to fit i64")
-// }
-//
-// pub fn db_i64_to_nanos(nanos: i64) -> u64 {
-//     u64::try_from(nanos).expect("nanos to fit u64")
-// }
-
 // doesnt panic before the year 2200
 pub fn now_nanos_u64() -> u64 {
     time_to_nanos_u64(chrono::Utc::now().naive_utc())
@@ -34,7 +26,7 @@ pub fn now_nanos_u64() -> u64 {
 fn time_to_nanos_u64(time: NaiveDateTime) -> u64 {
     u64::try_from(
         time.timestamp_nanos_opt()
-            .expect("current time in nanos to fit i64"),
+            .expect("current time in nanos to fit i64 until 2262 or so"),
     )
-    .expect("time in nanos to fit u64")
+    .expect("current time in nanos to be positive")
 }

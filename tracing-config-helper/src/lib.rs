@@ -3,8 +3,8 @@
 //! but also exports traces to a collector
 //!
 
-use api_structs::exporter::{
-    ExportedServiceTraceData, SamplerLimits, Severity, SpanEventCount, TraceFragment, TracerStats,
+use api_structs::exporter::trace_exporting::{
+    ExportedServiceTraceData, SamplerLimits, SpanEventCount, TraceFragment, TracerStats,
 };
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
@@ -60,6 +60,7 @@ use crate::sampling::{Sampler, TracerSampler};
 
 use tokio::sync::mpsc::Sender;
 
+use api_structs::Severity;
 use rand::random;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -172,8 +173,8 @@ impl TracerTasks {
 pub enum SubscriberEvent {
     NewSpan(NewSpan),
     NewSpanEvent(NewSpanEvent),
-    ClosedSpan(api_structs::exporter::ClosedSpan),
-    NewOrphanEvent(api_structs::exporter::NewOrphanEvent),
+    ClosedSpan(api_structs::exporter::trace_exporting::ClosedSpan),
+    NewOrphanEvent(api_structs::exporter::trace_exporting::NewOrphanEvent),
     SpanEventCountUpdate {
         trace_id: u64,
         trace_name: &'static str,
@@ -249,14 +250,16 @@ impl ExportDataContainers {
                             new_spans: vec![],
                             new_events: vec![],
                         });
-                trace.new_spans.push(api_structs::exporter::NewSpan {
-                    id: span.id,
-                    timestamp: span.timestamp,
-                    duration: None,
-                    parent_id: span.parent_id,
-                    name: span.name,
-                    key_vals: span.key_vals,
-                });
+                trace
+                    .new_spans
+                    .push(api_structs::exporter::trace_exporting::NewSpan {
+                        id: span.id,
+                        timestamp: span.timestamp,
+                        duration: None,
+                        parent_id: span.parent_id,
+                        name: span.name,
+                        key_vals: span.key_vals,
+                    });
                 trace.spe_count = span.spe_count;
             }
             SubscriberEvent::NewSpanEvent(span_event) => {
@@ -272,13 +275,15 @@ impl ExportDataContainers {
                         new_spans: vec![],
                         new_events: vec![],
                     });
-                trace.new_events.push(api_structs::exporter::NewSpanEvent {
-                    span_id: span_event.span_id,
-                    timestamp: span_event.timestamp,
-                    message: span_event.message,
-                    key_vals: span_event.key_vals,
-                    level: span_event.level,
-                });
+                trace
+                    .new_events
+                    .push(api_structs::exporter::trace_exporting::NewSpanEvent {
+                        span_id: span_event.span_id,
+                        timestamp: span_event.timestamp,
+                        message: span_event.message,
+                        key_vals: span_event.key_vals,
+                        level: span_event.level,
+                    });
                 trace.spe_count = span_event.spe_count;
             }
             SubscriberEvent::ClosedSpan(closed) => {

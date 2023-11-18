@@ -1,23 +1,26 @@
 use crate::grid::DatePicker;
 use crate::grid::{local_date_to_utc, utc_to_local_date};
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
-use api_structs::exporter::{Log, NewFiltersRequest, ServiceLogRequest, ServiceNameList, Severity};
+use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
+use api_structs::ui::{NewFiltersRequest, ServiceName};
+use api_structs::Severity;
 use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::{Event, MouseEvent};
 use leptos::logging::log;
 use leptos::*;
 use leptos::{component, SignalGet, SignalSet, WriteSignal};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchInput {
-    search_for: ServiceLogRequest,
+    search_for: ServiceOrphanEventsRequest,
 }
 
 impl Default for UserSearchInput {
     fn default() -> Self {
         let now = NaiveDateTime::from_timestamp_millis(Date::now().round() as i64).unwrap();
         Self {
-            search_for: ServiceLogRequest {
+            search_for: ServiceOrphanEventsRequest {
                 service_name: "".to_string(),
                 from_date_unix: u64::try_from(
                     (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
@@ -34,8 +37,9 @@ impl Default for UserSearchInput {
 #[component]
 pub fn Logs(root_path: String) -> impl IntoView {
     let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
-    let (service_name_list_r, service_name_list_w) = create_signal(Option::<ServiceNameList>::None);
-    let (logs_r, logs_w) = leptos::create_signal(Option::<Vec<Log>>::None);
+    let (service_name_list_r, service_name_list_w) =
+        create_signal(Option::<Vec<ServiceName>>::None);
+    let (logs_r, logs_w) = leptos::create_signal(Option::<Vec<OrphanEvent>>::None);
     let _api_service_names_request =
         create_local_resource(move || (), move |_| get_service_list(service_name_list_w));
     let _api_service_logs_request = create_local_resource(
@@ -236,9 +240,9 @@ async fn update_filter(new_filter: NewFiltersRequest) -> Result<(), String> {
     }
 }
 
-async fn get_service_list(w: WriteSignal<Option<ServiceNameList>>) {
+async fn get_service_list(w: WriteSignal<Option<Vec<ServiceName>>>) {
     log!("Sending get_service_list request");
-    let service_list: ServiceNameList = gloo_net::http::Request::get(&format!(
+    let service_list: Vec<ServiceName> = gloo_net::http::Request::get(&format!(
         "{}/api/logs/service_names",
         API_SERVER_URL_NO_TRAILING_SLASH
     ))
@@ -252,9 +256,9 @@ async fn get_service_list(w: WriteSignal<Option<ServiceNameList>>) {
     w.set(Some(service_list));
 }
 
-async fn get_logs(w: WriteSignal<Option<Vec<Log>>>, user_search_input: UserSearchInput) {
+async fn get_logs(w: WriteSignal<Option<Vec<OrphanEvent>>>, user_search_input: UserSearchInput) {
     log!("Log search: {:#?}", user_search_input);
-    let logs: Vec<Log> =
+    let logs: Vec<OrphanEvent> =
         gloo_net::http::Request::get(&format!("{}/api/logs", API_SERVER_URL_NO_TRAILING_SLASH))
             .query([
                 ("service_name", user_search_input.search_for.service_name),

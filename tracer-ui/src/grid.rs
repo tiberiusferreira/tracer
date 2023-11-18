@@ -3,13 +3,21 @@ use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::{Event, MouseEvent};
 use leptos::*;
+use std::fmt::format;
 
-use api_structs::{ApiTraceGridRow, Autocomplete, KeyValue, SearchFor};
+use api_structs::ui::search_grid::{ApiTraceGridRow, Autocomplete, SearchFor};
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct TraceGridRow {
     service_id: i64,
     id: i64,
+    started_at: u64,
+    updated_at: u64,
+    original_span_count: u64,
+    original_event_count: u64,
+    stored_span_count: u64,
+    stored_event_count: u64,
+    event_bytes_count: u64,
     duration: Option<u64>,
     service_name: String,
     has_errors: bool,
@@ -18,7 +26,6 @@ pub struct TraceGridRow {
     // sample_log: Option<String>,
     // key_value: Option<KeyValue>,
     // span: Option<String>,
-    timestamp: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +94,13 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<Vec<T
             //     None
             // },
             // span: e.span,
-            timestamp: e.timestamp,
+            started_at: e.started_at,
+            updated_at: e.updated_at,
+            original_span_count: e.original_span_count,
+            original_event_count: e.original_event_count,
+            stored_span_count: e.stored_span_count,
+            stored_event_count: e.stored_event_count,
+            event_bytes_count: e.event_bytes_count,
         })
         .collect();
     api_response_w.set(trace_grid);
@@ -509,24 +522,29 @@ pub fn TraceTable(
                 <a>"Duration (ms)"</a>
             </th>
         },
-        // view! {
-        //     <th class="trace-table__cell">
-        //         <a>"Span"</a>
-        //     </th>
-        // },
-        // view! {
-        //     <th class="trace-table__cell">
-        //         <a>"Log"</a>
-        //     </th>
-        // },
-        // view! {
-        //     <th class="trace-table__cell">
-        //         <a>"KV"</a>
-        //     </th>
-        // },
         view! {
             <th class="trace-table__cell">
-                <a>"Date"</a>
+                <a>"Started At"</a>
+            </th>
+        },
+        view! {
+            <th class="trace-table__cell">
+                <a>"Updated At"</a>
+            </th>
+        },
+        view! {
+            <th class="trace-table__cell">
+                <a>"Total / Lost Spans"</a>
+            </th>
+        },
+        view! {
+            <th class="trace-table__cell">
+                <a>"Total / Lost Events"</a>
+            </th>
+        },
+        view! {
+            <th class="trace-table__cell">
+                <a>"Event bytes"</a>
             </th>
         },
         view! {
@@ -567,16 +585,20 @@ pub fn TraceTable(
                             {
                                 // printable_local_date()
                                 // let local_date_str = 
-                                crate::printable_local_date(row.timestamp)
+                                crate::printable_local_date(row.started_at)
                                 // let timestamp = api_structs::time_conversion::nanos_to_db_i64(row.timestamp);
                                 // let nanos_in_1_sec = 1_000_000_000;
                                 // let timestamp =chrono::NaiveDateTime::from_timestamp_opt(timestamp/nanos_in_1_sec, u32::try_from(timestamp%nanos_in_1_sec).unwrap()).unwrap();
                                 // utc_to_local_date(timestamp, offset_minutes).format("%Y-%m-%d %H:%M:%S").to_string()
                             }
                         </td>
+                        <td class="trace-table__cell">{crate::printable_local_date(row.updated_at)}</td>
+                        <td class="trace-table__cell">{format!("{} / {}", row.original_span_count, row.original_span_count as i64 - row.stored_span_count as i64)}</td>
+                        <td class="trace-table__cell">{format!("{} / {}", row.original_event_count, row.original_event_count as i64 - row.stored_event_count as i64)}</td>
+                        <td class="trace-table__cell">{row.event_bytes_count}</td>
                         <td class="trace-table__cell">{row.warning_count}</td>
                         <td class="trace-table__cell">
-                            <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, row.service_id, row.id, row.timestamp)}>{"➔"}</a>
+                            <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, row.service_id, row.id, row.started_at)}>{"➔"}</a>
                         </td>
                 </tr>
             };

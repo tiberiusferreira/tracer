@@ -28,7 +28,6 @@ pub fn App() -> impl IntoView {
                 <nav class="navigation">
                     <div class="navigation__button"></div>
                     <a class="navigation__button" href={&root_path}>"Trace Search"</a>
-                    // <a class="navigation__button" href=format!("{}summary", root_path)>"Summary"</a>
                     <a class="navigation__button" href=format!("{}services", root_path)>"Services Health"</a>
                     <a class="navigation__button" href=format!("{}logs", root_path)>"Logs"</a>
                 </nav>
@@ -104,7 +103,7 @@ fn printable_local_date_ms(timestamp: u64) -> String {
     )
     .unwrap();
     grid::utc_to_local_date(timestamp, offset_minutes)
-        .format("%Y-%m-%d %H:%M:%.6f")
+        .format("%Y-%m-%d %H:%M:%S%.6f")
         .to_string()
 }
 

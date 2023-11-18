@@ -1,5 +1,6 @@
 use crate::{printable_local_date, printable_local_date_ms, API_SERVER_URL_NO_TRAILING_SLASH};
-use api_structs::{Severity, SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
+use api_structs::ui::trace_view::{SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
+use api_structs::Severity;
 use leptos::ev::MouseEvent;
 use leptos::logging::log;
 use leptos::{
@@ -555,7 +556,7 @@ fn create_html_span(
                 }
             };
             let event_date = printable_local_date_ms(e.timestamp);
-            let event_msg = format!("{} - {}", event_date, e.name);
+            let event_msg = format!("{} - {}", event_date, e.name.as_ref().unwrap_or(&"null".to_string()));
             // event offset % calculation
             let event_nanos_after_trace_start = e.timestamp
                 .checked_sub(start_timestamp_nanos).unwrap();

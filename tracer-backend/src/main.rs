@@ -73,8 +73,12 @@ async fn start_tasks(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let _api_handle = api::start(con.clone(), config.api_listen_port);
     spawn_local(async {
         loop {
-            trace!("background task iteration starting");
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            trace!("trace log sample");
+            tracing::debug!("debug log sample");
+            info!("info log sample");
+            tracing::warn!("warn log sample");
+            tracing::error!("error log sample");
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
     });
     Ok(())
