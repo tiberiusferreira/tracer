@@ -1,4 +1,5 @@
 use crate::api::{ApiError, AppState, ChangeFilterInternalRequest, LiveInstances, ServiceName};
+use crate::{SINGLE_KEY_VALUE_KEY_CHARS_LIMIT, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT};
 use api_structs::exporter::trace_exporting::{
     ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, TraceFragment,
 };
@@ -9,7 +10,7 @@ use axum::extract::{Query, State};
 use axum::Json;
 use reqwest::StatusCode;
 use sqlx::postgres::PgQueryResult;
-use sqlx::{Error, PgPool, Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -128,12 +129,27 @@ pub(crate) async fn logs_get(
     pub struct DbLog {
         pub timestamp: i64,
         pub severity: Severity,
-        pub value: String,
+        pub message: Option<String>,
+        pub key_vals: sqlx::types::JsonValue,
     }
     let service_list: Vec<DbLog> = sqlx::query_as!(
         DbLog,
-        r#"select timestamp, severity as "severity: Severity", value from log
-         where timestamp >= $1 and timestamp <= $2 and service_name=$3 order by timestamp desc limit 100000;"#,
+        r#"select orphan_event.timestamp,
+       severity       as "severity: Severity",
+       orphan_event.message,
+       COALESCE(json_object_agg(
+                                  orphan_event_key_value.key,
+                                  orphan_event_key_value.value
+                         )
+                filter ( where orphan_event_key_value.key is not null),
+                '{}') as key_vals
+from orphan_event
+         left join orphan_event_key_value
+                   on orphan_event_key_value.orphan_event_id = orphan_event.id
+where orphan_event.timestamp >= $1 and orphan_event.timestamp <= $2 and orphan_event.service_name=$3
+group by orphan_event.id, orphan_event.timestamp
+order by timestamp desc
+limit 100000;"#,
         from_timestamp,
         to_timestamp,
         service_name
@@ -147,17 +163,19 @@ pub(crate) async fn logs_get(
             .map(|e| OrphanEvent {
                 timestamp: db_i64_to_nanos(e.timestamp).expect("db timestamp to fit u64"),
                 severity: e.severity.to_api(),
-                value: e.value,
+                message: e.message,
+                key_vals: serde_json::from_value(e.key_vals)
+                    .expect("to be able to deserialize event kv from DB"),
             })
             .collect(),
     ))
 }
 #[instrument(skip_all)]
-pub(crate) async fn logs_service_names_get(
+pub(crate) async fn orphan_events_service_names_get(
     State(app_state): State<AppState>,
 ) -> Result<Json<Vec<ServiceName>>, ApiError> {
     let service_list: Vec<String> =
-        sqlx::query_scalar!("select distinct log.service_name from log;")
+        sqlx::query_scalar!("select distinct orphan_event.service_name from orphan_event;")
             .fetch_all(&app_state.con)
             .await?;
     debug!("Got {} services", service_list.len());
@@ -287,6 +305,10 @@ async fn check_span_ids_exist_in_db_returning_missing(
     trace_id: u64,
     service_id: i64,
 ) -> Result<HashSet<u64>, sqlx::Error> {
+    if span_ids_to_check.is_empty() {
+        debug!("Span ids to check is empty, returning empty list");
+        return Ok(HashSet::new());
+    }
     let as_vec: Vec<i64> = span_ids_to_check.iter().map(|e| *e as i64).collect();
     debug!("Getting {} span ids from the db", as_vec.len());
     trace!("Span ids: {:?}", as_vec);
@@ -317,7 +339,8 @@ async fn insert_new_trace(
     top_level_span_name: &str,
     timestamp: u64,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!(
+    let now_nanos = now_nanos_u64();
+    if let Err(e) = sqlx::query!(
         "insert into trace (service_id, id, service_name, timestamp, top_level_span_name,
                     updated_at) values (
                     $1, $2, $3, $4, $5, $6);",
@@ -326,10 +349,18 @@ async fn insert_new_trace(
         service_name as _,
         timestamp as i64,
         top_level_span_name as _,
-        now_nanos_u64() as i64
+        now_nanos as i64
     )
     .execute(con.deref_mut())
-    .await?;
+    .await
+    {
+        error!(
+            "DB Error when inserting trace with data:\
+         service_id={service_id} trace_id={trace_id} service_name={service_name} \
+         timestamp={timestamp} top_level_span_name={top_level_span_name} updated_at={now_nanos}"
+        );
+        return Err(e);
+    }
     Ok(())
 }
 
@@ -530,13 +561,13 @@ pub async fn update_trace_with_new_fragment(
         .is_some();
     debug!(
         "root_duration={:?}
-        original_span_count={original_span_count}
-        original_event_count={original_event_count}
-        stored_span_count_increase={stored_span_count_increase}
-        stored_event_count_increase={stored_event_count_increase}
-        event_bytes_count_increase={event_bytes_count_increase}
-        warnings_count_increase={warnings_count_increase}
-        has_errors={has_errors}",
+original_span_count={original_span_count}
+original_event_count={original_event_count}
+stored_span_count_increase={stored_span_count_increase}
+stored_event_count_increase={stored_event_count_increase}
+event_bytes_count_increase={event_bytes_count_increase}
+warnings_count_increase={warnings_count_increase}
+has_errors={has_errors}",
         root_duration
     );
     update_trace_header(
@@ -562,7 +593,7 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
     info!("{} spans to close", closed_spans.len());
     for span in closed_spans {
         debug!("Closing span: {:?}", span);
-        let res: Result<PgQueryResult, Error> = sqlx::query!(
+        let res: Result<PgQueryResult, sqlx::Error> = sqlx::query!(
             "update span set duration=$1 where service_id=$2 and trace_id=$3 and id=$4;",
             span.duration as i64,
             service_id,
@@ -576,7 +607,7 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
                 debug!("Updated ({} rows)", res.rows_affected());
             }
             Err(err) => {
-                error!("{}", err);
+                error!("Error closing span {err:?} {span:?}");
             }
         }
         if span.span_id == span.trace_id {
@@ -594,7 +625,10 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
                     debug!("Updated ({} rows)", res.rows_affected());
                 }
                 Err(err) => {
-                    error!("{}", err);
+                    error!(
+                        "Error updating trace {err:?} duration={} service_id={} id={}",
+                        span.duration, service_id, span.trace_id
+                    );
                 }
             }
         }
@@ -602,38 +636,155 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
 }
 
 #[instrument(skip_all)]
-pub(crate) async fn insert_orphan_events(
+pub async fn insert_orphan_events(
     con: &PgPool,
     service_name: &str,
     orphan_events: &[NewOrphanEvent],
 ) {
     info!("{} events to insert", orphan_events.len());
-    trace!("Inserting events: {:#?}", orphan_events);
+    for e in orphan_events {
+        trace!("Inserting event: {:?}", e);
+    }
     let mut timestamps = vec![];
     let mut service_names = vec![];
     let mut severities = vec![];
-    let mut values = vec![];
+    let mut message = vec![];
     for event in orphan_events {
         timestamps.push(event.timestamp as i64);
         service_names.push(service_name);
         severities.push(Severity::from(event.level));
-        values.push(event.message.clone());
+        message.push(event.message.clone());
     }
-    match sqlx::query!(
-            "insert into log (timestamp, service_name, severity, value) select * from unnest($1::BIGINT[], \
-            $2::TEXT[], $3::severity_level[], $4::TEXT[]);",
+    let orphan_events_db_ids = match sqlx::query_scalar!(
+            "insert into orphan_event (timestamp, service_name, severity, message) select * from unnest($1::BIGINT[], \
+            $2::TEXT[], $3::severity_level[], $4::TEXT[]) returning id;",
             &timestamps,
             &service_names as &Vec<&str>,
             severities.as_slice() as &[Severity],
-            &values as &Vec<Option<String>>
+            &message as &Vec<Option<String>>
         )
-        .execute(con).await{
-        Ok(_res) => {
-            debug!("Inserted");
+        .fetch_all(con).await{
+        Ok(res) => {
+            debug!("Inserted and got {} ids back", res.len());
+            let res: Vec<i64> = res;
+            res
         },
         Err(e) => {
-            error!("{:#?}", e);
+            error!("Error inserting orphan events: {:#?}", e);
+            error!("timestamp={:?}", timestamps);
+            error!("service_names={:?}", service_names);
+            error!("severities={:?}", severities);
+            for v in message {
+                error!("message={:?}", v);
+            }
+            return;
         }
+    };
+    let mut kv_orphan_event_id = vec![];
+    let mut kv_orphan_timestamp = vec![];
+    let mut kv_orphan_key = vec![];
+    let mut kv_orphan_value = vec![];
+    for (idx, event) in orphan_events.iter().enumerate() {
+        for (key, val) in &event.key_vals {
+            kv_orphan_event_id.push(orphan_events_db_ids[idx]);
+            kv_orphan_timestamp.push(event.timestamp as i64);
+            kv_orphan_key.push(key.as_str());
+            kv_orphan_value.push(val.as_str());
+        }
+    }
+    info!("{} events key values to insert", kv_orphan_event_id.len());
+
+    match sqlx::query!(
+            "insert into orphan_event_key_value (orphan_event_id, timestamp, key, value) select * from unnest($1::BIGINT[], \
+            $2::BIGINT[], $3::TEXT[], $4::TEXT[]);",
+            &kv_orphan_event_id,
+            &kv_orphan_timestamp,
+            &kv_orphan_key as &Vec<&str>,
+            &kv_orphan_value as &Vec<&str>,
+        )
+        .execute(con).await{
+        Ok(res) => {
+            debug!("Inserted {}", res.rows_affected());
+        },
+        Err(e) => {
+            error!("Error inserting orphan events: {:#?}", e);
+            error!("kv_orphan_event_id={:?}", kv_orphan_event_id);
+            error!("kv_orphan_timestamp={:?}", kv_orphan_timestamp);
+            error!("kv_orphan_key={:?}", kv_orphan_key);
+            error!("kv_orphan_value={:?}", kv_orphan_value);
+        }
+    };
+}
+
+fn truncate_string(string: &str, max_chars: usize) -> String {
+    string.chars().take(max_chars).collect::<String>()
+}
+
+#[instrument(skip_all)]
+fn truncate_key_values(key_vals: &mut HashMap<String, String>) {
+    let keys_too_big: HashMap<String, String> = key_vals
+        .keys()
+        .filter_map(|k| {
+            if k.len() > SINGLE_KEY_VALUE_KEY_CHARS_LIMIT {
+                let new_key = truncate_string(&k, SINGLE_KEY_VALUE_KEY_CHARS_LIMIT);
+                info!(
+                    "Truncating key (too big), starts with: {}",
+                    truncate_string(&new_key, 100)
+                );
+                Some((k.clone(), new_key))
+            } else {
+                None
+            }
+        })
+        .collect();
+    for (key, replacement_key) in keys_too_big {
+        let val = key_vals.remove(&key).unwrap();
+        key_vals.insert(replacement_key, val);
+    }
+    for (key, val) in key_vals {
+        if val.len() > SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT {
+            *val = truncate_string(val, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT);
+            info!(
+                "Truncating value (too big) for key {key} value: {}",
+                truncate_string(val, 100)
+            );
+        }
+    }
+}
+
+#[instrument(skip_all)]
+fn truncate_span_key_values_if_needed(spans: &mut Vec<NewSpan>) {
+    for s in spans {
+        truncate_key_values(&mut s.key_vals);
+    }
+}
+
+#[instrument(skip_all)]
+fn truncate_events_if_needed(events: &mut Vec<NewSpanEvent>) {
+    for e in events {
+        if let Some(msg) = &mut e.message {
+            if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
+                info!("Truncating event (too big): {}", truncate_string(&msg, 100));
+                *msg = truncate_string(msg, crate::SINGLE_EVENT_CHARS_LIMIT);
+            }
+        }
+        truncate_key_values(&mut e.key_vals);
+    }
+}
+
+#[instrument(skip_all)]
+fn truncate_orphan_events_if_needed(events: &mut Vec<NewOrphanEvent>) {
+    for e in events {
+        if let Some(msg) = &mut e.message {
+            if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
+                info!(
+                    "Truncating orphan event (too big): {}",
+                    truncate_string(&msg, 100)
+                );
+                *msg = truncate_string(msg, crate::SINGLE_EVENT_CHARS_LIMIT);
+            }
+        }
+        truncate_key_values(&mut e.key_vals);
     }
 }
 
@@ -646,8 +797,10 @@ pub async fn collector_trace_data_post(
     update_instance_data(&app_state.live_instances, &trace_data);
     let service_id = trace_data.service_id;
     let service_name = trace_data.service_name;
-
-    for fragment in trace_data.trace_fragments.into_values() {
+    info!("Got {} new fragments", trace_data.trace_fragments.len());
+    for mut fragment in trace_data.trace_fragments.into_values() {
+        truncate_span_key_values_if_needed(&mut fragment.new_spans);
+        truncate_events_if_needed(&mut fragment.new_events);
         if let Err(db_error) =
             update_trace_with_new_fragment(&con, service_id, &service_name, fragment).await
         {
@@ -656,7 +809,9 @@ pub async fn collector_trace_data_post(
     }
 
     update_closed_spans(&con, service_id, &trace_data.closed_spans).await;
-    insert_orphan_events(&con, &service_name, &trace_data.orphan_events).await;
+    let mut orphan_events = trace_data.orphan_events;
+    truncate_orphan_events_if_needed(&mut orphan_events);
+    insert_orphan_events(&con, &service_name, &orphan_events).await;
 
     Ok(())
 }
@@ -710,7 +865,11 @@ pub(crate) async fn insert_events(
     service_id: i64,
     relocated_event_vec_indexes: &HashSet<usize>,
 ) -> Result<(), sqlx::Error> {
-    debug!("Inserting {} events", new_events.len());
+    info!("Inserting {} events", new_events.len());
+    for e in new_events {
+        trace!("Inserting event: {:?}", e);
+    }
+
     let service_ids: Vec<i64> = new_events.iter().map(|_s| service_id).collect();
     let trace_ids: Vec<i64> = new_events.iter().map(|_s| trace_id as i64).collect();
     let timestamps: Vec<i64> = new_events.iter().map(|s| s.timestamp as i64).collect();
@@ -722,9 +881,9 @@ pub(crate) async fn insert_events(
     let span_ids: Vec<i64> = new_events.iter().map(|s| s.span_id as i64).collect();
     let names: Vec<Option<String>> = new_events.iter().map(|s| s.message.clone()).collect();
     let severities: Vec<Severity> = new_events.iter().map(|s| Severity::from(s.level)).collect();
-    sqlx::query!(
-            "insert into event (service_id, trace_id, span_id, timestamp, name, severity, relocated)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]);",
+    let db_event_ids: Vec<i64> = match sqlx::query_scalar!(
+            "insert into event (service_id, trace_id, span_id, timestamp, message, severity, relocated)
+            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]) returning id;",
             &service_ids,
             &trace_ids,
             &span_ids,
@@ -733,8 +892,74 @@ pub(crate) async fn insert_events(
             severities.as_slice() as &[Severity],
             &relocateds,
         )
+        .fetch_all(con.deref_mut())
+        .await{
+        Ok(ids) => {
+            info!(inserted_events_count=ids.len(),"Inserted events");
+            ids
+        }
+        Err(e) => {
+            error!("Error when inserting events");            
+            error!("service_ids={:?}", service_ids);            
+            error!("trace_id={:?}", trace_id);            
+            error!("span_ids={:?}", span_ids);            
+            error!("timestamps={:?}", timestamps);    
+            for name in names{
+                error!("name={:?}", name);            
+            }
+            error!("severities={:?}", severities);            
+            error!("relocateds={:?}", relocateds);         
+            return Err(e);
+        }
+    };
+
+    let mut kv_service_id = vec![];
+    let mut kv_trace_id = vec![];
+    let mut kv_span_id = vec![];
+    let mut kv_event_id = vec![];
+    let mut kv_key = vec![];
+    let mut kv_value = vec![];
+    let mut kv_timestamp = vec![];
+    for (idx, span) in new_events.iter().enumerate() {
+        for (key, val) in &span.key_vals {
+            kv_service_id.push(service_id);
+            kv_trace_id.push(trace_id as i64);
+            kv_span_id.push(span.span_id as i64);
+            kv_event_id.push(db_event_ids[idx]);
+            kv_key.push(key.as_str());
+            kv_value.push(val.as_str());
+            kv_timestamp.push(span.timestamp as i64);
+        }
+    }
+    info!("Inserting {} event key-values", kv_service_id.len());
+    match sqlx::query!(
+            "insert into event_key_value (service_id, trace_id, span_id, event_id, key, value, timestamp)
+            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[], $7::BIGINT[]);",
+            &kv_service_id,
+            &kv_trace_id,
+            &kv_span_id,
+            &kv_event_id,
+            &kv_key as &Vec<&str>,
+            &kv_value as &Vec<&str>,
+            &kv_timestamp
+        )
         .execute(con.deref_mut())
-        .await?;
+        .await {
+        Ok(_) => {
+            info!("Inserted span key-values");
+        },
+        Err(e) => {
+            error!("Error when inserting span key-values");
+            error!("kv_service_id: {:?}", kv_service_id);
+            error!("kv_trace_id: {:?}", kv_trace_id);
+            error!("kv_span_id: {:?}", kv_span_id);
+            error!("kv_timestamp: {:?}", kv_timestamp);
+            error!("kv_key: {:?}", kv_key);
+            error!("kv_value: {:?}", kv_value);
+            return Err(e)
+        }
+    };
+
     Ok(())
 }
 
@@ -746,10 +971,10 @@ pub(crate) async fn insert_spans(
     service_id: i64,
     relocated_span_ids: &HashSet<u64>,
 ) -> Result<(), sqlx::Error> {
-    debug!("Inserting {} spans", new_spans.len());
+    info!("Inserting {} spans", new_spans.len());
     let span_ids: Vec<i64> = new_spans.iter().map(|s| s.id as i64).collect();
     let service_ids: Vec<i64> = new_spans.iter().map(|_s| service_id).collect();
-    let trace_id: Vec<i64> = new_spans.iter().map(|_s| trace_id as i64).collect();
+    let trace_ids: Vec<i64> = new_spans.iter().map(|_s| trace_id as i64).collect();
     let timestamp: Vec<i64> = new_spans.iter().map(|s| s.timestamp as i64).collect();
     let relocated: Vec<bool> = new_spans
         .iter()
@@ -764,12 +989,12 @@ pub(crate) async fn insert_spans(
         .map(|s| s.duration.map(|d| d as i64))
         .collect();
     let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
-    sqlx::query!(
+    match sqlx::query!(
             "insert into span (id, service_id, trace_id, timestamp, parent_id, duration, name, relocated)
             select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::BOOLEAN[]);",
             &span_ids,
             &service_ids,
-            &trace_id,
+            &trace_ids,
             &timestamp,
             &parent_id as &Vec<Option<i64>>,
             &duration as &Vec<Option<i64>>,
@@ -777,7 +1002,67 @@ pub(crate) async fn insert_spans(
             &relocated,
         )
         .execute(con.deref_mut())
-        .await?;
+        .await {
+        Ok(_) => {
+            info!("Inserted spans");
+        },
+        Err(e) => {
+            error!("Error when inserting spans");
+            error!("Span Ids: {:?}", span_ids);
+            error!("Service Ids: {:?}", service_ids);
+            error!("Trace Ids: {:?}", trace_id);
+            error!("Timestamp: {:?}", timestamp);
+            error!("Relocated: {:?}", relocated);
+            error!("parent_id: {:?}", parent_id);
+            error!("duration: {:?}", duration);
+            error!("name: {:?}", name);
+            return Err(e)
+        }
+    };
+    let mut kv_service_id = vec![];
+    let mut kv_trace_id = vec![];
+    let mut kv_span_id = vec![];
+    let mut kv_timestamp = vec![];
+    let mut kv_key = vec![];
+    let mut kv_value = vec![];
+    for (_idx, span) in new_spans.iter().enumerate() {
+        for (key, val) in &span.key_vals {
+            kv_service_id.push(service_id);
+            kv_trace_id.push(trace_id as i64);
+            kv_span_id.push(span.id as i64);
+            kv_timestamp.push(span.timestamp as i64);
+            kv_key.push(key.as_str());
+            kv_value.push(val.as_str());
+        }
+    }
+    info!("Inserting {} span key-values", kv_service_id.len());
+    match sqlx::query!(
+            "insert into span_key_value (service_id, trace_id, span_id, timestamp, key, value)
+            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[]);",
+            &kv_service_id,
+            &kv_trace_id,
+            &kv_span_id,
+            &kv_timestamp,
+            &kv_key as &Vec<&str>,
+            &kv_value as &Vec<&str>
+        )
+        .execute(con.deref_mut())
+        .await {
+        Ok(_) => {
+            info!("Inserted span key-values");
+        },
+        Err(e) => {
+            error!("Error when inserting span key-values");
+            error!("kv_service_id: {:?}", kv_service_id);
+            error!("kv_trace_id: {:?}", kv_trace_id);
+            error!("kv_span_id: {:?}", kv_span_id);
+            error!("kv_timestamp: {:?}", kv_timestamp);
+            error!("kv_key: {:?}", kv_key);
+            error!("kv_value: {:?}", kv_value);
+            return Err(e)
+        }
+    };
+
     Ok(())
 }
 

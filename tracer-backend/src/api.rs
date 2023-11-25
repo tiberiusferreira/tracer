@@ -1,9 +1,10 @@
 use crate::api::handlers::{
-    instances_filter_post, instances_get, logs_get, logs_service_names_get,
+    instances_filter_post, instances_get, logs_get, orphan_events_service_names_get,
 };
 use api_structs::ui::live_services::LiveServiceInstance;
-use api_structs::ui::search_grid::{ApiTraceGridRow, Autocomplete, SearchFor};
-use api_structs::ui::trace_view::{SingleChunkTraceQuery, Span, TraceId};
+use api_structs::ui::search_grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
+use api_structs::ui::trace_view::{Event, SingleChunkTraceQuery, Span, TraceId};
+use api_structs::Severity;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -17,11 +18,12 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::Read;
 use std::ops::Deref;
+use std::str::FromStr;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::{spawn_local, JoinHandle};
 use tracing::instrument::Instrumented;
-use tracing::{debug, error, info, instrument, trace, Instrument};
+use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 pub mod handlers;
 
@@ -74,7 +76,7 @@ async fn change_filter_request(
         .data(serde_json::to_string(&data).expect("to be serializable"));
     Some((see, r))
 }
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(sample_span_kv = "sample value"))]
 async fn sse_handler(
     State(app_state): State<AppState>,
     Path(instance_id): Path<i64>,
@@ -169,7 +171,7 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         .route("/api/instances", axum::routing::get(instances_get))
         .route(
             "/api/logs/service_names",
-            axum::routing::get(logs_service_names_get),
+            axum::routing::get(orphan_events_service_names_get),
         )
         .route("/api/logs", axum::routing::get(logs_get))
         .route(
@@ -314,12 +316,32 @@ pub struct RawDbTraceGrid {
 }
 
 #[instrument(skip_all)]
-pub async fn get_grid_data(
-    con: &PgPool,
-    search: SearchFor,
-) -> Result<Vec<ApiTraceGridRow>, ApiError> {
+pub async fn get_grid_data(con: &PgPool, search: SearchFor) -> Result<TraceGridResponse, ApiError> {
     let query_params = QueryReadyParameters::from_search(search)?;
     info!("Query Parameters: {:#?}", query_params);
+    let count: i64 = sqlx::query_scalar!(
+        "select COUNT(*) as \"count!\"
+from trace
+where trace.updated_at >= $1::BIGINT
+  and trace.updated_at <= $2::BIGINT
+  and ($3::TEXT is null or trace.service_name = $3::TEXT)
+  and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)
+  and (trace.duration >= $5::BIGINT or trace.duration is null)
+  and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)
+  and ($7::BOOL is null or trace.has_errors = $7::BOOL)
+  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
+        query_params.from,
+        query_params.to,
+        query_params.service_name,
+        query_params.top_level_span,
+        query_params.min_duration,
+        query_params.max_duration,
+        query_params.only_errors,
+        query_params.min_warn_count,
+    )
+    .fetch_one(con)
+    .instrument(info_span!("get_row_count"))
+    .await?;
     let res: Vec<RawDbTraceGrid> = sqlx::query_as!(
         RawDbTraceGrid,
         "select trace.service_id,
@@ -358,9 +380,9 @@ limit 100;",
     )
     .fetch_all(con)
     .await?;
-    let res = res
+    let rows = res
         .into_iter()
-        .map(|e| ApiTraceGridRow {
+        .map(|e| TraceGridRow {
             service_id: e.service_id,
             id: e.id,
             service_name: e.service_name,
@@ -379,6 +401,10 @@ limit 100;",
             updated_at: e.updated_at as u64,
         })
         .collect();
+    let res = TraceGridResponse {
+        rows,
+        count: count as u32,
+    };
     Ok(res)
 }
 
@@ -446,7 +472,7 @@ async fn get_top_level_span_autocomplete_data(
 
 #[instrument(skip_all)]
 async fn autocomplete_data_post(
-    axum::extract::State(app_state): axum::extract::State<AppState>,
+    State(app_state): State<AppState>,
     search_for: Json<SearchFor>,
 ) -> Result<Json<Autocomplete>, ApiError> {
     let con = app_state.con;
@@ -480,9 +506,9 @@ async fn autocomplete_data_post(
 }
 #[instrument(skip_all)]
 async fn traces_grid_post(
-    axum::extract::State(app_state): axum::extract::State<AppState>,
+    State(app_state): State<AppState>,
     search_for: Json<SearchFor>,
-) -> Result<Json<Vec<ApiTraceGridRow>>, ApiError> {
+) -> Result<Json<TraceGridResponse>, ApiError> {
     let con = app_state.con;
     let resp = get_grid_data(&con, search_for.0.clone()).await?;
     Ok(Json(resp))
@@ -494,7 +520,17 @@ struct RawDbSpan {
     parent_id: Option<i64>,
     duration: Option<i64>,
     name: String,
-    events: JsonValue,
+    relocated: bool,
+    key_values: JsonValue,
+}
+
+struct RawDbEvent {
+    span_id: i64,
+    message: Option<String>,
+    severity: String,
+    relocated: bool,
+    timestamp: i64,
+    key_values: JsonValue,
 }
 
 #[derive(Debug)]
@@ -634,55 +670,47 @@ async fn get_single_trace(
     let start_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.start_timestamp)?;
     let end_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.end_timestamp)?;
     info!("Getting single trace: {trace_id}");
-    let trace_from_db: Vec<RawDbSpan> = sqlx::query_as!(RawDbSpan, "select span_events.id,
-                                                      span_events.timestamp,
-                                                      span_events.parent_id,
-                                                      span_events.duration,
-                                                      span_events.name,
-                                                      COALESCE(jsonb_agg(
-                                                               json_build_object('timestamp',
-                                                                                 span_events.event_timestamp,
-                                                                                 'name',
-                                                                                 span_events.event_name,
-                                                                                 'severity',
-                                                                                 span_events.severity
-                                                               )
-                                                                        )
-                                                               filter ( where span_events.event_timestamp is not null),
-                                                               '[]') as events
-                                               from (select span.id,
-                                                            span.timestamp,
-                                                            span.parent_id,
-                                                            span.duration,
-                                                            span.name,
-                                                            event.timestamp as event_timestamp,
-                                                            event.name      as event_name,
-                                                            event.severity
-                                                     from span
-                                                              left join event
-                                                                        on event.service_id = span.service_id and
-                                                                           event.trace_id = span.trace_id
-                                                                            and event.span_id = span.id
-                                                     where span.service_id = $1
-                                                         and span.trace_id = $2
-                                                         and
-                                                         -- (start inside window or end inside window)
-                                                           ((
-                                                                   (span.timestamp >= $3 and span.timestamp <= $4)
-                                                                   or
-                                                                   (span.duration is null or
-                                                                   ((span.timestamp + span.duration) >= $3 and
-                                                                    (span.timestamp + span.duration) <= $4))
-                                                               )
-                                                        -- or
-                                                        -- start before window and end after window
-                                                        or (span.timestamp <= $3 and (span.duration is null or (span.timestamp + span.duration) > $4)))
-                                                         and (event.timestamp is null or (event.timestamp >= $3 and event.timestamp <= $4))
-                                                     order by event.timestamp) span_events
-
-                                               group by span_events.id, span_events.timestamp, span_events.parent_id,
-                                                        span_events.duration, span_events.name
-                                                order by span_events.timestamp;",
+    let raw_spans_from_db: Vec<RawDbSpan> = sqlx::query_as!(RawDbSpan,
+        "select span.id,
+                      span.timestamp,
+                      span.parent_id,
+                      span.duration,
+                      span.name,
+                      span.relocated,
+                      COALESCE(span_key_value.key_values, '{}') as key_values
+               from (select span.id,
+                            span.timestamp,
+                            span.parent_id,
+                            span.duration,
+                            span.name,
+                            span.relocated
+                     from span
+                     where span.service_id = $1
+                       and span.trace_id = $2
+                       and
+                       -- (start inside window or end inside window)
+                         ((
+                                  (span.timestamp >= $3 and span.timestamp <= $4)
+                                  or
+                                  (span.duration is null or
+                                   ((span.timestamp + span.duration) >= $3 and
+                                    (span.timestamp + span.duration) <= $4))
+                              )
+                             -- or
+                             -- start before window and end after window
+                             or (span.timestamp <= $3 and
+                                 (span.duration is null or (span.timestamp + span.duration) > $4)))) as span
+                        left join (select span_id,
+                                         json_object_agg(
+                                                   span_key_value.key,
+                                                   span_key_value.value
+                                                   ) as key_values
+                                   from span_key_value
+                                   where span_key_value.service_id = $1
+                                     and span_key_value.trace_id = $2
+                                     and span_key_value.timestamp >= $3
+                                     and span_key_value.timestamp <= $4
+                                   group by span_id) as span_key_value on span_key_value.span_id = span.id;",
         service_id,
         trace_id,
         start_timestamp,
@@ -690,23 +718,70 @@ async fn get_single_trace(
     )
             .fetch_all(&con)
             .await?;
-    let resp = trace_from_db
+
+    let raw_events_from_db: Vec<RawDbEvent> = sqlx::query_as!(RawDbEvent,
+        "select event.span_id, event.message, event.severity as \"severity: String\", event.relocated, event.timestamp, COALESCE(event_key_value.key_values, '{}') as key_values
+from (select *
+      from event
+      where event.service_id = $1
+        and event.trace_id = $2
+        and event.timestamp >= $3
+        and event.timestamp <= $4) as event
+         left join (select span_id,
+                           event_id,
+                           json_object_agg(
+                                    event_key_value.key,
+                                    event_key_value.value
+                                    ) as key_values
+                    from event_key_value
+                    where event_key_value.service_id = $1
+                      and event_key_value.trace_id = $2
+                      and event_key_value.timestamp >= $3
+                      and event_key_value.timestamp <= $4
+                    group by event_id, span_id) as event_key_value 
+                   on event_key_value.span_id = event.span_id and event_key_value.event_id = event.id;",
+        service_id,
+        trace_id,
+        start_timestamp,
+        end_timestamp
+    )
+        .fetch_all(&con)
+        .await?;
+
+    let mut events_by_span_id: HashMap<i64, Vec<Event>> =
+        raw_events_from_db
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, e| {
+                let entry = acc.entry(e.span_id).or_insert(Vec::new());
+                entry.push(Event {
+                    timestamp: e.timestamp as u64,
+                    message: e.message,
+                    severity: Severity::from_str(&e.severity).expect("severity to be valid"),
+                    relocated: e.relocated,
+                    key_values: serde_json::from_value(e.key_values)
+                        .expect("event key value to be valid"),
+                });
+                acc
+            });
+
+    let spans: Vec<Span> = raw_spans_from_db
         .into_iter()
-        .map(|span| Span {
-            id: span.id,
-            name: span.name,
-            timestamp: handlers::db_i64_to_nanos(span.timestamp).expect("db timestamp to fit u64"),
-            duration: span
-                .duration
-                .map(|d| handlers::db_i64_to_nanos(d).expect("db durations to fit u64")),
-            parent_id: span.parent_id,
-            events: serde_json::from_value(span.events).expect("db to generate valid json"),
+        .map(|s| Span {
+            id: s.id,
+            timestamp: s.timestamp as u64,
+            parent_id: s.parent_id,
+            duration: s.duration.map(|e| e as u64),
+            name: s.name,
+            relocated: s.relocated,
+            events: events_by_span_id.remove(&s.id).unwrap_or_default(),
+            key_values: serde_json::from_value(s.key_values).expect("span key value to be valid"),
         })
-        .collect::<Vec<Span>>();
+        .collect();
+
     info!("Got it, compressing");
     let lg_window_size = 21;
     let quality = 4;
-    let json = serde_json::to_string(&resp).expect("to be able to serialize response");
+    let json = serde_json::to_string(&spans).expect("to be able to serialize response");
     let mut input =
         brotli::CompressorReader::new(json.as_bytes(), 4096, quality as u32, lg_window_size as u32);
     let mut resp: Vec<u8> = Vec::with_capacity(10 * crate::BYTES_IN_1MB);

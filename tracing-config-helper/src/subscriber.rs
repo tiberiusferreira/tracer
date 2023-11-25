@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tracing::field::{Field, Visit};
-use tracing::span::Record;
+use tracing::span::{Attributes, Record};
 use tracing::{Event, Id, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
@@ -26,16 +26,42 @@ impl TracerTracingSubscriber {
         };
         tracer
     }
-    fn set_span_as_entered<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<S>) {
+
+    fn create_tracer_span_data_with_key_vals<S: Subscriber + for<'a> LookupSpan<'a>>(
+        span: &SpanRef<S>,
+        key_vals: HashMap<String, String>,
+    ) {
         let mut extensions = span.extensions_mut();
         extensions.insert(TracerSpanData {
-            first_entered_at: std::time::Instant::now(),
+            key_vals,
+            first_entered_at: None,
         });
     }
+
+    fn take_tracer_span_data_key_vals<S: Subscriber + for<'a> LookupSpan<'a>>(
+        span: &SpanRef<S>,
+    ) -> HashMap<String, String> {
+        let mut extensions = span.extensions_mut();
+        let tracer_span_data: &mut TracerSpanData = extensions
+            .get_mut()
+            .expect("tracer_span_data to exist when take_tracer_span_data_key_vals is called");
+        std::mem::take(&mut tracer_span_data.key_vals)
+    }
+
+    fn set_span_as_entered<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<S>) {
+        let mut extensions = span.extensions_mut();
+        let tracer_span_data: &mut TracerSpanData = extensions
+            .get_mut()
+            .expect("tracer_span_data to exist when set_span_as_entered is called");
+        tracer_span_data.first_entered_at = Some(std::time::Instant::now());
+    }
+
     fn span_was_already_entered<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<S>) -> bool {
         let mut extensions = span.extensions_mut();
-        let tracer_span_data: Option<&mut TracerSpanData> = extensions.get_mut();
-        return tracer_span_data.is_some();
+        let tracer_span_data: &mut TracerSpanData = extensions
+            .get_mut()
+            .expect("tracer_span_data to exist when span_was_already_entered is called");
+        return tracer_span_data.first_entered_at.is_some();
     }
     fn span_root<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
         span_id: Id,
@@ -101,7 +127,7 @@ impl TracerTracingSubscriber {
     }
 
     fn extract_event_information(event: &Event) -> EventData {
-        let mut event_visitor = EventVisitor::new();
+        let mut event_visitor = AttributesVisitor::new();
         event.record(&mut event_visitor);
         let level = match event.metadata().level() {
             &tracing::metadata::Level::TRACE => Severity::Trace,
@@ -138,12 +164,12 @@ impl TracerTracingSubscriber {
     }
 }
 
-struct EventVisitor {
+struct AttributesVisitor {
     pub message: Option<String>,
     pub key_vals: HashMap<String, String>,
 }
 
-impl EventVisitor {
+impl AttributesVisitor {
     pub fn new() -> Self {
         Self {
             message: None,
@@ -151,7 +177,7 @@ impl EventVisitor {
         }
     }
 }
-impl Visit for EventVisitor {
+impl Visit for AttributesVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         let key = field.name();
         let val = format!("{:?}", value);
@@ -163,10 +189,12 @@ impl Visit for EventVisitor {
     }
 }
 
-/// This is our custom data, created and attached to every single span when it is first entered
+/// This is our custom data, created and attached to every single span when it is created
+/// and then the first entered is added on enter
 struct TracerSpanData {
+    key_vals: HashMap<String, String>,
     // we use this data to calculate the span duration when it gets closed
-    first_entered_at: std::time::Instant,
+    first_entered_at: Option<std::time::Instant>,
 }
 
 /// This is another piece of custom data, but only created and attached to Root Spans.
@@ -264,6 +292,22 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         }
     }
 
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let context = "on_new_span";
+        let span = ctx.span(id).expect("new span to exist!");
+        let mut attributes_visitor = AttributesVisitor::new();
+        attrs.record(&mut attributes_visitor);
+        print_if_dbg(
+            context,
+            format!(
+                "span {} had {} key-val",
+                span.name(),
+                attributes_visitor.key_vals.len()
+            ),
+        );
+        Self::create_tracer_span_data_with_key_vals(&span, attributes_visitor.key_vals);
+    }
+
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
         let context = "on_enter";
         let span = ctx.span(id).expect("entered span to exist!");
@@ -290,6 +334,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             };
             if new_trace_allowed {
                 print_if_dbg(context, "Allowed by sampler, sending to exporter");
+                let key_vals = Self::take_tracer_span_data_key_vals(&span);
                 let now_nanos = now_nanos_u64();
                 self.send_subscriber_event_to_export(SubscriberEvent::NewSpan(NewSpan {
                     id: id.into_u64(),
@@ -297,7 +342,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     name: span_name.to_string(),
                     parent_id: None,
                     timestamp: now_nanos,
-                    key_vals: Default::default(),
+                    key_vals,
                     trace_name: root_span.name(),
                     spe_count: SpanEventCount {
                         span_count: 1,
@@ -386,8 +431,14 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         );
         self.send_subscriber_event_to_export(SubscriberEvent::ClosedSpan(ClosedSpan {
             trace_id: root_span_id.into_non_zero_u64().get(),
-            duration: u64::try_from(tracer_span_data.first_entered_at.elapsed().as_nanos())
-                .expect("span duration in nanos to fit u64"),
+            duration: u64::try_from(
+                tracer_span_data
+                    .first_entered_at
+                    .expect("first_entered_at to exist on span close")
+                    .elapsed()
+                    .as_nanos(),
+            )
+            .expect("span duration in nanos to fit u64"),
             span_id: span_id.into_u64(),
         }));
     }

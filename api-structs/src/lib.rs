@@ -10,9 +10,11 @@ pub const FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH: &str =
 pub type TraceName = String;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TracerStats {
-    pub spe_dropped_on_export: u32,
+    pub spe_buffer_capacity: u32,
+    pub spe_buffer_usage: u32,
+    pub spe_dropped_buffer_full: u32,
     pub orphan_events_per_minute_usage: u32,
-    pub logs_per_minute_dropped: u32,
+    pub orphan_events_dropped_by_sampling_per_minute: u32,
     pub per_minute_trace_stats: HashMap<TraceName, SingleTraceStat>,
     pub sampler_limits: SamplerLimits,
 }
@@ -20,7 +22,7 @@ pub struct TracerStats {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SingleTraceStat {
     pub spe_usage_per_minute: u32,
-    pub dropped_traces_per_minute: u32,
+    pub traces_dropped_by_sampling_per_minute: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -50,11 +52,11 @@ impl FromStr for Severity {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "TRACE" => Ok(Self::Trace),
-            "DEBUG" => Ok(Self::Debug),
-            "INFO" => Ok(Self::Info),
-            "WARN" => Ok(Self::Warn),
-            "ERROR" => Ok(Self::Error),
+            "trace" => Ok(Self::Trace),
+            "debug" => Ok(Self::Debug),
+            "info" => Ok(Self::Info),
+            "warn" => Ok(Self::Warn),
+            "error" => Ok(Self::Error),
             _ => Err(()),
         }
     }

@@ -6,7 +6,7 @@ use api_structs::ui::{NewFiltersRequest, ServiceName};
 use api_structs::Severity;
 use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
-use leptos::ev::{Event, MouseEvent};
+use leptos::ev::Event;
 use leptos::logging::log;
 use leptos::*;
 use leptos::{component, SignalGet, SignalSet, WriteSignal};
@@ -60,7 +60,7 @@ pub fn Logs(root_path: String) -> impl IntoView {
             Some(logs) => {
                 let logs_view = logs.iter().map(|l|{
                     let date = crate::printable_local_date_ms(l.timestamp);
-                    let event_msg = format!("{date} - {}", l.value);
+                    let event_msg = format!("{date} - {} - {:?}", l.message.as_ref().unwrap_or(&"empty".to_string()), l.key_vals);
                     let color = match l.severity{
                         Severity::Warn => {
                             "yellow"

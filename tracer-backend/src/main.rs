@@ -14,14 +14,10 @@ mod notification_worthy_events;
 // mod proto_generated;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;
-pub const MAX_BUFFERED_TRACES: u64 = 2000;
-pub const MAX_SINGLE_TRACE_SIZE_BYTES: usize = 500 * BYTES_IN_1MB; // 500MB
-pub const TIME_WAIT_BETWEEN_STORE_TRACES_RUN_SECONDS: u64 = 5;
 pub const TIME_WAIT_BETWEEN_DELETE_TRACES_RUN_SECONDS: u64 = 60;
-pub const TIME_WAIT_PANIC_TASKS_ON_STARTUP_SECONDS: u64 = 5;
-pub const MAX_TIME_WAIT_NEW_TRACE_DATA_SECONDS: u64 = 5;
-pub const MAX_COMBINED_SPAN_AND_EVENTS_PER_TRACE: usize = 2_000_000;
-pub const EVENT_CHARS_LIMIT: usize = 32_000;
+pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
+pub const SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT: usize = 1_500_000;
+pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 1024;
 
 // ~10 span+logs per trace, 2 traces per second = 20 span+logs per second
 pub const SPAN_PLUS_EVENTS_PER_SERVICE_PER_SECOND_NOTIFICATION_THRESHOLD: usize = 20;
@@ -73,9 +69,9 @@ async fn start_tasks(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let _api_handle = api::start(con.clone(), config.api_listen_port);
     spawn_local(async {
         loop {
-            trace!("trace log sample");
-            tracing::debug!("debug log sample");
-            info!("info log sample");
+            trace!(sample_trace_key = 12, "trace log sample");
+            tracing::debug!(debug_empty_key = "", "debug log sample");
+            info!(info_key = "text", "info log sample");
             tracing::warn!("warn log sample");
             tracing::error!("error log sample");
             tokio::time::sleep(Duration::from_secs(10)).await;
@@ -93,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Loading env vars");
             dotenv::dotenv().ok();
             if std::env::var("RUST_LOG").ok().is_none() {
-                let new_env_var = "tracer_backend,tracing_config_helper=trace";
+                let new_env_var = "tracer_backend=trace";
                 std::env::set_var("RUST_LOG", new_env_var);
                 println!(
                     "Overwrote RUST_LOG env var to {} because it was empty",
@@ -113,25 +109,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await
 }
-
-// pub struct TraceCollector {
-//     /// We might get data for traces in "pieces" from multiple batches
-//     /// this groups them and allows us to wait a little bit before processing them
-//     /// to give time for other parts to arrive
-//     trace_fragment_pusher: trace_fragment::Pusher,
-// }
-
-// #[tonic::async_trait]
-// impl TraceService for TraceCollector {
-//     #[instrument(skip_all)]
-//     async fn new_otel_trace_fragment(
-//         &self,
-//         request: Request<ExportTraceServiceRequest>,
-//     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-//         let request = request.into_inner();
-//         otel_trace_processing::stage_trace_fragment(request, &self.trace_fragment_pusher).await;
-//         Ok(Response::new(ExportTraceServiceResponse {
-//             partial_success: None,
-//         }))
-//     }
-// }

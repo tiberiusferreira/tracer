@@ -555,8 +555,17 @@ fn create_html_span(
                     "white"
                 }
             };
+            let event_k_v: Vec<String> = e.key_values
+                .iter()
+                .map(|(k, v)| format!("{k} => {v}"))
+                .collect();
+            let event_k_v = if !event_k_v.is_empty() {
+                format!(" - {}", event_k_v.join(", "))
+            } else {
+                "".to_string()
+            };
             let event_date = printable_local_date_ms(e.timestamp);
-            let event_msg = format!("{} - {}", event_date, e.name.as_ref().unwrap_or(&"null".to_string()));
+            let event_msg = format!("{} - {}{}", event_date, e.message.as_ref().unwrap_or(&"null".to_string()), event_k_v);
             // event offset % calculation
             let event_nanos_after_trace_start = e.timestamp
                 .checked_sub(start_timestamp_nanos).unwrap();
@@ -572,20 +581,17 @@ fn create_html_span(
             }
         })
         .collect();
-    // let span_k_v: Vec<String> = vec![];
-    // let span_k_v = if !span_k_v.is_empty() {
-    //     format!(" - {}", span_k_v.join(", "))
-    // } else {
-    //     "".to_string()
-    // };
-    // let span_with_code_namespace = if let Some(code_namespace) =
-    //     span.key_values.iter().find(|kv| kv.key == "code.namespace")
-    // {
-    //     format!("{}::{}", code_namespace.value, span.name)
-    // } else {
+    let span_k_v: Vec<String> = span
+        .key_values
+        .iter()
+        .map(|(k, v)| format!("{k} => {v}"))
+        .collect();
+    let span_k_v = if !span_k_v.is_empty() {
+        format!(" - {}", span_k_v.join(", "))
+    } else {
+        "".to_string()
+    };
     let span_with_code_namespace = span.name.to_string();
-    // };
-    let span_k_v = "".to_string();
     let span_duration_ms_string = match span.duration {
         None => "still running".to_string(),
         Some(duration) => {

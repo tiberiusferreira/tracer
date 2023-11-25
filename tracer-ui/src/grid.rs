@@ -3,12 +3,16 @@ use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::{Event, MouseEvent};
 use leptos::*;
-use std::fmt::format;
 
-use api_structs::ui::search_grid::{ApiTraceGridRow, Autocomplete, SearchFor};
+use api_structs::ui::search_grid::{Autocomplete, SearchFor, TraceGridResponse};
 
+#[derive(PartialEq, Clone, Debug, Default)]
+pub struct UiTraceGridResponse {
+    pub rows: Vec<UiTraceGridRow>,
+    pub count: u32,
+}
 #[derive(PartialEq, Clone, Debug)]
-pub struct TraceGridRow {
+pub struct UiTraceGridRow {
     service_id: i64,
     id: i64,
     started_at: u64,
@@ -61,10 +65,10 @@ impl Default for UserSearchInput {
     }
 }
 
-async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<Vec<TraceGridRow>>) {
+async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTraceGridResponse>) {
     let url = format!("{}/api/traces-grid", API_SERVER_URL_NO_TRAILING_SLASH);
     log!("URL = {}", url);
-    let resp: Vec<ApiTraceGridRow> = gloo_net::http::Request::post(&url)
+    let resp: TraceGridResponse = gloo_net::http::Request::post(&url)
         .json(&search_data)
         .unwrap()
         .send()
@@ -73,9 +77,10 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<Vec<T
         .json()
         .await
         .unwrap();
-    let trace_grid: Vec<TraceGridRow> = resp
+    let rows: Vec<UiTraceGridRow> = resp
+        .rows
         .into_iter()
-        .map(|e| TraceGridRow {
+        .map(|e| UiTraceGridRow {
             service_id: e.service_id,
             id: e.id,
             duration: e.duration_ns,
@@ -103,7 +108,11 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<Vec<T
             event_bytes_count: e.event_bytes_count,
         })
         .collect();
-    api_response_w.set(trace_grid);
+
+    api_response_w.set(UiTraceGridResponse {
+        rows: rows,
+        count: resp.count,
+    });
 }
 
 async fn get_autocomplete_data(search_data: SearchFor, api_response_w: WriteSignal<Autocomplete>) {
@@ -178,7 +187,7 @@ where
 #[component]
 pub fn TraceGrid(root_path: String) -> impl IntoView {
     let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
-    let (api_response_r, api_response_w) = create_signal(Vec::<TraceGridRow>::new());
+    let (api_response_r, api_response_w) = create_signal(UiTraceGridResponse::default());
     let (api_autocomplete_r, api_autocomplete_w) = create_signal(Autocomplete::default());
     let search_data: Memo<SearchFor> = create_memo(move |_prev: Option<&SearchFor>| {
         user_search_input_r.with(|v| v.search_for.clone())
@@ -319,17 +328,12 @@ pub fn TraceGrid(root_path: String) -> impl IntoView {
     };
 
     let tracer_counter = move || {
-        let number_traces = api_response_r.get().len();
         let request_in_progress = request_in_progress.get();
-        let text = if number_traces >= 100 {
-            "99+ traces".to_string()
-        } else {
-            format!("{} traces", number_traces)
-        };
         if request_in_progress {
             view! { <p style="margin: 0; background-color: yellow">{"Updating..."}</p>}
         } else {
-            view! { <p style="margin: 0">{text}</p>}
+            let traces_count = api_response_r.with(|e| e.count);
+            view! { <p style="margin: 0">{format!("{} traces", traces_count)}</p>}
         }
     };
 
@@ -504,7 +508,7 @@ fn highlight(original: String, term: String) -> Fragment {
 #[component]
 pub fn TraceTable(
     root_path: String,
-    rows: Signal<(Vec<TraceGridRow>, UserSearchInput)>,
+    rows: Signal<(UiTraceGridResponse, UserSearchInput)>,
 ) -> impl IntoView {
     let headers = [
         view! {
@@ -560,9 +564,10 @@ pub fn TraceTable(
     ];
     let html_headers = headers.to_vec();
     let html_rows = {
-        move |rows: (Vec<TraceGridRow>, UserSearchInput)| {
+        move |rows: (UiTraceGridResponse, UserSearchInput)| {
             let user_search = rows.1;
             rows.0
+                .rows
                 .into_iter()
                 .map(|row| {
                     // let kv = row.key_value.map(|kv| format!("{} => {}", kv.key, kv.value));

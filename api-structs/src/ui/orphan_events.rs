@@ -1,4 +1,5 @@
 use crate::Severity;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServiceOrphanEventsRequest {
@@ -11,5 +12,6 @@ pub struct ServiceOrphanEventsRequest {
 pub struct OrphanEvent {
     pub timestamp: u64,
     pub severity: Severity,
-    pub value: String,
+    pub message: Option<String>,
+    pub key_vals: HashMap<String, String>,
 }

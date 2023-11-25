@@ -58,9 +58,12 @@ impl Sampler for TracerSampler {
 
     fn get_tracer_stats(&self) -> TracerStats {
         TracerStats {
-            spe_dropped_on_export: self.spe_dropped_buffer_full,
+            // TODO: move this
+            spe_buffer_capacity: 0,
+            spe_buffer_usage: 0,
+            spe_dropped_buffer_full: self.spe_dropped_buffer_full,
             orphan_events_per_minute_usage: self.orphan_events_per_minute_usage,
-            logs_per_minute_dropped: self.orphan_events_per_minute_dropped,
+            orphan_events_dropped_by_sampling_per_minute: self.orphan_events_per_minute_dropped,
             sampler_limits: self.sampler_limits.clone(),
             per_minute_trace_stats: self
                 .trace_stats
@@ -107,7 +110,7 @@ impl TracerSampler {
                     self.sampler_limits
                         .new_trace_span_plus_event_per_minute_per_trace_limit,
                 );
-                trace_stats.dropped_traces_per_minute = 0;
+                trace_stats.traces_dropped_by_sampling_per_minute = 0;
             }
         }
     }
@@ -118,9 +121,9 @@ impl TracerSampler {
     pub fn register_dropped_trace(&mut self, trace: &'static str) {
         let entry = self.trace_stats.entry(trace).or_insert(SingleTraceStat {
             spe_usage_per_minute: 0,
-            dropped_traces_per_minute: 0,
+            traces_dropped_by_sampling_per_minute: 0,
         });
-        entry.dropped_traces_per_minute += 1;
+        entry.traces_dropped_by_sampling_per_minute += 1;
     }
     #[allow(clippy::wrong_self_convention)]
     pub fn is_over_orphan_events_usage_limit(&mut self) -> bool {
@@ -133,7 +136,7 @@ impl TracerSampler {
 
         let trace_stats = self.trace_stats.entry(trace).or_insert(SingleTraceStat {
             spe_usage_per_minute: 0,
-            dropped_traces_per_minute: 0,
+            traces_dropped_by_sampling_per_minute: 0,
         });
         return trace_stats.spe_usage_per_minute
             >= self
@@ -146,7 +149,7 @@ impl TracerSampler {
 
         let trace_stats = self.trace_stats.entry(trace).or_insert(SingleTraceStat {
             spe_usage_per_minute: 0,
-            dropped_traces_per_minute: 0,
+            traces_dropped_by_sampling_per_minute: 0,
         });
         return trace_stats.spe_usage_per_minute
             >= self
@@ -160,7 +163,7 @@ impl TracerSampler {
     pub fn register_single_span_or_event(&mut self, trace: &'static str) {
         let trace_stats = self.trace_stats.entry(trace).or_insert(SingleTraceStat {
             spe_usage_per_minute: 0,
-            dropped_traces_per_minute: 0,
+            traces_dropped_by_sampling_per_minute: 0,
         });
         trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_add(1);
     }

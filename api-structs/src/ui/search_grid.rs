@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiTraceGridRow {
+pub struct TraceGridResponse {
+    pub rows: Vec<TraceGridRow>,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceGridRow {
     pub service_id: i64,
     pub id: i64,
     pub service_name: String,

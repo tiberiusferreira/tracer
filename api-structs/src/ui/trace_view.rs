@@ -2,6 +2,7 @@ use crate::Severity;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct SingleChunkTraceQuery {
@@ -36,15 +37,18 @@ pub struct Span {
     pub parent_id: Option<i64>,
     pub duration: Option<u64>,
     pub name: String,
-    pub events: Vec<Events>,
+    pub relocated: bool,
+    pub events: Vec<Event>,
+    pub key_values: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Events {
+pub struct Event {
     pub timestamp: u64,
-    pub name: Option<String>,
+    pub message: Option<String>,
     pub severity: Severity,
-    // pub key_values: Vec<KeyValue>,
+    pub relocated: bool,
+    pub key_values: HashMap<String, String>,
 }
 
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

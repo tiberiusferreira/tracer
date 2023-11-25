@@ -47,7 +47,8 @@ pub fn Services(root_path: String) -> impl IntoView {
                         .new_trace_span_plus_event_per_minute_per_trace_limit;
                     let mut html_trace_stats = vec![];
                     for (trace_name, trace_stats) in stats.per_minute_trace_stats {
-                        let dropped_traces_per_minute = trace_stats.dropped_traces_per_minute;
+                        let dropped_traces_per_minute =
+                            trace_stats.traces_dropped_by_sampling_per_minute;
                         let spe_usage_per_minute = trace_stats.spe_usage_per_minute;
                         html_trace_stats.push(view!{
                             <tr class={"row-container"}>
@@ -71,7 +72,20 @@ pub fn Services(root_path: String) -> impl IntoView {
                         <label for="filters">"RUST_LOG Filters: "</label>
                         <input type="text" id="filters" name="filters" node_ref=input_element value={instance.filters} size="100" />
                         <button style="margin-left: 5px" on:click=increment>"Apply"</button>
-                        <p>{format!("{}/{} (logs per/min)   {} (logs dropped per/min)  {} open trace SpE limit", stats.orphan_events_per_minute_usage, logs_per_minute_limit, stats.logs_per_minute_dropped, stats.sampler_limits.existing_trace_span_plus_event_per_minute_limit)}</p>
+                        <div style="display: flex">
+                            <div>
+                                <p style={"background-color: rgba(255,255,255,0.05); padding: 5px; margin-right: 10px"}>{format!("{}/{} (logs per/min)", stats.orphan_events_per_minute_usage, logs_per_minute_limit)}</p>
+                            </div>
+                            <div>
+                                <p style={"background-color: rgba(255,255,255,0.05); padding: 5px; margin-right: 10px"}>{format!("{} (logs dropped per/min)", stats.orphan_events_dropped_by_sampling_per_minute)}</p>
+                            </div>
+                            <div>
+                                <p style={"background-color: rgba(255,255,255,0.05); padding: 5px; margin-right: 10px"}>{format!("{}/{} (export buffer usage)", stats.spe_buffer_usage, stats.spe_buffer_capacity)}</p>
+                            </div>
+                            <div>
+                                <p style={"background-color: rgba(255,255,255,0.05); padding: 5px; margin-right: 10px"}>{format!("{} (SpE lost due to full buffer)",stats.spe_dropped_buffer_full)}</p>
+                            </div>
+                        </div>
                         <table class="trace-table">
                             <tr class="row-container">
                                 <th class="trace-table__cell">
@@ -81,7 +95,7 @@ pub fn Services(root_path: String) -> impl IntoView {
                                     <a>{format!("SpE/min New Trace Limit {} - Existing Trace Limit {}", stats.sampler_limits.new_trace_span_plus_event_per_minute_per_trace_limit, stats.sampler_limits.existing_trace_span_plus_event_per_minute_limit)}</a>
                                 </th>
                                 <th class="trace-table__cell">
-                                    <a>"Dropped SpE/min"</a>
+                                    <a>"Traces dropped by sampling"</a>
                                 </th>
                             </tr>
                             {html_trace_stats}

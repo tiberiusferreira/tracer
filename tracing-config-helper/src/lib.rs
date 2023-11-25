@@ -83,7 +83,7 @@ pub struct TracerConfig {
     pub sleep_duration_between_exports: Duration,
     pub sampler_limits: SamplerLimits,
     /// Maximum number of span plus events to keep in memory at a given time
-    pub maximum_span_plus_event_buffer: u32,
+    pub spe_buffer_capacity: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -112,13 +112,13 @@ impl TracerConfig {
             service_name,
             initial_filters: std::env::var("RUST_LOG").unwrap_or_default(),
             export_timeout: Duration::from_secs(10),
-            sleep_duration_between_exports: Duration::from_secs(10),
+            sleep_duration_between_exports: Duration::from_secs(3),
             sampler_limits: SamplerLimits {
                 new_trace_span_plus_event_per_minute_per_trace_limit: 1000,
                 existing_trace_span_plus_event_per_minute_limit: 5000,
                 logs_per_minute_limit: 1000,
             },
-            maximum_span_plus_event_buffer: 10_000,
+            spe_buffer_capacity: 10_000,
         }
     }
     pub fn with_export_timeout(mut self, duration: Duration) {
@@ -330,8 +330,7 @@ impl ExportDataContainers {
 
 async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
     println!("Initializing Tracer using:\n{:#?}", config);
-    let spe_buffer_len =
-        usize::try_from(config.maximum_span_plus_event_buffer).expect("u32 to fit usize");
+    let spe_buffer_len = usize::try_from(config.spe_buffer_capacity).expect("u32 to fit usize");
     let filter = EnvFilter::builder()
         .parse(&config.initial_filters)
         .expect("initial filters to be valid");
@@ -355,6 +354,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         ));
 
     let trace_export_task = tokio::task::spawn_local(async move {
+        let spe_buffer_capacity = config.spe_buffer_capacity;
         let client = reqwest::Client::new();
         let context = "trace_export_task";
         loop {
@@ -364,18 +364,22 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             let current_filters = reload_handle
                 .with_current(|c| c.to_string())
                 .expect("subscriber to exist");
-            let mut export_data = ExportDataContainers::new(
-                service_id,
-                config.service_name.to_string(),
-                current_filters,
-                tracer_sampler.read().get_tracer_stats(),
-            );
             print_if_dbg(context, "Checking for new events");
             // we need this because events come in reverse order
             let mut events = VecDeque::new();
             while let Ok(event) = subscriber_event_receiver.try_recv() {
                 events.push_back(event);
             }
+            let mut tracer_stats = tracer_sampler.read().get_tracer_stats();
+            tracer_stats.spe_buffer_capacity = spe_buffer_capacity;
+            tracer_stats.spe_buffer_usage = events.len() as u32;
+            let mut export_data = ExportDataContainers::new(
+                service_id,
+                config.service_name.to_string(),
+                current_filters,
+                tracer_stats,
+            );
+
             print_if_dbg(context, format!("New events count: {}", events.len()));
             print_if_dbg(context, format!("Event List: {:#?}", events));
             for e in events {

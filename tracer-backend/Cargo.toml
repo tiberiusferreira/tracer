@@ -30,8 +30,6 @@ chrono.workspace = true
 
 api-structs = {path="../api-structs"}
 connection = {path="../connection"}
-#futures-util = "0.3.28"
-#futures-concurrency = "7.3.0"
 tokio-stream = "0.1"
 [dependencies.tracing-config-helper]
 version = "0.1.0"
