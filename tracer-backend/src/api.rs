@@ -25,6 +25,7 @@ use tokio::task::{spawn_local, JoinHandle};
 use tracing::instrument::Instrumented;
 use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
+pub mod database;
 pub mod handlers;
 
 #[derive(Clone)]
@@ -470,7 +471,7 @@ async fn get_top_level_span_autocomplete_data(
     }
 }
 
-#[instrument(skip_all)]
+#[instrument(level = "error", skip_all)]
 async fn autocomplete_data_post(
     State(app_state): State<AppState>,
     search_for: Json<SearchFor>,
@@ -504,7 +505,7 @@ async fn autocomplete_data_post(
         top_level_spans: top_level_spans?,
     }))
 }
-#[instrument(skip_all)]
+#[instrument(level = "error", skip_all)]
 async fn traces_grid_post(
     State(app_state): State<AppState>,
     search_for: Json<SearchFor>,
@@ -640,7 +641,7 @@ pub async fn get_trace_timestamp_chunks(
     }
 }
 
-#[instrument(skip_all, fields(trace_id=single_trace_query.trace_id))]
+#[instrument(level="error", skip_all, fields(trace_id=single_trace_query.trace_id))]
 async fn get_single_trace_chunk_list(
     axum::extract::Query(single_trace_query): axum::extract::Query<TraceId>,
     axum::extract::State(app_state): axum::extract::State<AppState>,
@@ -659,7 +660,7 @@ async fn get_single_trace_chunk_list(
     Ok(Json(trace_ids))
 }
 
-#[instrument(skip_all, err(Debug))]
+#[instrument(level = "error", skip_all, err(Debug))]
 async fn get_single_trace(
     axum::extract::Query(single_trace_query): axum::extract::Query<SingleChunkTraceQuery>,
     axum::extract::State(app_state): axum::extract::State<AppState>,

@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select span.id,\n                      span.timestamp,\n                      span.parent_id,\n                      span.duration,\n                      span.name,\n                      span.relocated,\n                      COALESCE(span_key_value.key_values, '{}') as key_values\n               from (select span.id,\n                            span.timestamp,\n                            span.parent_id,\n                            span.duration,\n                            span.name,\n                            span.relocated\n                     from span\n                     where span.service_id = $1\n                       and span.trace_id = $2\n                       and\n                       -- (start inside window or end inside window)\n                         ((\n                                  (span.timestamp >= $3 and span.timestamp <= $4)\n                                  or\n                                  (span.duration is null or\n                                   ((span.timestamp + span.duration) >= $3 and\n                                    (span.timestamp + span.duration) <= $4))\n                              )\n                             -- or\n                             -- start before window and end after window\n                             or (span.timestamp <= $3 and\n                                 (span.duration is null or (span.timestamp + span.duration) > $4)))) as span\n                        left join (select span_id,\n                                         json_object_agg(\n                                                   span_key_value.key,\n                                                   span_key_value.value\n                                                   ) as key_values\n                                   from span_key_value\n                                   where span_key_value.service_id = $1\n                                     and span_key_value.trace_id = $2\n                                     and span_key_value.timestamp >= $3\n                                     and span_key_value.timestamp <= $4\n                                   group by span_id) as span_key_value on span_key_value.span_id = span.id;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "parent_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "duration",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "relocated",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "key_values",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "a8297b218eb33987d895b1e74e3f4289f7ebd49374d4d1183452487c829b0722"
+}

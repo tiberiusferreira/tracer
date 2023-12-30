@@ -548,7 +548,7 @@ pub fn TraceTable(
         },
         view! {
             <th class="trace-table__cell">
-                <a>"Event bytes"</a>
+                <a>"Event kb"</a>
             </th>
         },
         view! {
@@ -597,10 +597,10 @@ pub fn TraceTable(
                                 // utc_to_local_date(timestamp, offset_minutes).format("%Y-%m-%d %H:%M:%S").to_string()
                             }
                         </td>
-                        <td class="trace-table__cell">{crate::printable_local_date(row.updated_at)}</td>
+                        <td class="trace-table__cell">{format!("{} - {} s ago", crate::printable_local_date(row.updated_at), crate::secs_since(row.updated_at))}</td>
                         <td class="trace-table__cell">{format!("{} / {}", row.original_span_count, row.original_span_count as i64 - row.stored_span_count as i64)}</td>
                         <td class="trace-table__cell">{format!("{} / {}", row.original_event_count, row.original_event_count as i64 - row.stored_event_count as i64)}</td>
-                        <td class="trace-table__cell">{row.event_bytes_count}</td>
+                        <td class="trace-table__cell">{row.event_bytes_count/1000}</td>
                         <td class="trace-table__cell">{row.warning_count}</td>
                         <td class="trace-table__cell">
                             <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, row.service_id, row.id, row.started_at)}>{"➔"}</a>

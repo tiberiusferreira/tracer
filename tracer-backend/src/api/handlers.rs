@@ -12,8 +12,9 @@ use reqwest::StatusCode;
 use sqlx::postgres::PgQueryResult;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::ops::{Deref, DerefMut};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 #[derive(Debug, Clone, sqlx::Type)]
 #[sqlx(type_name = "severity_level", rename_all = "lowercase")]
@@ -118,7 +119,7 @@ pub fn db_i64_to_nanos(db_i64: i64) -> Result<u64, ApiError> {
     })
 }
 
-#[instrument(skip_all)]
+#[instrument(level = "error", skip_all)]
 pub(crate) async fn logs_get(
     service_log_request: Query<ServiceOrphanEventsRequest>,
     State(app_state): State<AppState>,
@@ -170,7 +171,7 @@ limit 100000;"#,
             .collect(),
     ))
 }
-#[instrument(skip_all)]
+#[instrument(level = "error", skip_all)]
 pub(crate) async fn orphan_events_service_names_get(
     State(app_state): State<AppState>,
 ) -> Result<Json<Vec<ServiceName>>, ApiError> {
@@ -183,7 +184,7 @@ pub(crate) async fn orphan_events_service_names_get(
     Ok(Json(service_list))
 }
 
-#[instrument(skip_all)]
+#[instrument(level = "error", skip_all)]
 pub(crate) async fn instances_get(
     State(app_state): State<AppState>,
 ) -> Result<Json<api_structs::ui::live_services::LiveInstances>, ApiError> {
@@ -339,6 +340,10 @@ async fn insert_new_trace(
     top_level_span_name: &str,
     timestamp: u64,
 ) -> Result<(), sqlx::Error> {
+    info!(
+        "Inserting trace header information for: {}",
+        top_level_span_name
+    );
     let now_nanos = now_nanos_u64();
     if let Err(e) = sqlx::query!(
         "insert into trace (service_id, id, service_name, timestamp, top_level_span_name,
@@ -411,6 +416,7 @@ pub async fn update_trace_with_new_fragment(
     service_name: &str,
     mut fragment: TraceFragment,
 ) -> Result<(), sqlx::Error> {
+    info!("fragment for: {}", fragment.trace_name);
     fragment.new_events.sort_by_key(|e| e.timestamp);
     fragment.new_spans.sort_by_key(|e| e.timestamp);
     let db_trace = get_db_trace(&con, service_id, fragment.trace_id).await?;
@@ -511,7 +517,10 @@ pub async fn update_trace_with_new_fragment(
         fragment.trace_id,
     );
     debug!("Trying to start transaction");
-    let mut transaction = con.begin().await?;
+    let mut transaction = con
+        .begin()
+        .instrument(info_span!("start_transaction"))
+        .await?;
     debug!("Started!");
     if !trace_already_exists {
         insert_new_trace(
@@ -532,7 +541,7 @@ pub async fn update_trace_with_new_fragment(
         &relocated_span_ids,
     )
     .await?;
-    insert_events(
+    crate::api::database::insert_events(
         &mut transaction,
         &fragment.new_events,
         fragment.trace_id,
@@ -720,7 +729,6 @@ fn truncate_string(string: &str, max_chars: usize) -> String {
     string.chars().take(max_chars).collect::<String>()
 }
 
-#[instrument(skip_all)]
 fn truncate_key_values(key_vals: &mut HashMap<String, String>) {
     let keys_too_big: HashMap<String, String> = key_vals
         .keys()
@@ -788,11 +796,35 @@ fn truncate_orphan_events_if_needed(events: &mut Vec<NewOrphanEvent>) {
     }
 }
 
-#[instrument(skip_all, err(Debug))]
+#[instrument(level = "error", skip_all, err(Debug))]
 pub async fn collector_trace_data_post(
     State(app_state): State<AppState>,
-    Json(trace_data): Json<ExportedServiceTraceData>,
+    compressed_json: axum::body::Bytes,
 ) -> Result<(), ApiError> {
+    let compressed_json = compressed_json.to_vec();
+    let mut reader = brotli::Decompressor::new(
+        compressed_json.as_slice(),
+        16384, // buffer size
+    );
+    let mut json = String::new();
+    reader.read_to_string(&mut json).map_err(|e| {
+        error!("Error decompressing request body: {e:#?}");
+        ApiError {
+            code: StatusCode::BAD_REQUEST,
+            message: "Error reading compressed request body".to_string(),
+        }
+    })?;
+    let trace_data: ExportedServiceTraceData =
+        serde_json::from_str(json.as_str()).map_err(|e| {
+            error!(
+                "Invalid Json in request body: {}\n{e:#?}",
+                json.chars().take(5000).collect::<String>()
+            );
+            ApiError {
+                code: StatusCode::BAD_REQUEST,
+                message: "Decoded into string, but json was invalid".to_string(),
+            }
+        })?;
     let con = app_state.con;
     update_instance_data(&app_state.live_instances, &trace_data);
     let service_id = trace_data.service_id;
@@ -858,111 +890,6 @@ async fn update_trace_header(
     Ok(())
 }
 
-pub(crate) async fn insert_events(
-    con: &mut Transaction<'static, Postgres>,
-    new_events: &[NewSpanEvent],
-    trace_id: u64,
-    service_id: i64,
-    relocated_event_vec_indexes: &HashSet<usize>,
-) -> Result<(), sqlx::Error> {
-    info!("Inserting {} events", new_events.len());
-    for e in new_events {
-        trace!("Inserting event: {:?}", e);
-    }
-
-    let service_ids: Vec<i64> = new_events.iter().map(|_s| service_id).collect();
-    let trace_ids: Vec<i64> = new_events.iter().map(|_s| trace_id as i64).collect();
-    let timestamps: Vec<i64> = new_events.iter().map(|s| s.timestamp as i64).collect();
-    let relocateds: Vec<bool> = new_events
-        .iter()
-        .enumerate()
-        .map(|(idx, _e)| relocated_event_vec_indexes.contains(&idx))
-        .collect();
-    let span_ids: Vec<i64> = new_events.iter().map(|s| s.span_id as i64).collect();
-    let names: Vec<Option<String>> = new_events.iter().map(|s| s.message.clone()).collect();
-    let severities: Vec<Severity> = new_events.iter().map(|s| Severity::from(s.level)).collect();
-    let db_event_ids: Vec<i64> = match sqlx::query_scalar!(
-            "insert into event (service_id, trace_id, span_id, timestamp, message, severity, relocated)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]) returning id;",
-            &service_ids,
-            &trace_ids,
-            &span_ids,
-            &timestamps,
-            &names as &Vec<Option<String>>,
-            severities.as_slice() as &[Severity],
-            &relocateds,
-        )
-        .fetch_all(con.deref_mut())
-        .await{
-        Ok(ids) => {
-            info!(inserted_events_count=ids.len(),"Inserted events");
-            ids
-        }
-        Err(e) => {
-            error!("Error when inserting events");            
-            error!("service_ids={:?}", service_ids);            
-            error!("trace_id={:?}", trace_id);            
-            error!("span_ids={:?}", span_ids);            
-            error!("timestamps={:?}", timestamps);    
-            for name in names{
-                error!("name={:?}", name);            
-            }
-            error!("severities={:?}", severities);            
-            error!("relocateds={:?}", relocateds);         
-            return Err(e);
-        }
-    };
-
-    let mut kv_service_id = vec![];
-    let mut kv_trace_id = vec![];
-    let mut kv_span_id = vec![];
-    let mut kv_event_id = vec![];
-    let mut kv_key = vec![];
-    let mut kv_value = vec![];
-    let mut kv_timestamp = vec![];
-    for (idx, span) in new_events.iter().enumerate() {
-        for (key, val) in &span.key_vals {
-            kv_service_id.push(service_id);
-            kv_trace_id.push(trace_id as i64);
-            kv_span_id.push(span.span_id as i64);
-            kv_event_id.push(db_event_ids[idx]);
-            kv_key.push(key.as_str());
-            kv_value.push(val.as_str());
-            kv_timestamp.push(span.timestamp as i64);
-        }
-    }
-    info!("Inserting {} event key-values", kv_service_id.len());
-    match sqlx::query!(
-            "insert into event_key_value (service_id, trace_id, span_id, event_id, key, value, timestamp)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[], $7::BIGINT[]);",
-            &kv_service_id,
-            &kv_trace_id,
-            &kv_span_id,
-            &kv_event_id,
-            &kv_key as &Vec<&str>,
-            &kv_value as &Vec<&str>,
-            &kv_timestamp
-        )
-        .execute(con.deref_mut())
-        .await {
-        Ok(_) => {
-            info!("Inserted span key-values");
-        },
-        Err(e) => {
-            error!("Error when inserting span key-values");
-            error!("kv_service_id: {:?}", kv_service_id);
-            error!("kv_trace_id: {:?}", kv_trace_id);
-            error!("kv_span_id: {:?}", kv_span_id);
-            error!("kv_timestamp: {:?}", kv_timestamp);
-            error!("kv_key: {:?}", kv_key);
-            error!("kv_value: {:?}", kv_value);
-            return Err(e)
-        }
-    };
-
-    Ok(())
-}
-
 #[instrument(skip_all)]
 pub(crate) async fn insert_spans(
     con: &mut Transaction<'static, Postgres>,
@@ -971,7 +898,12 @@ pub(crate) async fn insert_spans(
     service_id: i64,
     relocated_span_ids: &HashSet<u64>,
 ) -> Result<(), sqlx::Error> {
-    info!("Inserting {} spans", new_spans.len());
+    if new_spans.is_empty() {
+        info!("No spans to insert");
+        return Ok(());
+    } else {
+        info!("Inserting {} spans", new_spans.len());
+    }
     let span_ids: Vec<i64> = new_spans.iter().map(|s| s.id as i64).collect();
     let service_ids: Vec<i64> = new_spans.iter().map(|_s| service_id).collect();
     let trace_ids: Vec<i64> = new_spans.iter().map(|_s| trace_id as i64).collect();
@@ -1035,7 +967,12 @@ pub(crate) async fn insert_spans(
             kv_value.push(val.as_str());
         }
     }
-    info!("Inserting {} span key-values", kv_service_id.len());
+    if kv_service_id.is_empty() {
+        info!("No span key-values to insert");
+        return Ok(());
+    } else {
+        info!("Inserting {} span key-values", kv_service_id.len());
+    }
     match sqlx::query!(
             "insert into span_key_value (service_id, trace_id, span_id, timestamp, key, value)
             select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[]);",

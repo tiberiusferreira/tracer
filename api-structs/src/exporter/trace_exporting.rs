@@ -1,8 +1,7 @@
-pub use crate::SamplerLimits;
+use crate::exporter::status::TracerStatus;
 pub use crate::Severity;
-pub use crate::SingleTraceStat;
-pub use crate::TracerStats;
 use std::collections::HashMap;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedServiceTraceData {
     pub service_id: i64,
@@ -13,7 +12,7 @@ pub struct ExportedServiceTraceData {
     pub closed_spans: Vec<ClosedSpan>,
     pub orphan_events: Vec<NewOrphanEvent>,
     pub filters: String,
-    pub tracer_stats: TracerStats,
+    pub tracer_stats: TracerStatus,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

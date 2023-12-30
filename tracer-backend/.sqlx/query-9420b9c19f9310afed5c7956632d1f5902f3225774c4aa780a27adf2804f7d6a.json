@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id from span where trace_id=$1 and service_id=$2 and id = ANY($3::BIGINT[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9420b9c19f9310afed5c7956632d1f5902f3225774c4aa780a27adf2804f7d6a"
+}

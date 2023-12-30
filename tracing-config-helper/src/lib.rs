@@ -4,10 +4,11 @@
 //!
 
 use api_structs::exporter::trace_exporting::{
-    ExportedServiceTraceData, SamplerLimits, SpanEventCount, TraceFragment, TracerStats,
+    ExportedServiceTraceData, SpanEventCount, TraceFragment,
 };
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
+use std::io::Read;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -58,8 +59,9 @@ pub struct TracerTracingSubscriber {
 
 use crate::sampling::{Sampler, TracerSampler};
 
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
 
+use api_structs::exporter::status::{SamplerLimits, TracerStatus};
 use api_structs::Severity;
 use rand::random;
 use serde::{Deserialize, Serialize};
@@ -71,16 +73,17 @@ pub struct TracerConfig {
     pub collector_url: String,
     /// Which kind of environment its running at
     pub env: Env,
-    /// The name to advertise this service as, should normally be the binary name
+    /// The name to advertise this service as, should normally be the binary name which can be obtained from using
+    /// env!("CARGO_BIN_NAME")
     pub service_name: String,
     /// The initial filters. Initial because these can be changed during runtime and this field does not reflect that
     /// change
     pub initial_filters: String,
-    /// Timeout when exporting data
+    /// How long to wait for when exporting data before timing out
     pub export_timeout: Duration,
-    /// How long to sleep between exports. A short duration will flood the collector and a long one will cause the
-    /// export buffers to fill up. Stats are also exported on this schedule
-    pub sleep_duration_between_exports: Duration,
+    /// How long to wait between exports. A short duration will flood the collector and a long one will cause the
+    /// export buffers to fill up. Stats are also exported on this schedule.
+    pub wait_duration_between_exports: Duration,
     pub sampler_limits: SamplerLimits,
     /// Maximum number of span plus events to keep in memory at a given time
     pub spe_buffer_capacity: u32,
@@ -110,12 +113,15 @@ impl TracerConfig {
             collector_url,
             env,
             service_name,
-            initial_filters: std::env::var("RUST_LOG").unwrap_or_default(),
+            initial_filters: std::env::var("RUST_LOG").unwrap_or_else(|_| {
+                println!("RUST_LOG not found, defaulting to info");
+                "info".to_string()
+            }),
             export_timeout: Duration::from_secs(10),
-            sleep_duration_between_exports: Duration::from_secs(3),
+            wait_duration_between_exports: Duration::from_secs(3),
             sampler_limits: SamplerLimits {
-                new_trace_span_plus_event_per_minute_per_trace_limit: 1000,
-                existing_trace_span_plus_event_per_minute_limit: 5000,
+                trace_spe_per_minute_per_trace_limit: 1000,
+                extra_spe_per_minute_limit_for_existing_traces: 5000,
                 logs_per_minute_limit: 1000,
             },
             spe_buffer_capacity: 10_000,
@@ -129,16 +135,17 @@ impl TracerConfig {
             duration.as_secs() >= 2,
             "Sleep between exports needs to be at least 2s to not flood collector"
         );
-        self.sleep_duration_between_exports = duration
+        self.wait_duration_between_exports = duration
     }
     pub fn with_limits(mut self, sampler_limits: SamplerLimits) {
         self.sampler_limits = sampler_limits
     }
 }
 
-pub async fn setup_tracer_client_or_panic(config: TracerConfig) {
+pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> FlushRequester {
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
     // runtime starved from CPU time
+    let (s, r) = tokio::sync::oneshot::channel();
     let _thread_handle = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -151,16 +158,20 @@ pub async fn setup_tracer_client_or_panic(config: TracerConfig) {
             tokio::task::LocalSet::new()
                 .run_until(async {
                     let export_flusher_handle = setup_tracer_client_or_panic_impl(config).await;
+                    s.send(export_flusher_handle.flush_request_sender.clone())
+                        .unwrap();
                     export_flusher_handle.wait_or_panic().await;
                 })
                 .await;
         });
     });
+    r.await.unwrap()
 }
 
 struct TracerTasks {
     sse_task: JoinHandle<()>,
     trace_export_task: JoinHandle<()>,
+    flush_request_sender: FlushRequester,
 }
 
 impl TracerTasks {
@@ -218,7 +229,7 @@ impl ExportDataContainers {
         service_id: i64,
         service_name: String,
         filters: String,
-        tracer_stats: TracerStats,
+        tracer_stats: TracerStatus,
     ) -> Self {
         Self {
             data: ExportedServiceTraceData {
@@ -328,8 +339,49 @@ impl ExportDataContainers {
     }
 }
 
+struct FlushRequest {
+    respond_to: tokio::sync::oneshot::Sender<Result<(), String>>,
+}
+impl FlushRequest {
+    fn new() -> (
+        tokio::sync::oneshot::Receiver<Result<(), String>>,
+        FlushRequest,
+    ) {
+        let (sender, receiver) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        (receiver, Self { respond_to: sender })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FlushRequester {
+    sender_channel: Sender<FlushRequest>,
+}
+
+impl FlushRequester {
+    fn new() -> (Receiver<FlushRequest>, FlushRequester) {
+        let (sender, receiver) = tokio::sync::mpsc::channel::<FlushRequest>(1);
+        (
+            receiver,
+            Self {
+                sender_channel: sender,
+            },
+        )
+    }
+    pub async fn flush(&self, timeout: Duration) -> Result<(), String> {
+        let (receiver, request) = FlushRequest::new();
+        self.sender_channel.try_send(request).map_err(|_e| {
+            "Error sending request receiving channel is closed or blocked".to_string()
+        })?;
+        tokio::time::timeout(timeout, receiver)
+            .await
+            .map_err(|_e| "Timeout waiting".to_string())?
+            .map_err(|_e| "Error getting response".to_string())?
+    }
+}
+
 async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
     println!("Initializing Tracer using:\n{:#?}", config);
+    let (mut flush_request_receiver, flush_request_sender) = FlushRequester::new();
     let spe_buffer_len = usize::try_from(config.spe_buffer_capacity).expect("u32 to fit usize");
     let filter = EnvFilter::builder()
         .parse(&config.initial_filters)
@@ -357,10 +409,35 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         let spe_buffer_capacity = config.spe_buffer_capacity;
         let client = reqwest::Client::new();
         let context = "trace_export_task";
+
         loop {
-            let period_time_secs = config.sleep_duration_between_exports;
-            print_if_dbg(context, format!("Sleeping {}s", period_time_secs.as_secs()));
-            tokio::time::sleep(period_time_secs).await;
+            let period_time_secs = config.wait_duration_between_exports;
+            print_if_dbg(
+                context,
+                format!(
+                    "Sleeping {}s or until flush request",
+                    period_time_secs.as_secs()
+                ),
+            );
+            let flush_request = tokio::select! {
+                _ = tokio::time::sleep(period_time_secs) => {
+                    print_if_dbg(context, format!("Slept"));
+                    None
+                },
+                received_val = flush_request_receiver.recv() => {
+                    match received_val{
+                        Some(flush_request) => {
+                            print_if_dbg(context, format!("Got flush request"));
+                            Some(flush_request)
+                        }
+                        None => {
+                            print_if_dbg(context, format!("Flush request channel is closed, sleeping"));
+                            tokio::time::sleep(period_time_secs).await;
+                            None
+                        }
+                    }
+                },
+            };
             let current_filters = reload_handle
                 .with_current(|c| c.to_string())
                 .expect("subscriber to exist");
@@ -390,9 +467,31 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                 serde_json::to_string(&export_data.data).expect("export data to be serializable");
             print_if_dbg(
                 context,
-                format!("Exporting: {} bytes", export_data_json.len(),),
+                format!(
+                    "Response before compression: {} bytes",
+                    export_data_json.len()
+                ),
             );
-            match client
+
+            let lg_window_size = 21;
+            let quality = 4;
+            let mut input = brotli::CompressorReader::new(
+                export_data_json.as_bytes(),
+                4096,
+                quality as u32,
+                lg_window_size as u32,
+            );
+            let mut export_data_json: Vec<u8> = Vec::with_capacity(100 * 1000);
+            input.read_to_end(&mut export_data_json).unwrap();
+            print_if_dbg(
+                context,
+                format!(
+                    "Response after compression: {} bytes",
+                    export_data_json.len()
+                ),
+            );
+
+            let send_result = match client
                 .post(format!("{}/collector/trace_data", config.collector_url))
                 .body(export_data_json)
                 .header("Content-Type", "application/json")
@@ -405,18 +504,30 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                         context,
                         format!("Sent events and got success response: {response:#?}"),
                     );
+                    Ok(())
                 }
                 Ok(response) => {
                     let status = response.status();
-                    print_if_dbg(
-                        context,
-                        format!(
-                            "Sent events, but got fail response: {status}.\nResponse:{response:#?}"
-                        ),
+                    let err = format!(
+                        "Sent events, but got fail response: {status}.\nResponse:{response:#?}"
                     );
+                    print_if_dbg(context, &err);
+                    Err(err)
                 }
                 Err(e) => {
+                    let err = format!("Error sending events: {e:#?}");
                     print_if_dbg(context, format!("Error sending events: {e:#?}"));
+                    Err(err)
+                }
+            };
+            if let Some(flush_request) = flush_request {
+                match flush_request.respond_to.send(send_result) {
+                    Ok(_) => {
+                        println!("Responded to flush request");
+                    }
+                    Err(_e) => {
+                        println!("Error responding to flush request");
+                    }
                 }
             }
         }
@@ -424,5 +535,6 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
     TracerTasks {
         sse_task,
         trace_export_task,
+        flush_request_sender,
     }
 }

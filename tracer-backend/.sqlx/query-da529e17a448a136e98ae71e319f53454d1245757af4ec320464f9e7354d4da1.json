@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into orphan_event (timestamp, service_name, severity, message) select * from unnest($1::BIGINT[], $2::TEXT[], $3::severity_level[], $4::TEXT[]) returning id;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "TextArray",
+        {
+          "Custom": {
+            "name": "_severity_level",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "severity_level",
+                  "kind": {
+                    "Enum": [
+                      "trace",
+                      "debug",
+                      "info",
+                      "warn",
+                      "error"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "da529e17a448a136e98ae71e319f53454d1245757af4ec320464f9e7354d4da1"
+}

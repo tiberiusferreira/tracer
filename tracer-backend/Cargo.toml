@@ -13,12 +13,14 @@ tower-http = {version="0.4", features=['cors', 'fs']}
 
 reqwest = "0.11"
 serde_json = "1"
-tokio = { version = "1", features = ["rt"]}
+tokio = { version = "1", features = ["rt", "macros"]}
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenv = "0.15"
 sqlx = {version = "0.7", features=["runtime-tokio-native-tls", "postgres", "chrono", "json"]}
 futures = "0.3"
-brotli = "3"
+thiserror = "1.0.50"
+anyhow = "1.0.75"
+brotli.workspace=true
 serde.workspace = true
 parking_lot = "0.12"
 uuid = {version="1"}
@@ -29,7 +31,6 @@ tracing-subscriber.workspace = true
 chrono.workspace = true
 
 api-structs = {path="../api-structs"}
-connection = {path="../connection"}
 tokio-stream = "0.1"
 [dependencies.tracing-config-helper]
 version = "0.1.0"

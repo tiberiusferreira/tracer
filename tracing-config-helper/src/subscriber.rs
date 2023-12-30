@@ -1,7 +1,8 @@
 use crate::sampling::{Sampler, TracerSampler};
 use crate::{print_if_dbg, NewSpan, NewSpanEvent, SubscriberEvent, TracerTracingSubscriber};
+use api_structs::exporter::status::SamplerLimits;
 use api_structs::exporter::trace_exporting::{
-    ClosedSpan, NewOrphanEvent, SamplerLimits, Severity, SpanEventCount,
+    ClosedSpan, NewOrphanEvent, Severity, SpanEventCount,
 };
 use api_structs::time_conversion::now_nanos_u64;
 use std::collections::HashMap;
@@ -158,7 +159,9 @@ impl TracerTracingSubscriber {
                     context,
                     format!("Send failed for event {:#?}", subscriber_event),
                 );
-                self.sampler.write().register_soe_dropped_on_export();
+                self.sampler
+                    .write()
+                    .register_soe_dropped_due_to_full_export_buffer();
             }
         }
     }

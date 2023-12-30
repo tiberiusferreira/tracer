@@ -89,7 +89,7 @@ fn printable_local_date(timestamp: u64) -> String {
     )
     .unwrap();
     crate::grid::utc_to_local_date(timestamp, offset_minutes)
-        .format("%Y-%m-%d %H:%M:%S")
+        .format("%m-%d %H:%M:%S")
         .to_string()
 }
 
@@ -103,7 +103,7 @@ fn printable_local_date_ms(timestamp: u64) -> String {
     )
     .unwrap();
     grid::utc_to_local_date(timestamp, offset_minutes)
-        .format("%Y-%m-%d %H:%M:%S%.6f")
+        .format("%m-%d %H:%M:%S%.6f")
         .to_string()
 }
 

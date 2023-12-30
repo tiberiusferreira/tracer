@@ -11,5 +11,5 @@ serde_with.workspace = true
 thiserror.workspace = true
 tracing = "0.1"
 serde_json = "1.0"
-chrono = {version = "0.4.23", features = ['serde']}
+chrono.workspace = true
 

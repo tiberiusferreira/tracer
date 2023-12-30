@@ -5,7 +5,7 @@ members = [
     "tracer-ui",
     "api-structs",
     "tracing-config-helper",
-    "connection"
+    "tracer-tester",
 ]
 
 
@@ -15,4 +15,5 @@ serde_with = "3.3.0"
 tracing = "0.1.37"
 tracing-subscriber = {version = "0.3.16", features=['env-filter', 'json']}
 thiserror = "1.0"
-chrono = {version = "0.4", features = ['serde']}
+chrono = {version = "0.4.31", features = ['serde']}
+brotli = "3"

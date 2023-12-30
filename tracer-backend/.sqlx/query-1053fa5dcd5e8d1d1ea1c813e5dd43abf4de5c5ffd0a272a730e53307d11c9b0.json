@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select COUNT(*) as \"count!\"\nfrom trace\nwhere trace.updated_at >= $1::BIGINT\n  and trace.updated_at <= $2::BIGINT\n  and ($3::TEXT is null or trace.service_name = $3::TEXT)\n  and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)\n  and (trace.duration >= $5::BIGINT or trace.duration is null)\n  and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)\n  and ($7::BOOL is null or trace.has_errors = $7::BOOL)\n  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1053fa5dcd5e8d1d1ea1c813e5dd43abf4de5c5ffd0a272a730e53307d11c9b0"
+}

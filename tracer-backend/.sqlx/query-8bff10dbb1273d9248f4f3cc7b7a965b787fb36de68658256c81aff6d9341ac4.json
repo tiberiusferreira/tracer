@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into orphan_event_key_value (orphan_event_id, timestamp, key, value) select * from unnest($1::BIGINT[], $2::BIGINT[], $3::TEXT[], $4::TEXT[]);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8bff10dbb1273d9248f4f3cc7b7a965b787fb36de68658256c81aff6d9341ac4"
+}

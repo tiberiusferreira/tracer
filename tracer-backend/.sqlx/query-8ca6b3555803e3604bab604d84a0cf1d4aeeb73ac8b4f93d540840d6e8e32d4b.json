@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct trace.service_name from trace\n            where trace.timestamp >= $1::BIGINT\n  and trace.timestamp <= $2::BIGINT\n  and ($3::TEXT is null or trace.service_name = $3::TEXT)\n  and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)\n  and trace.duration >= $5::BIGINT\n  and ($6::BIGINT is null or trace.duration <= $6::BIGINT)\n  and ($7::BOOL is null or trace.has_errors = $7::BOOL)\n  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "service_name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8ca6b3555803e3604bab604d84a0cf1d4aeeb73ac8b4f93d540840d6e8e32d4b"
+}

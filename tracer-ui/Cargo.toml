@@ -8,18 +8,18 @@ api-structs = {path="../api-structs"}
 console_error_panic_hook = "0.1"
 console_log = "1"
 cfg-if = "1"
-web-sys = {version="0.3.61", features=['DomRect', 'Element']}
-leptos = { version = "0.5.0", default-features = false, features = [
+web-sys = {version="0.3.66", features=['DomRect', 'Element']}
+leptos = { version = "0.5.4", default-features = false, features = [
     "serde",
-#    "stable",
     "csr",
 ] }
 leptos_router = { version = "0.5.0", default-features = false, features = [
-#    "stable",
     "csr",
 ] }
-chrono = "0.4.24"
-js-sys = "0.3.61"
-wasm-bindgen = "0.2.84"
-gloo-net = {version= "0.4.0", features=['http']}
+chrono = "0.4.31"
+js-sys = "0.3.66"
+wasm-bindgen = "0.2.89"
+gloo-net = {version= "0.5.0", features=['http']}
+charming = { path = "../../charming/charming", features = ["wasm"]}
 serde.workspace = true
+serde-wasm-bindgen = "0.6.3"
