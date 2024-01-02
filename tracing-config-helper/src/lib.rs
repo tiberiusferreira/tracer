@@ -7,7 +7,7 @@ use api_structs::exporter::trace_exporting::{
     ExportedServiceTraceData, SpanEventCount, TraceFragment,
 };
 use std::collections::{HashMap, VecDeque};
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -62,7 +62,7 @@ use crate::sampling::{Sampler, TracerSampler};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use api_structs::exporter::status::{SamplerLimits, TracerStatus};
-use api_structs::Severity;
+use api_structs::{Env, Severity};
 use rand::random;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -86,27 +86,9 @@ pub struct TracerConfig {
     pub wait_duration_between_exports: Duration,
     pub sampler_limits: SamplerLimits,
     /// Maximum number of span plus events to keep in memory at a given time
-    pub spe_buffer_capacity: u32,
+    pub spe_buffer_capacity: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Env {
-    Local,
-    Dev,
-    Stage,
-    Prod,
-}
-
-impl Display for Env {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Env::Local => f.write_str("local"),
-            Env::Dev => f.write_str("dev"),
-            Env::Stage => f.write_str("stage"),
-            Env::Prod => f.write_str("prod"),
-        }
-    }
-}
 impl TracerConfig {
     pub fn new(env: Env, service_name: String, collector_url: String) -> TracerConfig {
         TracerConfig {
@@ -228,19 +210,20 @@ impl ExportDataContainers {
     pub fn new(
         service_id: i64,
         service_name: String,
+        env: Env,
         filters: String,
         tracer_stats: TracerStatus,
+        active_trace_fragments: HashMap<u64, TraceFragment>,
     ) -> Self {
         Self {
             data: ExportedServiceTraceData {
                 service_id,
                 service_name,
-                total_span_count: 0,
-                total_event_count: 0,
-                trace_fragments: HashMap::new(),
+                env,
+                active_trace_fragments,
                 closed_spans: vec![],
                 orphan_events: vec![],
-                filters,
+                rust_log: filters,
                 tracer_stats,
             },
         }
@@ -249,18 +232,18 @@ impl ExportDataContainers {
     pub fn add_event(&mut self, event: SubscriberEvent) {
         match event {
             SubscriberEvent::NewSpan(span) => {
-                let trace =
-                    self.data
-                        .trace_fragments
-                        .entry(span.trace_id)
-                        .or_insert(TraceFragment {
-                            trace_id: span.trace_id,
-                            trace_name: span.trace_name.to_string(),
-                            trace_timestamp: span.trace_timestamp,
-                            spe_count: span.spe_count.clone(),
-                            new_spans: vec![],
-                            new_events: vec![],
-                        });
+                let trace = self
+                    .data
+                    .active_trace_fragments
+                    .entry(span.trace_id)
+                    .or_insert(TraceFragment {
+                        trace_id: span.trace_id,
+                        trace_name: span.trace_name.to_string(),
+                        trace_timestamp: span.trace_timestamp,
+                        spe_count: span.spe_count.clone(),
+                        new_spans: vec![],
+                        new_events: vec![],
+                    });
                 trace
                     .new_spans
                     .push(api_structs::exporter::trace_exporting::NewSpan {
@@ -276,7 +259,7 @@ impl ExportDataContainers {
             SubscriberEvent::NewSpanEvent(span_event) => {
                 let trace = self
                     .data
-                    .trace_fragments
+                    .active_trace_fragments
                     .entry(span_event.trace_id)
                     .or_insert(TraceFragment {
                         trace_id: span_event.trace_id,
@@ -298,7 +281,7 @@ impl ExportDataContainers {
                 trace.spe_count = span_event.spe_count;
             }
             SubscriberEvent::ClosedSpan(closed) => {
-                match self.data.trace_fragments.get_mut(&closed.trace_id) {
+                match self.data.active_trace_fragments.get_mut(&closed.trace_id) {
                     None => {
                         self.data.closed_spans.push(closed);
                     }
@@ -321,18 +304,18 @@ impl ExportDataContainers {
                 trace_timestamp,
                 spe_count,
             } => {
-                let trace = self
-                    .data
-                    .trace_fragments
-                    .entry(trace_id)
-                    .or_insert(TraceFragment {
-                        trace_id,
-                        trace_name: trace_name.to_string(),
-                        trace_timestamp,
-                        spe_count: spe_count.clone(),
-                        new_spans: vec![],
-                        new_events: vec![],
-                    });
+                let trace =
+                    self.data
+                        .active_trace_fragments
+                        .entry(trace_id)
+                        .or_insert(TraceFragment {
+                            trace_id,
+                            trace_name: trace_name.to_string(),
+                            trace_timestamp,
+                            spe_count: spe_count.clone(),
+                            new_spans: vec![],
+                            new_events: vec![],
+                        });
                 trace.spe_count = spe_count;
             }
         }
@@ -407,9 +390,10 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
 
     let trace_export_task = tokio::task::spawn_local(async move {
         let spe_buffer_capacity = config.spe_buffer_capacity;
+        let env = config.env;
         let client = reqwest::Client::new();
         let context = "trace_export_task";
-
+        let mut active_traces = HashMap::new();
         loop {
             let period_time_secs = config.wait_duration_between_exports;
             print_if_dbg(
@@ -449,12 +433,14 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             }
             let mut tracer_stats = tracer_sampler.read().get_tracer_stats();
             tracer_stats.spe_buffer_capacity = spe_buffer_capacity;
-            tracer_stats.spe_buffer_usage = events.len() as u32;
+            tracer_stats.spe_buffer_usage = events.len() as u64;
             let mut export_data = ExportDataContainers::new(
                 service_id,
                 config.service_name.to_string(),
+                env,
                 current_filters,
                 tracer_stats,
+                active_traces.clone(),
             );
 
             print_if_dbg(context, format!("New events count: {}", events.len()));
@@ -465,6 +451,31 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             print_if_dbg(context, format!("Export data: {:#?}", export_data));
             let export_data_json =
                 serde_json::to_string(&export_data.data).expect("export data to be serializable");
+            active_traces = export_data
+                .data
+                .active_trace_fragments
+                .into_iter()
+                .filter_map(|(id, mut frag)| {
+                    let root_closed = frag
+                        .new_spans
+                        .iter()
+                        .any(|span| span.id == id && span.duration.is_some());
+                    if root_closed {
+                        return None;
+                    }
+                    let trace_old_root_closed = export_data
+                        .data
+                        .closed_spans
+                        .iter()
+                        .any(|closed| closed.trace_id == id && closed.span_id == id);
+                    if trace_old_root_closed {
+                        return None;
+                    }
+                    frag.new_spans.clear();
+                    frag.new_events.clear();
+                    Some((id, frag))
+                })
+                .collect();
             print_if_dbg(
                 context,
                 format!(

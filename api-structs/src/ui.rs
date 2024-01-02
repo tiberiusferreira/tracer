@@ -1,7 +1,9 @@
 pub mod live_services;
 pub mod orphan_events;
 pub mod search_grid;
+pub mod service_health;
 pub mod trace_view;
+
 pub type ServiceName = String;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

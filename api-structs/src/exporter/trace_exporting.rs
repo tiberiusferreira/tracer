@@ -1,4 +1,5 @@
 use crate::exporter::status::TracerStatus;
+use crate::Env;
 pub use crate::Severity;
 use std::collections::HashMap;
 
@@ -6,12 +7,11 @@ use std::collections::HashMap;
 pub struct ExportedServiceTraceData {
     pub service_id: i64,
     pub service_name: String,
-    pub total_span_count: u32,
-    pub total_event_count: u32,
-    pub trace_fragments: HashMap<u64, TraceFragment>,
+    pub env: Env,
+    pub active_trace_fragments: HashMap<u64, TraceFragment>,
     pub closed_spans: Vec<ClosedSpan>,
     pub orphan_events: Vec<NewOrphanEvent>,
-    pub filters: String,
+    pub rust_log: String,
     pub tracer_stats: TracerStatus,
 }
 

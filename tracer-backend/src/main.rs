@@ -5,7 +5,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, info_span, instrument, Instrument};
-use tracing_config_helper::{Env, TracerConfig};
+use tracing_config_helper::TracerConfig;
 mod api;
 mod notification_worthy_events;
 
@@ -76,7 +76,7 @@ async fn main() {
             dotenv::dotenv().ok();
             let config = Config::parse();
             let tracer_config = TracerConfig::new(
-                Env::Local,
+                api_structs::Env::Local,
                 env!("CARGO_BIN_NAME").to_string(),
                 "http://127.0.0.1:4200".to_string(),
             );

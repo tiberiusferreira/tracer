@@ -1,4 +1,5 @@
-use crate::api::{ApiError, AppState, ChangeFilterInternalRequest, LiveInstances, ServiceName};
+use crate::api::state::{AppState, Instance, ServiceConfig, ServiceId, Shared};
+use crate::api::{ApiError, ChangeFilterInternalRequest, LiveInstances, ServiceName};
 use crate::{SINGLE_KEY_VALUE_KEY_CHARS_LIMIT, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT};
 use api_structs::exporter::trace_exporting::{
     ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, TraceFragment,
@@ -6,6 +7,7 @@ use api_structs::exporter::trace_exporting::{
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::live_services::LiveServiceInstance;
 use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
+use api_structs::ui::service_health::{ActiveTrace, InstanceDataPoint};
 use axum::extract::{Query, State};
 use axum::Json;
 use reqwest::StatusCode;
@@ -73,37 +75,38 @@ pub(crate) async fn instances_filter_post(
     State(app_state): State<AppState>,
     Json(new_filter): Json<api_structs::ui::NewFiltersRequest>,
 ) -> Result<(), ApiError> {
-    let handle = {
-        match app_state
-            .live_instances
-            .see_handle
-            .write()
-            .get(&new_filter.instance_id)
-        {
-            None => {
-                return Err(ApiError {
-                    code: StatusCode::BAD_REQUEST,
-                    message: format!("No instance with id: {}", new_filter.instance_id),
-                });
-            }
-            Some(handle) => handle.clone(),
-        }
-    };
-    return match handle
-        .send(ChangeFilterInternalRequest {
-            filters: new_filter.filters,
-        })
-        .await
-    {
-        Ok(_sent) => Ok(()),
-        Err(_e) => Err(ApiError {
-            code: StatusCode::BAD_REQUEST,
-            message: format!(
-                "Instance with id {} is no longer connected",
-                new_filter.instance_id
-            ),
-        }),
-    };
+    // let handle = {
+    //     match app_state
+    //         .live_instances
+    //         .see_handle
+    //         .write()
+    //         .get(&new_filter.instance_id)
+    //     {
+    //         None => {
+    //             return Err(ApiError {
+    //                 code: StatusCode::BAD_REQUEST,
+    //                 message: format!("No instance with id: {}", new_filter.instance_id),
+    //             });
+    //         }
+    //         Some(handle) => handle.clone(),
+    //     }
+    // };
+    // return match handle
+    //     .send(ChangeFilterInternalRequest {
+    //         filters: new_filter.filters,
+    //     })
+    //     .await
+    // {
+    //     Ok(_sent) => Ok(()),
+    //     Err(_e) => Err(ApiError {
+    //         code: StatusCode::BAD_REQUEST,
+    //         message: format!(
+    //             "Instance with id {} is no longer connected",
+    //             new_filter.instance_id
+    //         ),
+    //     }),
+    // };
+    unimplemented!()
 }
 
 pub fn nanos_to_db_i64(nanos: u64) -> Result<i64, ApiError> {
@@ -187,43 +190,85 @@ pub(crate) async fn orphan_events_service_names_get(
 #[instrument(level = "error", skip_all)]
 pub(crate) async fn instances_get(
     State(app_state): State<AppState>,
-) -> Result<Json<api_structs::ui::live_services::LiveInstances>, ApiError> {
-    let instances: HashMap<ServiceName, Vec<LiveServiceInstance>> =
-        app_state.live_instances.trace_data.read().deref().clone();
-    Ok(Json(api_structs::ui::live_services::LiveInstances {
-        instances,
-    }))
+) -> Result<Json<api_structs::ui::service_health::ServiceHealth>, ApiError> {
+    // let instances: HashMap<ServiceName, Vec<LiveServiceInstance>> =
+    //     app_state.live_instances.trace_data.read().deref().clone();
+    // Ok(Json(api_structs::ui::live_services::LiveInstances {
+    //     instances,
+    // }))
+    unimplemented!()
 }
 
 #[instrument(skip_all)]
-fn update_instance_data(live_instances: &LiveInstances, service_data: &ExportedServiceTraceData) {
-    let service_id = service_data.service_id;
-    let service_name = &service_data.service_name;
-    debug!("locking instances trace_data to update instance {service_id} of {service_name}");
-    let mut instances = live_instances.trace_data.write();
-    debug!("locked");
-    let entry = instances
-        .entry(service_data.service_name.to_string())
+fn update_instance_data(
+    live_instances: &Shared<HashMap<ServiceId, HashMap<i64, Instance>>>,
+    service_data: &ExportedServiceTraceData,
+) {
+    let mut w_lock = live_instances.write();
+    let instance_list = w_lock
+        .entry(ServiceId {
+            name: service_data.service_name.clone(),
+            env: service_data.env,
+        })
         .or_default();
-    let new = LiveServiceInstance {
-        last_seen_timestamp: now_nanos_u64(),
-        service_id: service_data.service_id,
-        service_name: service_data.service_name.to_string(),
-        filters: service_data.filters.clone(),
-        tracer_stats: service_data.tracer_stats.clone(),
+    let instance = instance_list
+        .entry(service_data.service_id)
+        .or_insert_with(|| Instance {
+            id: service_data.service_id,
+            rust_log: "".to_string(),
+            time_data_points: vec![],
+            see_handle: None,
+        });
+
+    let active_traces: Vec<ActiveTrace> = service_data
+        .active_trace_fragments
+        .values()
+        .into_iter()
+        .map(|t| {
+            let trace_spe_usage = service_data
+                .tracer_stats
+                .per_minute_trace_stats
+                .get(&t.trace_name);
+            ActiveTrace {
+                trace_id: t.trace_id,
+                trace_name: t.trace_name.clone(),
+                trace_timestamp: t.trace_timestamp,
+                spe_usage_per_minute: trace_spe_usage.map(|e| e.spe_usage_per_minute).unwrap_or(0),
+                traces_dropped_by_sampling_per_minute: trace_spe_usage
+                    .map(|e| e.traces_dropped_by_sampling_per_minute)
+                    .unwrap_or(0),
+            }
+        })
+        .collect();
+    instance.rust_log = service_data.rust_log.clone();
+    let spe_per_min = service_data
+        .tracer_stats
+        .per_minute_trace_stats
+        .values()
+        .into_iter()
+        .fold(0, |acc, curr| acc + curr.spe_usage_per_minute);
+    let traces_dropped_per_min = service_data
+        .tracer_stats
+        .per_minute_trace_stats
+        .values()
+        .into_iter()
+        .fold(0, |acc, curr| {
+            acc + curr.traces_dropped_by_sampling_per_minute
+        });
+    let data_point = InstanceDataPoint {
+        timestamp: now_nanos_u64(),
+        active_traces,
+        spe_per_min,
+        log_per_min: service_data.tracer_stats.orphan_events_per_minute_usage,
+        logs_dropped_per_min: service_data
+            .tracer_stats
+            .orphan_events_dropped_by_sampling_per_minute,
+        traces_dropped_per_min,
+        export_buffer_capacity: service_data.tracer_stats.spe_buffer_capacity,
+        export_buffer_usage: service_data.tracer_stats.spe_buffer_usage,
+        traces_kb_per_min: 0,
     };
-    // there won't be many instances of the same service
-    match entry
-        .iter_mut()
-        .find(|i| i.service_id == service_data.service_id)
-    {
-        None => {
-            entry.push(new);
-        }
-        Some(existing) => {
-            *existing = new;
-        }
-    }
+    instance.time_data_points.push(data_point);
 }
 
 /// We should insert a new trace if it doesn't already exist
@@ -826,11 +871,17 @@ pub async fn collector_trace_data_post(
             }
         })?;
     let con = app_state.con;
-    update_instance_data(&app_state.live_instances, &trace_data);
+    // update_instance_data(&app_state.instance_runtime_stats, &trace_data);
     let service_id = trace_data.service_id;
     let service_name = trace_data.service_name;
-    info!("Got {} new fragments", trace_data.trace_fragments.len());
-    for mut fragment in trace_data.trace_fragments.into_values() {
+    info!(
+        "Got {} new fragments",
+        trace_data.active_trace_fragments.len()
+    );
+    for mut fragment in trace_data.active_trace_fragments.into_values() {
+        if fragment.new_events.is_empty() && fragment.new_spans.is_empty() {
+            continue;
+        }
         truncate_span_key_values_if_needed(&mut fragment.new_spans);
         truncate_events_if_needed(&mut fragment.new_events);
         if let Err(db_error) =

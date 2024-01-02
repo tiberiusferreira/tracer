@@ -38,10 +38,10 @@ create index on orphan_event (service_name);
 
 create table orphan_event_key_value
 (
-    orphan_event_id         bigint     not null,
-    timestamp      ubigint        not null,
-    key            identifier not null,
-    value          text_value not null,
+    orphan_event_id bigint     not null,
+    timestamp       ubigint    not null,
+    key             identifier not null,
+    value           text_value not null,
     foreign key (timestamp, orphan_event_id) references orphan_event (timestamp, id) on delete cascade,
     primary key (timestamp, key, orphan_event_id)
 );
@@ -92,12 +92,12 @@ comment on index span_trace_id_parent_id is 'For fast deletions';
 
 create table span_key_value
 (
-    service_id     bigint    not null,
-    trace_id       bigint    not null,
-    span_id        bigint    not null,
-    timestamp      ubigint   not null,
-    key            identifier not null,
-    value          text_value not null,
+    service_id bigint     not null,
+    trace_id   bigint     not null,
+    span_id    bigint     not null,
+    timestamp  ubigint    not null,
+    key        identifier not null,
+    value      text_value not null,
     foreign key (service_id, trace_id, span_id) references span (service_id, trace_id, id) on delete cascade,
     primary key (service_id, trace_id, span_id, key)
 );
@@ -122,13 +122,13 @@ create table event
 
 create table event_key_value
 (
-    service_id     bigint    not null,
-    trace_id       bigint    not null,
-    span_id        bigint    not null,
-    event_id       bigint    not null,
-    key            identifier not null,
-    value          text_value not null,
-    timestamp      ubigint   not null,
+    service_id bigint     not null,
+    trace_id   bigint     not null,
+    span_id    bigint     not null,
+    event_id   bigint     not null,
+    key        identifier not null,
+    value      text_value not null,
+    timestamp  ubigint    not null,
     foreign key (service_id, trace_id, span_id, event_id) references event (service_id, trace_id, span_id, id) on delete cascade,
     primary key (trace_id, span_id, key, event_id) include (value)
 );
@@ -136,6 +136,33 @@ create index on event_key_value (key, trace_id);
 create index event_key_value_trace_id_span_id_event_id on event_key_value (trace_id, span_id, event_id);
 comment on index event_key_value_trace_id_span_id_event_id is 'For fast deletions';
 
+
+create table service_config
+(
+    service_name                       identifier not null,
+    min_instance_count                 ubigint    not null,
+    max_active_trace                   ubigint    not null,
+    traces_dropped_per_min             ubigint    not null,
+    spe_per_min                        ubigint    not null,
+    log_per_min                        ubigint    not null,
+    log_dropped_per_min                ubigint    not null,
+    events_kb_per_min                  ubigint    not null,
+    export_buffer_usage                ubigint    not null,
+    max_traces_with_warning_percentage ubigint    not null,
+    max_traces_with_error_percentage   ubigint    not null,
+    max_trace_duration                 ubigint    not null,
+    primary key (service_name)
+);
+
+create table service_trace_overwrite
+(
+    service_name                       identifier not null,
+    top_level_span_name                identifier not null,
+    max_traces_with_warning_percentage ubigint    not null,
+    max_traces_with_error_percentage   ubigint    not null,
+    max_trace_duration                 ubigint    not null,
+    primary key (service_name, top_level_span_name)
+);
 
 
 /*

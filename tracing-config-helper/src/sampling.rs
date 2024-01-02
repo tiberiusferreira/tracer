@@ -78,9 +78,9 @@ impl Sampler for TracerSampler {
 #[derive(Debug, Clone)]
 pub struct TracerSampler {
     current_window_start: Instant,
-    spe_dropped_buffer_full: u32,
-    orphan_events_per_minute_usage: u32,
-    orphan_events_per_minute_dropped_by_sampling: u32,
+    spe_dropped_buffer_full: u64,
+    orphan_events_per_minute_usage: u64,
+    orphan_events_per_minute_dropped_by_sampling: u64,
     // we never remove entries because spans should be static, they never get removed from the application
     trace_stats: HashMap<&'static str, SingleTraceStatus>,
     pub sampler_limits: SamplerLimits,

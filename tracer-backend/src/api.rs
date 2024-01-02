@@ -1,6 +1,7 @@
 use crate::api::handlers::{
     instances_filter_post, instances_get, logs_get, orphan_events_service_names_get,
 };
+use crate::api::state::{AppState, Instance, ServiceData};
 use api_structs::ui::live_services::LiveServiceInstance;
 use api_structs::ui::search_grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
 use api_structs::ui::trace_view::{Event, SingleChunkTraceQuery, Span, TraceId};
@@ -15,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, PgPool};
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -27,13 +27,7 @@ use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 pub mod database;
 pub mod handlers;
-
-#[derive(Clone)]
-pub struct AppState {
-    // that holds some api specific state
-    con: PgPool,
-    live_instances: LiveInstances,
-}
+pub mod state;
 
 pub type ServiceName = String;
 pub type InstanceId = i64;
@@ -77,20 +71,70 @@ async fn change_filter_request(
         .data(serde_json::to_string(&data).expect("to be serializable"));
     Some((see, r))
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum SseError {
+    #[error("{0}")]
+    InvalidEnv(String),
+}
+
 #[instrument(skip_all, fields(sample_span_kv = "sample value"))]
 async fn sse_handler(
     State(app_state): State<AppState>,
-    Path(instance_id): Path<i64>,
+    Path((service_name, env, instance_id)): Path<(String, String, i64)>,
 ) -> axum::response::Sse<
-    impl futures::stream::Stream<Item = Result<axum::response::sse::Event, Infallible>>,
+    std::pin::Pin<
+        Box<
+            dyn futures::stream::Stream<Item = Result<axum::response::sse::Event, SseError>> + Send,
+        >,
+    >,
 > {
     trace!("New SSE connection request for {}", instance_id);
-    let mut w_lock = app_state.live_instances.see_handle.write();
+    let env = match api_structs::Env::try_from(env.as_str()) {
+        Ok(env) => env,
+        Err(e) => {
+            error!("{}", e);
+            let stream = Box::pin(futures::stream::once(async {
+                Err(SseError::InvalidEnv(e))
+            }));
+            return axum::response::sse::Sse::new(stream);
+        }
+    };
+    let mut w_lock = app_state.instance_runtime_stats.write();
+    let instance_list = match w_lock.get_mut(&state::ServiceId {
+        name: service_name,
+        env,
+    }) {
+        None => {
+            drop(w_lock);
+            unimplemented!()
+        }
+        Some(instance_list) => &mut instance_list.instances,
+    };
+
+    let instance = instance_list
+        .entry(instance_id)
+        .or_insert_with(|| Instance {
+            id: instance_id,
+            rust_log: "".to_string(),
+            time_data_points: vec![],
+            see_handle: None,
+        });
+
     let (s, r) = tokio::sync::mpsc::channel(1);
-    if let Some(_existing) = w_lock.insert(instance_id, s) {
-        error!("overwrote existing sse channel for {}", instance_id);
+    if let Some(_existing) = &instance.see_handle {
+        error!("overwrote existing sse channel for {:?}", instance);
     }
-    let stream = futures::stream::unfold(r, |r| change_filter_request(r)).map(Ok);
+    instance.see_handle = Some(s);
+    drop(w_lock);
+    let stream = Box::pin(futures::stream::unfold(r, |r| change_filter_request(r)).map(Ok));
+    let stream = stream
+        as std::pin::Pin<
+            Box<
+                dyn futures::stream::Stream<Item = Result<axum::response::sse::Event, SseError>>
+                    + Send,
+            >,
+        >;
     axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
@@ -159,13 +203,15 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
 
     let app_state = AppState {
         con,
-        live_instances: LiveInstances {
-            trace_data: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
-            see_handle: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
-        },
+        // service_configs: Default::default(),
+        instance_runtime_stats: Default::default(),
+        // live_instances: LiveInstances {
+        //     trace_data: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        //     see_handle: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        // },
     };
-    let _clean_up_service_instances_task =
-        clean_up_service_instances_task(app_state.live_instances.clone());
+    // let _clean_up_service_instances_task =
+    //     clean_up_service_instances_task(app_state.live_instances.clone());
 
     let app = axum::Router::new()
         .route("/api/ready", axum::routing::get(ready))
@@ -186,7 +232,7 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         )
         .route("/api/trace", axum::routing::get(get_single_trace))
         .route(
-            "/collector/sse/:instance_id",
+            "/collector/sse/:service_name/:env/:instance_id",
             axum::routing::get(sse_handler),
         )
         .route(
