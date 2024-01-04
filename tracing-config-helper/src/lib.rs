@@ -61,7 +61,7 @@ use crate::sampling::{Sampler, TracerSampler};
 
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use api_structs::exporter::status::{SamplerLimits, TracerStatus};
+use api_structs::exporter::status::{ProducerStats, SamplerLimits};
 use api_structs::{Env, Severity};
 use rand::random;
 use serde::{Deserialize, Serialize};
@@ -100,7 +100,7 @@ impl TracerConfig {
                 "info".to_string()
             }),
             export_timeout: Duration::from_secs(10),
-            wait_duration_between_exports: Duration::from_secs(3),
+            wait_duration_between_exports: Duration::from_secs(5),
             sampler_limits: SamplerLimits {
                 trace_spe_per_minute_per_trace_limit: 1000,
                 extra_spe_per_minute_limit_for_existing_traces: 5000,
@@ -212,19 +212,19 @@ impl ExportDataContainers {
         service_name: String,
         env: Env,
         filters: String,
-        tracer_stats: TracerStatus,
+        tracer_stats: ProducerStats,
         active_trace_fragments: HashMap<u64, TraceFragment>,
     ) -> Self {
         Self {
             data: ExportedServiceTraceData {
-                service_id,
+                instance_id: service_id,
                 service_name,
                 env,
                 active_trace_fragments,
                 closed_spans: vec![],
                 orphan_events: vec![],
                 rust_log: filters,
-                tracer_stats,
+                producer_stats: tracer_stats,
             },
         }
     }
@@ -383,6 +383,8 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
     let service_id = random::<i64>();
     let sse_task =
         tokio::task::spawn_local(server_connection::continuously_handle_server_sent_events(
+            config.service_name.clone(),
+            config.env,
             config.collector_url.clone(),
             reload_handle.clone(),
             service_id,
@@ -456,24 +458,13 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                 .active_trace_fragments
                 .into_iter()
                 .filter_map(|(id, mut frag)| {
-                    let root_closed = frag
-                        .new_spans
-                        .iter()
-                        .any(|span| span.id == id && span.duration.is_some());
-                    if root_closed {
-                        return None;
+                    if frag.is_closed(&export_data.data.closed_spans) {
+                        None
+                    } else {
+                        frag.new_spans.clear();
+                        frag.new_events.clear();
+                        Some((id, frag))
                     }
-                    let trace_old_root_closed = export_data
-                        .data
-                        .closed_spans
-                        .iter()
-                        .any(|closed| closed.trace_id == id && closed.span_id == id);
-                    if trace_old_root_closed {
-                        return None;
-                    }
-                    frag.new_spans.clear();
-                    frag.new_events.clear();
-                    Some((id, frag))
                 })
                 .collect();
             print_if_dbg(
@@ -501,7 +492,6 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                     export_data_json.len()
                 ),
             );
-
             let send_result = match client
                 .post(format!("{}/collector/trace_data", config.collector_url))
                 .body(export_data_json)

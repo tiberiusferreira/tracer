@@ -1,4 +1,4 @@
-use crate::exporter::status::TracerStatus;
+use crate::exporter::status::ProducerStats;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -12,7 +12,7 @@ pub struct LiveServiceInstance {
     pub service_id: i64,
     pub service_name: String,
     pub filters: String,
-    pub tracer_stats: TracerStatus,
+    pub tracer_stats: ProducerStats,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -26,5 +26,5 @@ pub struct LiveServiceInstance2 {
     pub service_id: i64,
     pub service_name: String,
     pub filters: String,
-    pub tracer_stats: TracerStatus,
+    pub tracer_stats: ProducerStats,
 }

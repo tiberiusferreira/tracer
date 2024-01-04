@@ -7,13 +7,15 @@ use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{EnvFilter, Registry};
 
 pub async fn continuously_handle_server_sent_events(
+    service_name: String,
+    env: api_structs::Env,
     collector_url: String,
     filter_reload_handle: Handle<EnvFilter, Registry>,
-    client_id: i64,
+    instance_id: i64,
 ) {
     let context = "continuously_handle_server_sent_events";
     loop {
-        let url = format!("{collector_url}/collector/sse/{client_id}");
+        let url = format!("{collector_url}/collector/sse/{service_name}/{env}/{instance_id}");
         print_if_dbg(context, format!("Starting sse loop, connecting to {url}"));
         let mut event_source = reqwest_eventsource::EventSource::get(url);
         print_if_dbg(context, "sse connected");

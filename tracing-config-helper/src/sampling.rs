@@ -1,4 +1,4 @@
-use api_structs::exporter::status::{SamplerLimits, SingleTraceStatus, TracerStatus};
+use api_structs::exporter::status::{ProducerStats, SamplerLimits, SingleTraceStatus};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -10,7 +10,7 @@ pub trait Sampler {
     fn allow_new_span(&mut self, trace_name: &'static str) -> bool;
     /// soe = span or event
     fn register_soe_dropped_due_to_full_export_buffer(&mut self);
-    fn get_tracer_stats(&self) -> TracerStatus;
+    fn get_tracer_stats(&self) -> ProducerStats;
 }
 
 impl Sampler for TracerSampler {
@@ -56,8 +56,8 @@ impl Sampler for TracerSampler {
         self.register_soe_dropped_due_to_full_export_buffer();
     }
 
-    fn get_tracer_stats(&self) -> TracerStatus {
-        TracerStatus {
+    fn get_tracer_stats(&self) -> ProducerStats {
+        ProducerStats {
             // TODO: move this
             spe_buffer_capacity: 0,
             spe_buffer_usage: 0,

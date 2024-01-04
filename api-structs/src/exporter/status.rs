@@ -2,14 +2,33 @@ use crate::TraceName;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TracerStatus {
+pub struct ProducerStats {
+    // 1 graph
     pub spe_buffer_capacity: u64,
-    pub sampler_limits: SamplerLimits,
     pub spe_buffer_usage: u64,
-    pub spe_dropped_due_to_full_export_buffer: u64,
+    //
+    // 2 graph
     pub orphan_events_per_minute_usage: u64,
     pub orphan_events_dropped_by_sampling_per_minute: u64,
+    //
+    // 3 graph
+    pub spe_dropped_due_to_full_export_buffer: u64,
+    //
+    // 4 graph
+    // spe_usage_per_minute
+    //
+    // 5 graph
+    // traces dropped per minute
     pub per_minute_trace_stats: HashMap<TraceName, SingleTraceStatus>,
+    pub sampler_limits: SamplerLimits,
+    //
+    // 6 graph -> Traces Received <- allows clicking
+    //
+    // 7 graph -> Active Traces <- allows clicking
+    //
+    // 8 graph -> Received Trace kb Est
+    //
+    // 9 graph -> Received Log kbs Est
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

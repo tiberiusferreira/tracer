@@ -1,18 +1,18 @@
-use crate::exporter::status::TracerStatus;
+use crate::exporter::status::ProducerStats;
 use crate::Env;
 pub use crate::Severity;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedServiceTraceData {
-    pub service_id: i64,
     pub service_name: String,
     pub env: Env,
-    pub active_trace_fragments: HashMap<u64, TraceFragment>,
+    pub instance_id: i64,
     pub closed_spans: Vec<ClosedSpan>,
     pub orphan_events: Vec<NewOrphanEvent>,
     pub rust_log: String,
-    pub tracer_stats: TracerStatus,
+    pub active_trace_fragments: HashMap<u64, TraceFragment>,
+    pub producer_stats: ProducerStats,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -23,6 +23,25 @@ pub struct TraceFragment {
     pub spe_count: SpanEventCount,
     pub new_spans: Vec<NewSpan>,
     pub new_events: Vec<NewSpanEvent>,
+}
+
+impl TraceFragment {
+    pub fn is_closed(&self, closed_spans: &[ClosedSpan]) -> bool {
+        let root_closed = self
+            .new_spans
+            .iter()
+            .any(|span| span.id == self.trace_id && span.duration.is_some());
+        if root_closed {
+            return true;
+        }
+        let trace_old_root_closed = closed_spans
+            .iter()
+            .any(|closed| closed.trace_id == self.trace_id && closed.span_id == self.trace_id);
+        if trace_old_root_closed {
+            return true;
+        }
+        false
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

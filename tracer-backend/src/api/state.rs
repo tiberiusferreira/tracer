@@ -3,7 +3,7 @@ use api_structs::ui::service_health::{AlertConfig, InstanceDataPoint};
 use api_structs::Env;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 
@@ -14,19 +14,19 @@ pub struct AppState {
 }
 
 #[derive(Debug, Clone)]
-pub struct Instance {
+pub struct InstanceState {
     pub id: i64,
     /// info
     pub rust_log: String,
     // time data
-    pub time_data_points: Vec<InstanceDataPoint>,
-    pub see_handle: Option<tokio::sync::mpsc::Sender<ChangeFilterInternalRequest>>,
+    pub time_data_points: VecDeque<InstanceDataPoint>,
+    pub see_handle: tokio::sync::mpsc::Sender<ChangeFilterInternalRequest>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ServiceData {
-    pub config: ServiceConfig,
-    pub instances: HashMap<i64, Instance>,
+    pub alert_config: AlertConfig,
+    pub instances: HashMap<i64, InstanceState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -35,9 +35,4 @@ pub struct ServiceId {
     pub name: String,
     /// Local
     pub env: Env,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ServiceConfig {
-    pub alert_config: AlertConfig,
 }

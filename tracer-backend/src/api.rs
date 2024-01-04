@@ -1,7 +1,7 @@
 use crate::api::handlers::{
     instances_filter_post, instances_get, logs_get, orphan_events_service_names_get,
 };
-use crate::api::state::{AppState, Instance, ServiceData};
+use crate::api::state::{AppState, ServiceId};
 use api_structs::ui::live_services::LiveServiceInstance;
 use api_structs::ui::search_grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
 use api_structs::ui::trace_view::{Event, SingleChunkTraceQuery, Span, TraceId};
@@ -15,7 +15,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, PgPool};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -76,6 +76,8 @@ async fn change_filter_request(
 pub enum SseError {
     #[error("{0}")]
     InvalidEnv(String),
+    #[error("{0}")]
+    DbError(String),
 }
 
 #[instrument(skip_all, fields(sample_span_kv = "sample value"))]
@@ -100,32 +102,52 @@ async fn sse_handler(
             return axum::response::sse::Sse::new(stream);
         }
     };
-    let mut w_lock = app_state.instance_runtime_stats.write();
-    let instance_list = match w_lock.get_mut(&state::ServiceId {
-        name: service_name,
+    let service_id = ServiceId {
+        name: service_name.clone(),
         env,
-    }) {
-        None => {
-            drop(w_lock);
-            unimplemented!()
-        }
-        Some(instance_list) => &mut instance_list.instances,
     };
-
-    let instance = instance_list
-        .entry(instance_id)
-        .or_insert_with(|| Instance {
+    let exists = {
+        let mut w_lock = app_state.instance_runtime_stats.read();
+        w_lock.get(&service_id).is_some()
+    };
+    if !exists {
+        let config =
+            match database::get_or_init_service_alert_config(&app_state.con, &service_name, env)
+                .await
+            {
+                Ok(config) => config,
+                Err(e) => {
+                    error!("{}", e);
+                    let e = e.to_string();
+                    let stream =
+                        Box::pin(futures::stream::once(async { Err(SseError::DbError(e)) }));
+                    return axum::response::sse::Sse::new(stream);
+                }
+            };
+        let mut w_lock = app_state.instance_runtime_stats.write();
+        w_lock.insert(
+            service_id.clone(),
+            state::ServiceData {
+                alert_config: config,
+                instances: HashMap::new(),
+            },
+        );
+    }
+    let mut w_lock = app_state.instance_runtime_stats.write();
+    let instance_list = &mut w_lock
+        .get_mut(&service_id)
+        .expect("To exist, just inserted")
+        .instances;
+    let (see_handle, r) = tokio::sync::mpsc::channel(1);
+    instance_list.insert(
+        instance_id,
+        state::InstanceState {
             id: instance_id,
             rust_log: "".to_string(),
-            time_data_points: vec![],
-            see_handle: None,
-        });
-
-    let (s, r) = tokio::sync::mpsc::channel(1);
-    if let Some(_existing) = &instance.see_handle {
-        error!("overwrote existing sse channel for {:?}", instance);
-    }
-    instance.see_handle = Some(s);
+            time_data_points: VecDeque::new(),
+            see_handle,
+        },
+    );
     drop(w_lock);
     let stream = Box::pin(futures::stream::unfold(r, |r| change_filter_request(r)).map(Ok));
     let stream = stream

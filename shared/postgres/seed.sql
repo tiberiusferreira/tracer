@@ -137,30 +137,40 @@ create index event_key_value_trace_id_span_id_event_id on event_key_value (trace
 comment on index event_key_value_trace_id_span_id_event_id is 'For fast deletions';
 
 
-create table service_config
+
+create table service_alert_config
 (
-    service_name                       identifier not null,
-    min_instance_count                 ubigint    not null,
-    max_active_trace                   ubigint    not null,
-    traces_dropped_per_min             ubigint    not null,
-    spe_per_min                        ubigint    not null,
-    log_per_min                        ubigint    not null,
-    log_dropped_per_min                ubigint    not null,
-    events_kb_per_min                  ubigint    not null,
-    export_buffer_usage                ubigint    not null,
-    max_traces_with_warning_percentage ubigint    not null,
-    max_traces_with_error_percentage   ubigint    not null,
-    max_trace_duration                 ubigint    not null,
+    service_name                                  identifier    not null,
+    -- Producer data
+    max_export_buffer_usage                       ubigint       not null default 100000,
+    max_orphan_events_per_min                     ubigint       not null default 100000,
+    max_orphan_events_dropped_by_sampling_per_min ubigint       not null default 100000,
+    max_spe_dropped_due_to_full_export_buffer     ubigint       not null default 100000,
+    max_traces_dropped_by_sampling_per_min        ubigint       not null default 100000,
+    -- Instance data
+    min_instance_count                            ubigint       not null default 0,
+    max_active_traces                             ubigint       not null default 100000,
+    max_received_spe                              ubigint       not null default 100000,
+    max_received_trace_kb                         ubigint       not null default 1000000,
+    max_received_orphan_event_kb                  ubigint       not null default 1000000,
+    max_trace_duration_ms                         ubigint       not null default 1000000,
+    max_traces_with_warning_percentage            ubigint       not null default 100,
+    max_traces_with_error_percentage              ubigint       not null default 100,
+    percentage_check_time_window_secs             ubigint       not null default 60,
+    percentage_check_min_number_samples           ubigint       not null default 5,
+    min_alert_period_seconds                      ubigint       not null default 3600,
+    alert_url                                     varchar(2048) default null,
     primary key (service_name)
 );
 
-create table service_trace_overwrite
+create table service_alert_config_trace_overwrite
 (
-    service_name                       identifier not null,
-    top_level_span_name                identifier not null,
-    max_traces_with_warning_percentage ubigint    not null,
-    max_traces_with_error_percentage   ubigint    not null,
-    max_trace_duration                 ubigint    not null,
+    service_name                           identifier not null,
+    top_level_span_name                    identifier not null,
+    max_traces_with_warning_percentage     ubigint    not null default 100,
+    max_traces_dropped_by_sampling_per_min ubigint    not null default 100000,
+    max_traces_with_error_percentage       ubigint    not null default 100,
+    max_trace_duration_ms                  ubigint    not null default 1000000,
     primary key (service_name, top_level_span_name)
 );
 

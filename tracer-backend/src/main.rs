@@ -18,6 +18,8 @@ pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 1024;
 // ~10 span+logs per trace, 2 traces per second = 20 span+logs per second
 pub const SPAN_PLUS_EVENTS_PER_SERVICE_PER_SECOND_NOTIFICATION_THRESHOLD: usize = 20;
 
+pub const MAX_STATS_HISTORY_DATA_COUNT: usize = 2_000;
+
 #[derive(Debug, clap::Parser)]
 pub struct Config {
     #[clap(flatten)]
