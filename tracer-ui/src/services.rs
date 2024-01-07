@@ -3,11 +3,17 @@ use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::live_services::LiveInstances;
 use api_structs::ui::service_health::{Instance, ServiceData, TraceHeader};
 use api_structs::ui::NewFiltersRequest;
-use charming::component::{Axis, Legend, Title};
+use base64::Engine;
+use charming::component::{Axis, DataZoom, DataZoomType, Legend, LegendItem, LegendType, Title};
 use charming::datatype::{CompositeValue, NumericValue};
-use charming::element::{AxisType, Label, NameLocation, TextStyle, Tooltip, Trigger, TriggerOn};
+use charming::element::{
+    AxisPointer, AxisPointerAxis, AxisType, Label, NameLocation, TextStyle, Tooltip, Trigger,
+    TriggerOn,
+};
 use charming::series::{Line, Scatter};
 use charming::{Chart, WasmRenderer};
+use chrono::Duration;
+use js_sys::encode_uri_component;
 use leptos::html::{Div, Input};
 use leptos::logging::log;
 use leptos::{
@@ -16,6 +22,7 @@ use leptos::{
 };
 use std::collections::HashMap;
 use std::rc::Rc;
+use web_sys::MouseEvent;
 
 #[derive(Debug, Clone)]
 pub struct GraphSeries {
@@ -24,6 +31,23 @@ pub struct GraphSeries {
     x_values: Vec<f64>,
     y_values: Vec<f64>,
 }
+impl GraphSeries {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            original_x_values: vec![],
+            x_values: vec![],
+            y_values: vec![],
+        }
+    }
+    pub fn push_data(&mut self, timestamp: u64, data: f64) {
+        self.original_x_values.push(timestamp);
+        let minutes_since = secs_since(timestamp) as f64 / 60.;
+        self.x_values.push(minutes_since);
+        self.y_values.push(data);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphData {
     dom_id_to_render_to: String,
@@ -45,6 +69,7 @@ fn create_chart_action() -> Action<GraphData, ()> {
                         .name_location(NameLocation::Middle)
                         .name_text_style(TextStyle::new().font_size(18.))
                         .name(&graph_data.x_name)
+                        .axis_pointer(AxisPointer::new().axis(AxisPointerAxis::X).show(true))
                         .inverse(true)
                         .name_gap(20.),
                 )
@@ -55,6 +80,12 @@ fn create_chart_action() -> Action<GraphData, ()> {
                         .name_text_style(TextStyle::new().font_size(18.))
                         .name_gap(30.)
                         .name_location(NameLocation::Middle),
+                )
+                .data_zoom(
+                    DataZoom::new()
+                        .type_(DataZoomType::Slider)
+                        .start_value(0.)
+                        .end_value(5.),
                 )
                 .legend(
                     Legend::new()
@@ -110,7 +141,7 @@ fn create_chart_action() -> Action<GraphData, ()> {
     })
 }
 
-fn create_instance_rust_log_ui(
+fn instance_specific_data_ui(
     instance: &Instance,
     change_rust_log_action: Action<NewFiltersRequest, Result<(), String>>,
 ) -> leptos::HtmlElement<Div> {
@@ -128,9 +159,28 @@ fn create_instance_rust_log_ui(
         .map(|i| secs_since(i.timestamp))
         .unwrap_or(9999);
     let instance_rust_log = instance.rust_log.clone();
+    let profile_data = if let Some(profile_data) = &instance.profile_data {
+        let encoded =
+            encode_uri_component(&String::from_utf8(profile_data.profile_data.clone()).unwrap());
+        let profile_download_html_data = format!("data:image/svg+xml,{encoded}");
+        let profile_age = secs_since(profile_data.profile_data_timestamp);
+        view! {
+            <>
+                <a href={profile_download_html_data} download="profile.svg">{format!("Download Profile - {} s old", profile_age)}</a>
+            </>
+        }
+    } else {
+        view! {
+            <>
+                "No Profile Data"
+            </>
+        }
+    };
+
     view! {
         <div style="display: flex; gap: 20px; justify-content: center; align-items: center">
                 <p style="text-align: center">{format!("Instance {} Last seen: {} s ago", instance.id, secs_since_seen)}</p>
+                {profile_data}
                 <div style="display: flex; justify-content: center">
                     <label style="align-self: center" for="filters">"RUST_LOG Filters: "</label>
                     <input type="text" id="filters" name="filters" node_ref=rust_log_ui_input value={instance_rust_log} size="70" />
@@ -174,8 +224,8 @@ fn active_traces_table_el(
             Some(timestamp) => Some(timestamp),
         };
         let timestamp = timestamp.unwrap_or(now_nanos_u64());
-        let window_secs = 2;
-        let window_nanos = 2 * 1000_000_000;
+        let window_secs = 3;
+        let window_nanos = 3 * 1000_000_000;
         #[derive(Clone)]
         struct TraceHeaderWithInstance {
             trace_header: TraceHeader,
@@ -196,6 +246,7 @@ fn active_traces_table_el(
                                     trace_id: trace_header.trace_id,
                                     trace_name: trace_header.trace_name.clone(),
                                     trace_timestamp: trace_header.trace_timestamp,
+                                    duration: trace_header.duration,
                                 },
                                 instance_id: i.id,
                             })
@@ -209,6 +260,7 @@ fn active_traces_table_el(
                                     trace_id: trace_header.trace_id,
                                     trace_name: trace_header.trace_name.clone(),
                                     trace_timestamp: trace_header.trace_timestamp,
+                                    duration: trace_header.duration,
                                 },
                                 instance_id: i.id,
                             })
@@ -224,7 +276,7 @@ fn active_traces_table_el(
                     <td class="trace-table__cell">{active.trace_header.trace_name}</td>
                     <td class="trace-table__cell">{active.instance_id}</td>
                     <td class="trace-table__cell">{secs_since(active.trace_header.trace_timestamp)}</td>
-                    <td class="trace-table__cell">{"Soon"}</td>
+                    <td class="trace-table__cell">{active.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or(format!("{} seconds - Still Running", secs_since(active.trace_header.trace_timestamp)))}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, active.instance_id, active.trace_header.trace_id, active.trace_header.trace_timestamp)}>{"➔"}</a>
                     </td>
@@ -239,7 +291,7 @@ fn active_traces_table_el(
                     <td class="trace-table__cell">{finished.trace_header.trace_name}</td>
                     <td class="trace-table__cell">{finished.instance_id}</td>
                     <td class="trace-table__cell">{secs_since(finished.trace_header.trace_timestamp)}</td>
-                    <td class="trace-table__cell">{"Soon"}</td>
+                    <td class="trace-table__cell">{finished.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or_default()}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, finished.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>
                     </td>
@@ -249,7 +301,8 @@ fn active_traces_table_el(
 
         view! {
             <div>
-             <p style="text-align: center">{format!("Active Traces {:?} sec ago (+- 2s)", secs_since(timestamp))}</p>
+             <p style="text-align: center">{format!("Active Traces {:?} sec ago (+- 3s)   ", secs_since(timestamp))}
+             </p>
                     <table class="trace-table">
                         <tr class="row-container">
                             <th style="text-align: center" colspan="5" class="trace-table__cell">
@@ -286,7 +339,7 @@ fn active_traces_table_el(
     };
     view! {
         <div>
-        {view}
+            {view}
         </div>
     }
 }
@@ -297,39 +350,20 @@ fn create_active_graph_data(
 ) -> GraphData {
     let mut active_trace_series = vec![];
     for instance in instances {
-        let mut instance_active_trace_series = GraphSeries {
-            name: format!("active-{}", instance.id),
-            original_x_values: vec![],
-            x_values: vec![],
-            y_values: vec![],
-        };
+        let mut instance_active_trace_series = GraphSeries::new(format!("active-{}", instance.id));
         for d in &instance.time_data_points {
-            instance_active_trace_series
-                .original_x_values
-                .push(d.timestamp);
-            let minutes_since = secs_since(d.timestamp) as f64 / 60.;
-            instance_active_trace_series.x_values.push(minutes_since);
-            instance_active_trace_series
-                .y_values
-                .push(d.active_traces.len() as f64);
+            instance_active_trace_series.push_data(d.timestamp, d.active_traces.len() as f64);
         }
         active_trace_series.push(instance_active_trace_series);
     }
 
     for instance in instances {
-        let mut received_trace_series = GraphSeries {
-            name: format!("received-{}", instance.id),
-            original_x_values: vec![],
-            x_values: vec![],
-            y_values: vec![],
-        };
+        let mut received_trace_series = GraphSeries::new(format!("received-{}", instance.id));
         for d in &instance.time_data_points {
-            received_trace_series.original_x_values.push(d.timestamp);
-            let minutes_since = secs_since(d.timestamp) as f64 / 60.;
-            received_trace_series.x_values.push(minutes_since);
-            received_trace_series
-                .y_values
-                .push((d.active_traces.len() + d.finished_traces.len()) as f64);
+            received_trace_series.push_data(
+                d.timestamp,
+                (d.active_traces.len() + d.finished_traces.len()) as f64,
+            );
         }
         active_trace_series.push(received_trace_series);
     }
@@ -361,6 +395,21 @@ fn create_spe_buffer_graph_data(instances: &[Instance]) -> GraphData {
                 .push(d.tracer_status.spe_buffer_usage as f64);
         }
         series.push(instance_series);
+        let mut instance_limit_series = GraphSeries {
+            name: format!("{}-spe-buffer-capacity", instance.id.to_string()),
+            original_x_values: vec![],
+            x_values: vec![],
+            y_values: vec![],
+        };
+        for d in &instance.time_data_points {
+            instance_limit_series.original_x_values.push(d.timestamp);
+            let minutes_since = secs_since(d.timestamp) as f64 / 60.;
+            instance_limit_series.x_values.push(minutes_since);
+            instance_limit_series
+                .y_values
+                .push(d.tracer_status.spe_buffer_capacity as f64);
+        }
+        series.push(instance_limit_series);
     }
     let graph_data = GraphData {
         dom_id_to_render_to: "spe_buffer_usage_graph_id".to_string(),
@@ -483,9 +532,8 @@ fn create_trace_spe_usage_graph_data(instances: &[Instance]) -> GraphData {
 }
 
 #[component]
-pub fn Services(root_path: String) -> impl IntoView {
-    let (services_r, services_w) =
-        leptos::create_signal(Option::<Vec<api_structs::ui::service_health::ServiceData>>::None);
+pub fn ServicesStatistics(root_path: String) -> impl IntoView {
+    let (services_r, services_w) = leptos::create_signal(Option::<Vec<ServiceData>>::None);
     let (instance_idx_r, instance_idx_w) = leptos::create_signal(Option::<usize>::None);
     let (
         active_trace_graph_click_event_on_timestamp_r,
@@ -518,11 +566,14 @@ pub fn Services(root_path: String) -> impl IntoView {
                 let service = Rc::new(service);
                 let service_name = service.name.clone();
                 let env = service.env;
-                let mut instance_rust_log_els = vec![];
-                for instance in &service.instances {
-                    let els = create_instance_rust_log_ui(&instance, change_rust_log_action);
-                    instance_rust_log_els.push(els);
-                }
+                let instance_specific_data_els = {
+                    let mut instance_specific_data_els = vec![];
+                    for instance in &service.instances {
+                        let els = instance_specific_data_ui(&instance, change_rust_log_action);
+                        instance_specific_data_els.push(els);
+                    }
+                    instance_specific_data_els
+                };
                 let active_traces_graph_data = create_active_graph_data(
                     &service.instances,
                     active_trace_graph_click_event_on_timestamp_w,
@@ -572,7 +623,7 @@ pub fn Services(root_path: String) -> impl IntoView {
                 services_els.push(view! {
                     <div>
                         <h2 style="text-align: center">{format!("Service: {service_name} at {env}")}</h2>
-                            {instance_rust_log_els}
+                            {instance_specific_data_els}
                             <div style="display: flex; flex-wrap: wrap; justify-content: center; margin: 10px 0 10px 0">
                                 <div _ref=spe_buffer_usage id=spe_buffer_usage_graph_id.clone()></div>
                                 <div _ref=trace_spe_usage id=trace_spe_usage_graph_id.clone()></div>
@@ -687,388 +738,6 @@ pub fn Services(root_path: String) -> impl IntoView {
                     </div>
                 });
             }
-            // let instances = instances[0];
-            // let mut els = vec![];
-            // for (service, service_instances) in instances {
-            //     let mut instances = vec![];
-            //     for instance in service_instances {
-            //         let secs_since_seen = crate::secs_since(instance.last_seen_timestamp);
-            //         let stats = instance.tracer_stats;
-            //         let logs_per_minute_limit = stats.sampler_limits.logs_per_minute_limit;
-            //         let spe_per_minute_limit =
-            //             stats.sampler_limits.trace_spe_per_minute_per_trace_limit;
-            //
-            //         let input_element: NodeRef<Input> = create_node_ref();
-            //
-            //         let increment = move |_| {
-            //             change_filters_action.dispatch(NewFiltersRequest {
-            //                 instance_id: instance.service_id,
-            //                 filters: input_element.get().unwrap().value(),
-            //             });
-            //         };
-            //         let active_traces_graph = NodeRef::<Div>::new();
-            //         let active_traces_graph_id = "active_traces".to_string();
-            //         active_traces_graph.on_load({
-            //             let active_traces_graph_id = active_traces_graph_id.clone();
-            //             move |e| {
-            //                 let active_traces = GraphData {
-            //                     dom_id_to_render_to: active_traces_graph_id.clone(),
-            //                     y_name: "Active Traces".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(active_traces);
-            //             }
-            //         });
-            //         let spe_per_min_graph = NodeRef::<Div>::new();
-            //         let spe_per_min_graph_id = "spe_per_min".to_string();
-            //         spe_per_min_graph.on_load({
-            //             let spe_per_min_graph_id = spe_per_min_graph_id.clone();
-            //             move |e| {
-            //                 let spe_per_min = GraphData {
-            //                     dom_id_to_render_to: spe_per_min_graph_id.clone(),
-            //                     y_name: "SpE/min".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(spe_per_min);
-            //             }
-            //         });
-            //
-            //         let logs_per_min_graph = NodeRef::<Div>::new();
-            //         let logs_per_min_graph_id = "logs_per_min".to_string();
-            //         logs_per_min_graph.on_load({
-            //             let logs_per_min_graph_id = logs_per_min_graph_id.clone();
-            //             move |e| {
-            //                 let logs_per_min = GraphData {
-            //                     dom_id_to_render_to: logs_per_min_graph_id.clone(),
-            //                     y_name: "Logs/min".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(logs_per_min);
-            //             }
-            //         });
-            //
-            //         let export_buffer_graph = NodeRef::<Div>::new();
-            //         let export_buffer_graph_id = "export_buffer".to_string();
-            //         export_buffer_graph.on_load({
-            //             let export_buffer_graph_id = export_buffer_graph_id.clone();
-            //             move |e| {
-            //                 let export_buffer = GraphData {
-            //                     dom_id_to_render_to: export_buffer_graph_id.clone(),
-            //                     y_name: "Export Buffer".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(export_buffer);
-            //             }
-            //         });
-            //
-            //         let logs_dropped_per_min_graph = NodeRef::<Div>::new();
-            //         let logs_dropped_per_min_graph_id = "logs_dropped_per_min".to_string();
-            //         logs_dropped_per_min_graph.on_load({
-            //             let logs_dropper_per_min_graph_id = logs_dropped_per_min_graph_id.clone();
-            //             move |e| {
-            //                 let logs_dropped_per_min = GraphData {
-            //                     dom_id_to_render_to: logs_dropper_per_min_graph_id.clone(),
-            //                     y_name: "Logs Dropped/min".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(logs_dropped_per_min);
-            //             }
-            //         });
-            //
-            //         let dropped_traces_per_min_graph = NodeRef::<Div>::new();
-            //         let dropped_traces_per_min_graph_id = "dropped_traces_per_min".to_string();
-            //         dropped_traces_per_min_graph.on_load({
-            //             let dropped_traces_per_min_graph_id =
-            //                 dropped_traces_per_min_graph_id.clone();
-            //             move |e| {
-            //                 let dropped_traces_per_min = GraphData {
-            //                     dom_id_to_render_to: dropped_traces_per_min_graph_id.clone(),
-            //                     y_name: "Dropped Traces/min".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(dropped_traces_per_min);
-            //             }
-            //         });
-            //
-            //         let events_kb_per_min_graph = NodeRef::<Div>::new();
-            //         let events_kb_per_min_graph_id = "events_kb_per_min_graph".to_string();
-            //         events_kb_per_min_graph.on_load({
-            //             let events_kb_per_min_graph_id = events_kb_per_min_graph_id.clone();
-            //             move |e| {
-            //                 let events_kb_per_min = GraphData {
-            //                     dom_id_to_render_to: events_kb_per_min_graph_id.clone(),
-            //                     y_name: "Events kb/min".to_string(),
-            //                     x_name: "minutes ago".to_string(),
-            //                     series: vec![
-            //                         GraphSeries {
-            //                             name: "instance_1".to_string(),
-            //                             x_values: vec![30, 25, 20, 15, 10, 5, 0],
-            //                             y_values: vec![1, 2, 1, 3, 5, 1, 7],
-            //                         },
-            //                         GraphSeries {
-            //                             name: "instance_2".to_string(),
-            //                             x_values: vec![30, 21, 20, 15, 10, 5, 0],
-            //                             y_values: vec![3, 1, 5, 7, 6, 2, 1],
-            //                         },
-            //                     ],
-            //                 };
-            //                 create_chart_action.dispatch(events_kb_per_min);
-            //             }
-            //         });
-            //
-            //         let mut html_trace_stats = vec![];
-            //         for (trace_name, trace_stats) in stats.per_minute_trace_stats {
-            //             let dropped_traces_per_minute =
-            //                 trace_stats.traces_dropped_by_sampling_per_minute;
-            //             let spe_usage_per_minute = trace_stats.spe_usage_per_minute;
-            //             html_trace_stats.push(view!{
-            //                 <tr class={"row-container"}>
-            //                     <td class="trace-table__cell">{{trace_name}}</td>
-            //                     <td class="trace-table__cell">{format!("{}", spe_usage_per_minute)}</td>
-            //                     <td class="trace-table__cell">{format!("{}", dropped_traces_per_minute)}</td>
-            //                 </tr>
-            //             });
-            //         }
-            //         instances.push(view! {
-            //         <>
-            //             <div style="display: flex; gap: 20px; justify-content: center; align-items: center">
-            //                 <p style="text-align: center">{format!("Instance {} Last seen: {} s ago", instance.service_id, secs_since_seen)}</p>
-            //                 <div style="display: flex; justify-content: center">
-            //                     <label style="align-self: center" for="filters">"RUST_LOG Filters: "</label>
-            //                     <input type="text" id="filters" name="filters" node_ref=input_element value={&instance.filters} size="70" />
-            //                     <button style="margin-left: 5px;" on:click=increment>"Apply"</button>
-            //                 </div>
-            //             </div>
-            //             <div style="display: flex; gap: 20px; justify-content: center; align-items: center">
-            //                 <p style="text-align: center; margin: 5px 0 5px 0">{format!("Instance {} Last seen: {} s ago", instance.service_id, secs_since_seen)}</p>
-            //                 <div style="display: flex; justify-content: center">
-            //                     <label style="align-self: center" for="filters">"RUST_LOG Filters: "</label>
-            //                     <input type="text" id="filters" name="filters" node_ref=input_element value={&instance.filters} size="70" />
-            //                     <button style="margin-left: 5px;" on:click=increment>"Apply"</button>
-            //                 </div>
-            //             </div>
-            //             <div style="display: flex; flex-wrap: wrap; justify-content: center; margin: 10px 0 10px 0">
-            //                 <div _ref=active_traces_graph id=active_traces_graph_id.clone()></div>
-            //                 <div _ref=spe_per_min_graph id=spe_per_min_graph_id.clone()></div>
-            //                 <div _ref=logs_per_min_graph id=logs_per_min_graph_id.clone()></div>
-            //                 <div _ref=export_buffer_graph id=export_buffer_graph_id.clone()></div>
-            //                 <div _ref=logs_dropped_per_min_graph id=logs_dropped_per_min_graph_id.clone()></div>
-            //                 <div _ref=dropped_traces_per_min_graph id=dropped_traces_per_min_graph_id.clone()></div>
-            //                 <div _ref=events_kb_per_min_graph id=events_kb_per_min_graph_id.clone()></div>
-            //             </div>
-            //             <p style="text-align: center">{"Graph Alerts:"}</p>
-            //             <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center">
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Min Instance Count: "</label>
-            //                     <input type="text"  name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Active Traces: "</label>
-            //                     <input type="text"  name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"SpE/min: "</label>
-            //                     <input type="text"  name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Log/min: "</label>
-            //                     <input type="text"  name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Export Buffer: "</label>
-            //                     <input type="text"  name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Logs Dropped/min: "</label>
-            //                     <input type="text" name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Dropped Traces/min: "</label>
-            //                     <input type="text" name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Events kb/min: "</label>
-            //                     <input type="text" name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //
-            //             </div>
-            //             <p style="text-align: center">{"Per Trace Global Alerts:"}</p>
-            //             <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center">
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Warning %"</label>
-            //                     <input type="text" name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Error %"</label>
-            //                     <input type="text" name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //                 <div style="">
-            //                     <label style="align-self: center" for="filters">"Duration (ms): "</label>
-            //                     <input type="text" name="filters" size="5" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //             </div>
-            //
-            //             <p style="text-align: center">{"Per Trace Alert overwrites:"}</p>
-            //             <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center">
-            //                 <div style="">
-            //                     <label style="align-self: center" for="trace_name">"Trace Name:"</label>
-            //                     <input style="margin-right: 7px" type="text" name="trace_name" size="15" />
-            //                     <label style="align-self: center" for="warning_percentage">"Warning %:"</label>
-            //                     <input style="margin-right: 7px" type="text" name="warning_percentage" size="3" />
-            //                     <label style="align-self: center" for="error_percentage">"Error %:"</label>
-            //                     <input style="margin-right: 7px" type="text" name="error_percentage" size="3" />
-            //                     <label style="align-self: center" for="trace_duration">"Duration (ms):"</label>
-            //                     <input style="margin-right: 7px" type="text" name="trace_duration" size="3" />
-            //                     <button style="margin-left: 5px; margin-bottom: 10px">"Apply"</button>
-            //                 </div>
-            //             </div>
-            //
-            //             <table class="trace-table">
-            //
-            //                 <tr class="row-container">
-            //                     <th style="text-align: center" colspan="4" class="trace-table__cell">
-            //                         <a>"Trace Alert Overrides"</a>
-            //                     </th>
-            //                 </tr>
-            //                 <tr class="row-container">
-            //                     <th class="trace-table__cell">
-            //                         <a>"Trace Name"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Allowed Warning %"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Allowed Error %"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Allowed Duration (ms)"</a>
-            //                     </th>
-            //                 </tr>
-            //             </table>
-            //             <p style="text-align: center">{format!("Active Traces {} min ago", 5)}</p>
-            //             <table class="trace-table">
-            //                 <tr class="row-container">
-            //                     <th class="trace-table__cell">
-            //                         <a>"Trace Name"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Instance Id"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>{"Duration (ms)"}</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Total / Lost Spans"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Total / Lost Events"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Events kb"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"Warns"</a>
-            //                     </th>
-            //                     <th class="trace-table__cell">
-            //                         <a>"➔"</a>
-            //                     </th>
-            //                 </tr>
-            //                 {html_trace_stats}
-            //             </table>
-            //         </>
-            //     });
-            //     }
-            //     els.push(view! {
-            //         <>
-            //             <h2 style="text-align: center">{format!("Service: {service}")}</h2>
-            //             {instances}
-            //
-            //         </>
-            //     });
-            // }
             view! {
                 <div style="padding: 20px; color: white">
                     {services_els}

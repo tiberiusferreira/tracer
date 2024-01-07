@@ -11,7 +11,7 @@ use api_structs::exporter::trace_exporting::{
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::live_services::LiveServiceInstance;
 use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
-use api_structs::ui::service_health::{Instance, InstanceDataPoint, TraceHeader};
+use api_structs::ui::service_health::{Instance, InstanceDataPoint, ProfileData, TraceHeader};
 use axum::extract::{Query, State};
 use axum::Json;
 use reqwest::StatusCode;
@@ -20,6 +20,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
+use std::time::Duration;
 use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 #[derive(Debug, Clone, sqlx::Type)]
@@ -204,10 +205,11 @@ pub(crate) async fn instances_get(
             alert_config: service_data.alert_config,
             instances: vec![],
         };
-        for (instance_id, instance_state) in service_data.instances {
+        for (_instance_id, instance_state) in service_data.instances {
             api_service_data.instances.push(Instance {
                 id: instance_state.id,
                 rust_log: instance_state.rust_log,
+                profile_data: instance_state.profile_data,
                 time_data_points: instance_state.time_data_points.into_iter().collect(),
             });
         }
@@ -271,12 +273,20 @@ fn update_instance_data(
             trace_id: trace_frag.trace_id,
             trace_name: trace_frag.trace_name.clone(),
             trace_timestamp: trace_frag.trace_timestamp,
+            duration: trace_frag.duration_if_closed(&exported_service_trace_data.closed_spans),
         };
-        if trace_frag.is_closed(&exported_service_trace_data.closed_spans) {
+        if header.duration.is_some() {
             finished_traces.push(header);
         } else {
             active_traces.push(header);
         }
+    }
+    instance.rust_log = exported_service_trace_data.rust_log.clone();
+    if let Some(profile_data) = &exported_service_trace_data.profile_data {
+        instance.profile_data = Some(ProfileData {
+            profile_data_timestamp: now_nanos_u64(),
+            profile_data: profile_data.clone(),
+        });
     }
 
     instance.time_data_points.push_back(InstanceDataPoint {

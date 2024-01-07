@@ -9,7 +9,7 @@ mod services;
 use details::TraceDetails;
 use leptos_router::*;
 use logs::Logs;
-use services::Services;
+use services::ServicesStatistics;
 const API_SERVER_URL_NO_TRAILING_SLASH: &str = env!("API_SERVER_URL_NO_TRAILING_SLASH");
 
 fn main() {
@@ -60,7 +60,7 @@ pub fn App() -> impl IntoView {
                                 let root_path= root_path.to_string();
                                 move || view! {
 
-                                    <Services root_path=root_path.clone()/>
+                                    <ServicesStatistics root_path=root_path.clone()/>
                                 }
                               }
                             />

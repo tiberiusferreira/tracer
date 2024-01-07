@@ -13,6 +13,7 @@ pub struct ExportedServiceTraceData {
     pub rust_log: String,
     pub active_trace_fragments: HashMap<u64, TraceFragment>,
     pub producer_stats: ProducerStats,
+    pub profile_data: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -27,20 +28,28 @@ pub struct TraceFragment {
 
 impl TraceFragment {
     pub fn is_closed(&self, closed_spans: &[ClosedSpan]) -> bool {
-        let root_closed = self
-            .new_spans
-            .iter()
-            .any(|span| span.id == self.trace_id && span.duration.is_some());
-        if root_closed {
-            return true;
+        self.duration_if_closed(closed_spans).is_some()
+    }
+    pub fn duration_if_closed(&self, closed_spans: &[ClosedSpan]) -> Option<u64> {
+        let root_closed = self.new_spans.iter().find_map(|span| {
+            if let Some(duration) = span.duration {
+                if span.id == self.trace_id {
+                    return Some(duration);
+                }
+            }
+            None
+        });
+        if let Some(root_duration) = root_closed {
+            return Some(root_duration);
         }
-        let trace_old_root_closed = closed_spans
-            .iter()
-            .any(|closed| closed.trace_id == self.trace_id && closed.span_id == self.trace_id);
-        if trace_old_root_closed {
-            return true;
-        }
-        false
+        let trace_old_root_duration = closed_spans.iter().find_map(|closed| {
+            if closed.trace_id == self.trace_id && closed.span_id == self.trace_id {
+                Some(closed.duration)
+            } else {
+                None
+            }
+        });
+        trace_old_root_duration
     }
 }
 

@@ -3,6 +3,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
 use tracing::{info, info_span, instrument, Instrument};
 use tracing_config_helper::TracerConfig;

@@ -144,6 +144,7 @@ async fn sse_handler(
         state::InstanceState {
             id: instance_id,
             rust_log: "".to_string(),
+            profile_data: None,
             time_data_points: VecDeque::new(),
             see_handle,
         },

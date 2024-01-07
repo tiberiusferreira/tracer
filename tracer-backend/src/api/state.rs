@@ -1,5 +1,5 @@
 use crate::api::ChangeFilterInternalRequest;
-use api_structs::ui::service_health::{AlertConfig, InstanceDataPoint};
+use api_structs::ui::service_health::{AlertConfig, InstanceDataPoint, ProfileData};
 use api_structs::Env;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -18,6 +18,7 @@ pub struct InstanceState {
     pub id: i64,
     /// info
     pub rust_log: String,
+    pub profile_data: Option<ProfileData>,
     // time data
     pub time_data_points: VecDeque<InstanceDataPoint>,
     pub see_handle: tokio::sync::mpsc::Sender<ChangeFilterInternalRequest>,

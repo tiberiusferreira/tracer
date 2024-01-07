@@ -14,10 +14,17 @@ pub struct ServiceData {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProfileData {
+    pub profile_data_timestamp: u64,
+    pub profile_data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Instance {
     pub id: i64,
     /// info
     pub rust_log: String,
+    pub profile_data: Option<ProfileData>,
     // time data
     pub time_data_points: Vec<InstanceDataPoint>,
 }
@@ -74,6 +81,7 @@ pub struct TraceHeader {
     pub trace_id: u64,
     pub trace_name: String,
     pub trace_timestamp: u64,
+    pub duration: Option<u64>,
     // pub spe_usage_per_minute: u64,
     // pub traces_dropped_by_sampling_per_minute: u64,
 }

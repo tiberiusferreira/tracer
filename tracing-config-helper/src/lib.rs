@@ -6,10 +6,12 @@
 use api_structs::exporter::trace_exporting::{
     ExportedServiceTraceData, SpanEventCount, TraceFragment,
 };
+use pprof::protos::Message;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::Duration;
 
 use tracing_subscriber::layer::SubscriberExt;
@@ -84,6 +86,7 @@ pub struct TracerConfig {
     /// How long to wait between exports. A short duration will flood the collector and a long one will cause the
     /// export buffers to fill up. Stats are also exported on this schedule.
     pub wait_duration_between_exports: Duration,
+    pub min_wait_duration_between_profile_exports: Duration,
     pub sampler_limits: SamplerLimits,
     /// Maximum number of span plus events to keep in memory at a given time
     pub spe_buffer_capacity: u64,
@@ -101,6 +104,7 @@ impl TracerConfig {
             }),
             export_timeout: Duration::from_secs(10),
             wait_duration_between_exports: Duration::from_secs(5),
+            min_wait_duration_between_profile_exports: Duration::from_secs(60),
             sampler_limits: SamplerLimits {
                 trace_spe_per_minute_per_trace_limit: 1000,
                 extra_spe_per_minute_limit_for_existing_traces: 5000,
@@ -125,6 +129,11 @@ impl TracerConfig {
 }
 
 pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> FlushRequester {
+    // thread::spawn(move || loop {
+    //     thread::sleep(Duration::from_secs(1));
+    //     let mut file = std::fs::File::create("prof.svg").unwrap();
+    //
+    // });
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
     // runtime starved from CPU time
     let (s, r) = tokio::sync::oneshot::channel();
@@ -214,6 +223,7 @@ impl ExportDataContainers {
         filters: String,
         tracer_stats: ProducerStats,
         active_trace_fragments: HashMap<u64, TraceFragment>,
+        profile_data: Option<Vec<u8>>,
     ) -> Self {
         Self {
             data: ExportedServiceTraceData {
@@ -225,6 +235,7 @@ impl ExportDataContainers {
                 orphan_events: vec![],
                 rust_log: filters,
                 producer_stats: tracer_stats,
+                profile_data,
             },
         }
     }
@@ -363,6 +374,11 @@ impl FlushRequester {
 }
 
 async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
+    let profiler_guard = pprof::ProfilerGuardBuilder::default()
+        .frequency(100)
+        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+        .build()
+        .expect("to be able to start profiler");
     println!("Initializing Tracer using:\n{:#?}", config);
     let (mut flush_request_receiver, flush_request_sender) = FlushRequester::new();
     let spe_buffer_len = usize::try_from(config.spe_buffer_capacity).expect("u32 to fit usize");
@@ -392,9 +408,13 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
 
     let trace_export_task = tokio::task::spawn_local(async move {
         let spe_buffer_capacity = config.spe_buffer_capacity;
+        let min_wait_duration_between_profile_exports =
+            config.min_wait_duration_between_profile_exports;
         let env = config.env;
         let client = reqwest::Client::new();
         let context = "trace_export_task";
+        let profiler_guard = profiler_guard;
+        let mut time_last_profile_export = std::time::Instant::now();
         let mut active_traces = HashMap::new();
         loop {
             let period_time_secs = config.wait_duration_between_exports;
@@ -436,6 +456,21 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             let mut tracer_stats = tracer_sampler.read().get_tracer_stats();
             tracer_stats.spe_buffer_capacity = spe_buffer_capacity;
             tracer_stats.spe_buffer_usage = events.len() as u64;
+            let should_export_profile =
+                time_last_profile_export.elapsed() > min_wait_duration_between_profile_exports;
+            let profile_data = if should_export_profile {
+                time_last_profile_export = std::time::Instant::now();
+                let mut profile_data = Vec::new();
+                profiler_guard
+                    .report()
+                    .build()
+                    .expect("profile creation to work")
+                    .flamegraph(&mut profile_data)
+                    .expect("profile writing to work");
+                Some(profile_data)
+            } else {
+                None
+            };
             let mut export_data = ExportDataContainers::new(
                 service_id,
                 config.service_name.to_string(),
@@ -443,6 +478,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                 current_filters,
                 tracer_stats,
                 active_traces.clone(),
+                profile_data,
             );
 
             print_if_dbg(context, format!("New events count: {}", events.len()));
