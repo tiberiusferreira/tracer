@@ -1,15 +1,12 @@
 use crate::{printable_local_date, printable_local_date_ms, API_SERVER_URL_NO_TRAILING_SLASH};
 use api_structs::ui::trace_view::{SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
 use api_structs::Severity;
-use leptos::ev::MouseEvent;
 use leptos::logging::log;
 use leptos::{
-    component, create_action, create_local_resource, create_signal, view, CollectView, Fragment,
-    IntoView, ReadSignal, Signal, SignalGet, SignalSet, WriteSignal,
+    component, create_local_resource, view, CollectView, Fragment, IntoView, ReadSignal, Signal,
+    SignalGet, SignalSet, WriteSignal,
 };
-use leptos_router::ParamsMap;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::rc::Rc;
 
 fn span_detail(trace_spans_r: Signal<Option<ApiTraceData>>) -> Fragment {
@@ -134,12 +131,13 @@ fn span_detail(trace_spans_r: Signal<Option<ApiTraceData>>) -> Fragment {
 
 #[derive(Clone)]
 struct ApiTraceData {
+    #[allow(unused)]
     trace_id: TraceId,
     chunk_id: TraceChunkId,
     spans: Vec<Span>,
 }
 #[component]
-pub fn TraceDetails(root_path: String) -> impl IntoView {
+pub fn TraceDetails(page_root_url: String) -> impl IntoView {
     let query_parameters = leptos_router::use_query_map().get();
     let service_id = query_parameters
         .get("service_id")
@@ -166,9 +164,9 @@ pub fn TraceDetails(root_path: String) -> impl IntoView {
     let (current_trace_chunk_r, current_trace_chunk_w) =
         leptos::create_signal(Option::<TraceChunkId>::None);
 
-    let get_trace_chunk = {
+    {
         let trace_id = trace_id.clone();
-        create_local_resource(
+        let _resource = create_local_resource(
             move || current_trace_chunk_r.get(),
             move |chunk_id: Option<TraceChunkId>| {
                 let trace_id = trace_id.clone();
@@ -182,8 +180,9 @@ pub fn TraceDetails(root_path: String) -> impl IntoView {
                     }
                 }
             },
-        )
-    };
+        );
+    }
+
     if let (Some(start_timestamp), Some(end_timestamp)) = (start_timestamp, end_timestamp) {
         let chunk = TraceChunkId {
             start_timestamp,
@@ -193,7 +192,7 @@ pub fn TraceDetails(root_path: String) -> impl IntoView {
     }
     let _api_chunk_list_request_sender = {
         let trace_id = trace_id.clone();
-        leptos::create_local_resource(move || trace_id.clone(), {
+        create_local_resource(move || trace_id.clone(), {
             move |trace_id| {
                 get_single_trace_chunk_list(
                     trace_id,
@@ -231,7 +230,7 @@ pub fn TraceDetails(root_path: String) -> impl IntoView {
                         let dates = format!("{} - {}", printable_local_date(*start), printable_local_date(*end));
                         view!{
                             <>
-                                <a style={style} target="_self" href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}&&end_timestamp={}", root_path.clone(), trace_id.service_id, trace_id.trace_id, start, end)}>{format!("{} - {dates}", idx+1)}</a>
+                                <a style={style} target="_self" href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}&&end_timestamp={}", page_root_url.clone(), trace_id.service_id, trace_id.trace_id, start, end)}>{format!("{} - {dates}", idx+1)}</a>
                             <>
                         }
                     });
@@ -378,131 +377,6 @@ fn create_html_span_and_children(
     }
 }
 
-fn create_summary_html_span_and_children_single_layer(
-    start_time_unix_micros: u64,
-    max_duration: u64,
-    spans: &[Span],
-    spans_by_parent_id: Rc<HashMap<i64, Vec<Span>>>,
-    curr_depth: i32,
-    html_span_and_children_summary: &mut Vec<Fragment>,
-    max_depth: &mut i32,
-) {
-    // if curr_depth > *max_depth {
-    //     *max_depth = curr_depth;
-    // }
-    // let empty = vec![];
-    // let mut next_layer_spans = spans.iter().fold(Vec::new(), |mut acc, curr| {
-    //     acc.extend_from_slice(&spans_by_parent_id.get(&curr.id).unwrap_or(&empty));
-    //     acc
-    // });
-    // next_layer_spans.sort_by_key(|k| k.timestamp);
-    //
-    // // group very small children into "single" element
-    // let spans = spans
-    //     .to_vec()
-    //     .into_iter()
-    //     .fold(Vec::new(), |mut acc: Vec<Span>, curr| {
-    //         let percentage_0_to_100 = match curr.duration {
-    //             None => 100.,
-    //             Some(duration) => {
-    //                 // clamp in case the span goes on for longer than the current window we are displaying
-    //                 ((100 * duration) as f64 / max_duration as f64).min(100.)
-    //             }
-    //         };
-    //
-    //         // if percentage_0_to_100 < 0.2 {
-    //         //     if let Some(last) = acc.last_mut() {
-    //         //         let last_plus_curr_combined_duration = last.duration + curr.duration;
-    //         //         let combined_percentage_0_to_100 =
-    //         //             (100 * last_plus_curr_combined_duration) as f64 / max_duration as f64;
-    //         //         let last_end_time = last.timestamp + last.duration;
-    //         //         let gap_micros = curr.timestamp.saturating_sub(last_end_time);
-    //         //         if combined_percentage_0_to_100 < 0.2 && gap_micros < 1000 {
-    //         //             last.duration += curr.duration + gap_micros;
-    //         //             return acc;
-    //         //         }
-    //         //     }
-    //         // }
-    //         acc.push(curr);
-    //         acc
-    //     });
-    // let mut last_end: u64 = 0;
-    // for s in spans {
-    //     // dont let them overlap when multiple spans happened at ~ the same time
-    //     let overlap = last_end.saturating_sub(s.timestamp);
-    //     if s.duration >= overlap * 2 {
-    //         html_span_and_children_summary.push(create_span_summary_html(
-    //             start_time_unix_micros,
-    //             max_duration,
-    //             s.timestamp,
-    //             s.duration,
-    //             curr_depth,
-    //             &s.name,
-    //         ));
-    //         last_end = s.timestamp + s.duration;
-    //     }
-    // }
-    // if !next_layer_spans.is_empty() {
-    //     create_summary_html_span_and_children_single_layer(
-    //         start_time_unix_micros,
-    //         max_duration,
-    //         &next_layer_spans,
-    //         Rc::clone(&spans_by_parent_id),
-    //         curr_depth + 1,
-    //         &mut *html_span_and_children_summary,
-    //         max_depth,
-    //     );
-    // }
-    unimplemented!()
-}
-
-fn create_span_summary_html(
-    root_start_time_unix_micros: u64,
-    root_duration_micros: u64,
-    start_time_unix_micros: u64,
-    duration_micros: u64,
-    depth: i32,
-    span_name: &str,
-) -> Fragment {
-    let start_offset_micros;
-    let start_offset_percentage;
-    let duration_percentage: f64;
-    start_offset_micros = start_time_unix_micros - root_start_time_unix_micros;
-    start_offset_percentage = (100 * start_offset_micros) as f64 / root_duration_micros as f64;
-    duration_percentage = ((100 * duration_micros) as f64 / root_duration_micros as f64)
-        .max(0.2)
-        .min(100f64 - start_offset_percentage);
-    let mut depth_to_color: HashMap<i32, String> = HashMap::new();
-    depth_to_color.insert(0, "white".to_string());
-    depth_to_color.insert(1, "red".to_string());
-    depth_to_color.insert(2, "green".to_string());
-    depth_to_color.insert(3, "blue".to_string());
-    depth_to_color.insert(4, "purple".to_string());
-    depth_to_color.insert(5, "brown".to_string());
-    depth_to_color.insert(6, "darkred".to_string());
-    depth_to_color.insert(7, "forestgreen".to_string());
-    let margin_top = 8 + depth * 20; // 8 my "padding"
-    let span_style = format!(
-        "position: absolute; margin-top: {margin_top}px; height: 15px; background-color: {}; border-radius: 8px",
-        depth_to_color.get(&(depth % 8)).unwrap()
-    );
-    let paragraph = if duration_percentage >= (span_name.len() as f64 / 2.) {
-        Some(view! {
-            <p style="margin: 0; font-size: x-small; text-align: center">{span_name.to_string()}</p>
-        })
-    } else {
-        None
-    };
-    let span_html = view! {
-        <>
-        <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}>
-            {paragraph}
-        </div>
-        </>
-    };
-    span_html
-}
-
 fn create_html_span(
     start_timestamp_nanos: u64,
     max_duration: u64,
@@ -511,9 +385,8 @@ fn create_html_span(
 ) -> Option<Fragment> {
     let span_start = span.timestamp;
     let span_duration = span.duration.map(|d| d.max(1)); // make it not 0
-    let end_timestamp = start_timestamp_nanos + max_duration;
-    // span may start before the start_timestamp_nanos
-    let start_offset_nanos = (span_start.saturating_sub(start_timestamp_nanos));
+                                                         // span may start before the start_timestamp_nanos
+    let start_offset_nanos = span_start.saturating_sub(start_timestamp_nanos);
     log!("span_start={span_start}");
     log!("start_timestamp_nanos={start_timestamp_nanos}");
     log!("start_offset_nanos={start_offset_nanos}");

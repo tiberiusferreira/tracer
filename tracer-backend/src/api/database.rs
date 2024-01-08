@@ -40,6 +40,16 @@ struct RawServiceConfig {
     min_alert_period_seconds: i64,
     alert_url: Option<String>,
 }
+
+struct RawServiceAlertConfigTraceOverwrite {
+    service_name: String,
+    top_level_span_name: String,
+    max_trace_duration_ms: i64,
+    max_traces_with_warning_percentage: i64,
+    max_traces_with_error_percentage: i64,
+    max_traces_dropped_by_sampling_per_min: i64,
+}
+
 #[instrument(skip_all)]
 pub(crate) async fn get_service_raw_config(
     con: &PgPool,
@@ -83,7 +93,7 @@ pub async fn get_or_init_service_alert_config(
     env: Env,
 ) -> Result<AlertConfig, sqlx::Error> {
     let raw_service_config = get_service_raw_config(con, &service_name, env).await?;
-    let raw_service_config = match raw_service_config {
+    let (raw_service_config, overwrites) = match raw_service_config {
         None => {
             sqlx::query!(
                 "insert into service_alert_config (service_name) values ($1::TEXT);",
@@ -94,18 +104,28 @@ pub async fn get_or_init_service_alert_config(
             let raw_service_config = get_service_raw_config(con, &service_name, env)
                 .await?
                 .expect("to exist, just inserted it");
-            raw_service_config
+            (raw_service_config, vec![])
         }
-        Some(existing) => existing,
+        Some(existing) => {
+            let overwrites = sqlx::query_as!(RawServiceAlertConfigTraceOverwrite,
+                "select service_name, top_level_span_name, max_traces_with_warning_percentage, \
+            max_traces_dropped_by_sampling_per_min, max_traces_with_error_percentage, max_trace_duration_ms from service_alert_config_trace_overwrite \
+             where service_name=$1;",
+            format!("{}-{}", service_name, env)
+            )
+                .fetch_all(con)
+                .await?;
+            (existing, overwrites)
+        }
     };
     Ok(AlertConfig {
         service_alert_config: api_structs::ui::service_health::ServiceAlertConfig {
-            max_export_buffer_usage: raw_service_config.max_export_buffer_usage as u64,
+            max_spe_export_buffer_usage: raw_service_config.max_export_buffer_usage as u64,
             max_orphan_events_per_min: raw_service_config.max_export_buffer_usage as u64,
             max_orphan_events_dropped_by_sampling_per_min: raw_service_config
                 .max_orphan_events_dropped_by_sampling_per_min
                 as u64,
-            max_spe_dropped_due_to_full_export_buffer: raw_service_config
+            max_spe_dropped_due_to_full_export_buffer_per_min: raw_service_config
                 .max_spe_dropped_due_to_full_export_buffer
                 as u64,
             min_instance_count: raw_service_config.min_instance_count as u64,
@@ -134,7 +154,26 @@ pub async fn get_or_init_service_alert_config(
             alert_url: raw_service_config.alert_url,
         },
         service_alert_config_trace_overwrite: ServiceAlertConfigTraceOverwrite {
-            trace_to_overwrite_config: HashMap::new(),
+            trace_to_overwrite_config: overwrites
+                .into_iter()
+                .map(|single_overwrite| {
+                    (
+                        single_overwrite.top_level_span_name,
+                        TraceAlertConfig {
+                            max_trace_duration: single_overwrite.max_trace_duration_ms as u64,
+                            max_traces_with_warning_percentage: single_overwrite
+                                .max_traces_with_warning_percentage
+                                as u64,
+                            max_traces_with_error_percentage: single_overwrite
+                                .max_traces_with_error_percentage
+                                as u64,
+                            max_traces_dropped_by_sampling_per_min: single_overwrite
+                                .max_traces_dropped_by_sampling_per_min
+                                as u64,
+                        },
+                    )
+                })
+                .collect(),
         },
     })
 }

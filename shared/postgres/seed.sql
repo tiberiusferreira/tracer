@@ -3,7 +3,6 @@ ALTER DATABASE tracer set default_statistics_target = 1000;
 alter database tracer set plan_cache_mode = 'force_custom_plan';
 alter database tracer set work_mem = '8MB';
 CREATE EXTENSION if not exists btree_gin;
--- CREATE TYPE value_type AS ENUM ('string', 'i64', 'f64', 'bool');
 CREATE TYPE severity_level AS ENUM ('trace', 'debug', 'info', 'warn', 'error');
 
 create domain identifier as varchar(512)
@@ -86,8 +85,6 @@ create table span
 );
 create index span_trace_id_parent_id on span (service_id, trace_id, parent_id);
 comment on index span_trace_id_parent_id is 'For fast deletions';
--- create index span_by_name_and_trace_with_id on span (name, trace_id, service_id);
--- comment on index span_by_name_and_trace_with_id is 'Allows filtering spans by name before joining with trace';
 
 
 create table span_key_value
@@ -173,54 +170,3 @@ create table service_alert_config_trace_overwrite
     max_trace_duration_ms                  ubigint    not null default 1000000,
     primary key (service_name, top_level_span_name)
 );
-
-
-/*
-create index event_name_client_id_trace_id_idx
-    on event using gin (name, client_id, trace_id);
-*/
---
---
---
---
---
--- drop table if exists service_traces;
--- drop table if exists service;
--- drop table if exists time_bucket;
--- -- Service stats
--- -- create table time_bucket
--- -- (
--- --     time timestamp primary key,
--- --     check ( extract(minute from time)%5=0 and extract(microsecond from time)=0 )
--- -- );
--- --
--- create table service
--- (
---     time         timestamp  not null,
---     service_name identifier not null,
---     env          identifier not null,
---     primary key (time, service_name)
--- );
---
--- create table service_traces
--- (
---     time                  timestamp  not null,
---     service_name          identifier not null,
---     env                   identifier not null,
---     trace_name            identifier not null,
---     service_uuid          identifier not null,
---
---     total_count           ubigint    not null default 0,
---     span_plus_event_count ubigint    not null default 0,
---     rate_limited_count    ubigint    not null default 0,
---     partial_count         ubigint    not null default 0,
---     orphan_log_count      ubigint    not null default 0,
---     warning_count         ubigint    not null default 0,
---     error_count           ubigint    not null default 0,
---     total_duration        ubigint    not null default 0,
---     max_duration          ubigint    not null default 0,
---     primary key (time, service_name, env, service_uuid),
---     check ( extract(minute from time) % 5 = 0 and extract(microsecond from time) = 0 )
--- );
---
-

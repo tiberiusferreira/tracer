@@ -1,6 +1,5 @@
-use crate::api::state::ServiceId;
-use crate::api::state::{AppState, InstanceState, Shared};
-use crate::api::{ApiError, ChangeFilterInternalRequest, LiveInstances, ServiceName};
+use crate::api::state::{AppState, ServiceData, Shared};
+use crate::api::{ApiError, ServiceName};
 use crate::{
     MAX_STATS_HISTORY_DATA_COUNT, SINGLE_KEY_VALUE_KEY_CHARS_LIMIT,
     SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT,
@@ -9,10 +8,11 @@ use api_structs::exporter::trace_exporting::{
     ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, TraceFragment,
 };
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::ui::live_services::LiveServiceInstance;
 use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
+use api_structs::ui::service_health::ServiceId;
 use api_structs::ui::service_health::{Instance, InstanceDataPoint, ProfileData, TraceHeader};
-use axum::extract::{Query, State};
+use api_structs::Env;
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use reqwest::StatusCode;
 use sqlx::postgres::PgQueryResult;
@@ -20,7 +20,6 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
-use std::time::Duration;
 use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 #[derive(Debug, Clone, sqlx::Type)]
@@ -193,29 +192,57 @@ pub(crate) async fn orphan_events_service_names_get(
 }
 
 #[instrument(level = "error", skip_all)]
-pub(crate) async fn instances_get(
+pub(crate) async fn service_list_get(State(app_state): State<AppState>) -> Json<Vec<ServiceId>> {
+    let service_id_to_service_data: Vec<ServiceId> = app_state
+        .instance_runtime_stats
+        .read()
+        .keys()
+        .cloned()
+        .collect();
+    Json(service_id_to_service_data)
+}
+#[instrument(level = "error", skip_all)]
+pub(crate) async fn service_data_get(
     State(app_state): State<AppState>,
-) -> Result<Json<Vec<api_structs::ui::service_health::ServiceData>>, ApiError> {
-    let service_id_to_service_data = app_state.instance_runtime_stats.read().clone();
-    let mut service_data_list = vec![];
-    for (service_id, service_data) in service_id_to_service_data {
-        let mut api_service_data = api_structs::ui::service_health::ServiceData {
-            name: service_id.name,
-            env: service_id.env,
-            alert_config: service_data.alert_config,
-            instances: vec![],
-        };
-        for (_instance_id, instance_state) in service_data.instances {
-            api_service_data.instances.push(Instance {
-                id: instance_state.id,
-                rust_log: instance_state.rust_log,
-                profile_data: instance_state.profile_data,
-                time_data_points: instance_state.time_data_points.into_iter().collect(),
+    Path((service_name, env)): Path<(String, String)>,
+) -> Result<Json<api_structs::ui::service_health::ServiceData>, ApiError> {
+    let env = Env::try_from(env.as_str()).map_err(|e| ApiError {
+        code: StatusCode::BAD_REQUEST,
+        message: format!("Invalid env {}", env),
+    })?;
+    let service_data = app_state
+        .instance_runtime_stats
+        .read()
+        .clone()
+        .get(&ServiceId {
+            name: service_name.clone(),
+            env,
+        })
+        .cloned();
+    let service_data = match service_data {
+        None => {
+            return Err(ApiError {
+                code: StatusCode::NOT_FOUND,
+                message: "Service not found".to_string(),
             });
         }
-        service_data_list.push(api_service_data);
+        Some(service_data) => service_data,
+    };
+    let mut api_service_data = api_structs::ui::service_health::ServiceData {
+        name: service_name,
+        env,
+        alert_config: service_data.alert_config,
+        instances: vec![],
+    };
+    for (_instance_id, instance_state) in service_data.instances {
+        api_service_data.instances.push(Instance {
+            id: instance_state.id,
+            rust_log: instance_state.rust_log,
+            profile_data: instance_state.profile_data,
+            time_data_points: instance_state.time_data_points.into_iter().collect(),
+        });
     }
-    Ok(Json(service_data_list))
+    Ok(Json(api_service_data))
 }
 
 pub struct ServiceNotRegisteredError;

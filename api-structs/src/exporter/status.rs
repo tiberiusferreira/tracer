@@ -12,7 +12,7 @@ pub struct ProducerStats {
     pub orphan_events_dropped_by_sampling_per_minute: u64,
     //
     // 3 graph
-    pub spe_dropped_due_to_full_export_buffer: u64,
+    pub spe_dropped_due_to_full_export_buffer_per_min: u64,
     //
     // 4 graph
     // spe_usage_per_minute

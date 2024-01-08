@@ -21,55 +21,53 @@ fn main() {
 
 #[component]
 pub fn App() -> impl IntoView {
-    let root_path = "/".to_string();
+    let page_root_url = "/".to_string();
     view! {
         <>
             <header>
                 <nav class="navigation">
                     <div class="navigation__button"></div>
-                    <a class="navigation__button" href={&root_path}>"Trace Search"</a>
-                    <a class="navigation__button" href=format!("{}services", root_path)>"Services Health"</a>
-                    <a class="navigation__button" href=format!("{}logs", root_path)>"Logs"</a>
+                    <a class="navigation__button" href={&page_root_url}>"Services Health"</a>
+                    <a class="navigation__button" href=format!("{}search", page_root_url)>"Trace Search"</a>
+                    <a class="navigation__button" href=format!("{}logs", page_root_url)>"Logs"</a>
                 </nav>
             </header>
                 <Router>
                     <Routes>
                         <Route
-                              path=root_path.clone()
+                            path=format!("{}", page_root_url)
                               view={
-                                    let root_path= root_path.to_string();
+                                let page_root_url = page_root_url.to_string();
+                                move || view! {
+                                    <ServicesStatistics page_root_url=page_root_url.clone()/>
+                                }
+                              }
+                            />
+                        <Route
+                              path=format!("{}trace", page_root_url)
+                              view={
+                                    let page_root_url= page_root_url.to_string();
+                                    move || view! {
+                                        <TraceDetails page_root_url=page_root_url.clone()/>
+                                    }
+                                }
+                            />
+                        <Route
+                              path=format!("{}search", page_root_url)
+                              view={
+                                    let page_root_url= page_root_url.to_string();
                                     move ||{
                                         view! {
-                                              <TraceGrid root_path=root_path.clone()/>
+                                              <TraceGrid page_root_url=page_root_url.clone()/>
                                         }
                                     }
                                 }
                             />
                         <Route
-                              path=format!("{}trace", root_path)
+                              path=format!("{}logs", page_root_url)
                               view={
-                                    let root_path= root_path.to_string();
-                                    move || view! {
-                                    <TraceDetails root_path=root_path.clone()/>
-                                    }
-                                }
-                            />
-                        <Route
-                              path=format!("{}services", root_path)
-                              view={
-                                let root_path= root_path.to_string();
                                 move || view! {
-
-                                    <ServicesStatistics root_path=root_path.clone()/>
-                                }
-                              }
-                            />
-                        <Route
-                              path=format!("{}logs", root_path)
-                              view={
-                                let root_path= root_path.to_string();
-                                move || view! {
-                                    <Logs root_path=root_path.clone()/>
+                                    <Logs />
                                 }
                               }
                             />
@@ -88,7 +86,7 @@ fn printable_local_date(timestamp: u64) -> String {
         u32::try_from(timestamp % nanos_in_1_sec).unwrap(),
     )
     .unwrap();
-    crate::grid::utc_to_local_date(timestamp, offset_minutes)
+    grid::utc_to_local_date(timestamp, offset_minutes)
         .format("%m-%d %H:%M:%S")
         .to_string()
 }

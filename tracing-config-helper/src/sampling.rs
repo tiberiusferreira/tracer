@@ -61,7 +61,8 @@ impl Sampler for TracerSampler {
             // TODO: move this
             spe_buffer_capacity: 0,
             spe_buffer_usage: 0,
-            spe_dropped_due_to_full_export_buffer: self.spe_dropped_buffer_full,
+            spe_dropped_due_to_full_export_buffer_per_min: self
+                .spe_dropped_due_to_full_export_buffer_per_min,
             orphan_events_per_minute_usage: self.orphan_events_per_minute_usage,
             orphan_events_dropped_by_sampling_per_minute: self
                 .orphan_events_per_minute_dropped_by_sampling,
@@ -78,7 +79,7 @@ impl Sampler for TracerSampler {
 #[derive(Debug, Clone)]
 pub struct TracerSampler {
     current_window_start: Instant,
-    spe_dropped_buffer_full: u64,
+    spe_dropped_due_to_full_export_buffer_per_min: u64,
     orphan_events_per_minute_usage: u64,
     orphan_events_per_minute_dropped_by_sampling: u64,
     // we never remove entries because spans should be static, they never get removed from the application
@@ -91,7 +92,7 @@ impl TracerSampler {
         Self {
             current_window_start: Instant::now(),
             sampler_limits,
-            spe_dropped_buffer_full: 0,
+            spe_dropped_due_to_full_export_buffer_per_min: 0,
             orphan_events_per_minute_usage: 0,
             orphan_events_per_minute_dropped_by_sampling: 0,
             trace_stats: HashMap::new(),
@@ -103,6 +104,7 @@ impl TracerSampler {
         if current_window_start.elapsed().as_secs() >= 60 {
             self.current_window_start = Instant::now();
             self.orphan_events_per_minute_dropped_by_sampling = 0;
+            self.spe_dropped_due_to_full_export_buffer_per_min = 0;
             self.orphan_events_per_minute_usage = self
                 .orphan_events_per_minute_usage
                 .saturating_sub(self.sampler_limits.logs_per_minute_limit);
@@ -115,7 +117,9 @@ impl TracerSampler {
         }
     }
     pub fn register_soe_dropped_due_to_full_export_buffer(&mut self) {
-        self.spe_dropped_buffer_full = self.spe_dropped_buffer_full.saturating_add(1);
+        self.spe_dropped_due_to_full_export_buffer_per_min = self
+            .spe_dropped_due_to_full_export_buffer_per_min
+            .saturating_add(1);
     }
 
     pub fn register_trace_dropped_by_sampling(&mut self, trace: &'static str) {

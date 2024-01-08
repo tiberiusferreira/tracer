@@ -1,5 +1,5 @@
 use crate::api::ChangeFilterInternalRequest;
-use api_structs::ui::service_health::{AlertConfig, InstanceDataPoint, ProfileData};
+use api_structs::ui::service_health::{AlertConfig, InstanceDataPoint, ProfileData, ServiceId};
 use api_structs::Env;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -28,12 +28,4 @@ pub struct InstanceState {
 pub struct ServiceData {
     pub alert_config: AlertConfig,
     pub instances: HashMap<i64, InstanceState>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct ServiceId {
-    /// tracer-backend
-    pub name: String,
-    /// Local
-    pub env: Env,
 }

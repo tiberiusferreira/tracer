@@ -2,7 +2,7 @@ use crate::grid::DatePicker;
 use crate::grid::{local_date_to_utc, utc_to_local_date};
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
-use api_structs::ui::{NewFiltersRequest, ServiceName};
+use api_structs::ui::ServiceName;
 use api_structs::Severity;
 use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
@@ -35,7 +35,7 @@ impl Default for UserSearchInput {
     }
 }
 #[component]
-pub fn Logs(root_path: String) -> impl IntoView {
+pub fn Logs() -> impl IntoView {
     let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
     let (service_name_list_r, service_name_list_w) =
         create_signal(Option::<Vec<ServiceName>>::None);
@@ -213,30 +213,6 @@ pub fn Logs(root_path: String) -> impl IntoView {
                     }
             </div>
         </div>
-        // {view}
-    }
-}
-
-async fn update_filter(new_filter: NewFiltersRequest) -> Result<(), String> {
-    log!("Sending req");
-    log!(
-        "Updating instance {} to {}",
-        new_filter.instance_id,
-        new_filter.filters
-    );
-    let traces = gloo_net::http::Request::post(&format!(
-        "{}/api/instances/filter",
-        API_SERVER_URL_NO_TRAILING_SLASH
-    ))
-    .json(&new_filter)
-    .unwrap()
-    .send()
-    .await
-    .unwrap()
-    .status();
-    match traces {
-        200 => Ok(()),
-        x => Err(format!("Bad status back: {}", x)),
     }
 }
 

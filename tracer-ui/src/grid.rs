@@ -185,7 +185,7 @@ where
 }
 
 #[component]
-pub fn TraceGrid(root_path: String) -> impl IntoView {
+pub fn TraceGrid(page_root_url: String) -> impl IntoView {
     let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
     let (api_response_r, api_response_w) = create_signal(UiTraceGridResponse::default());
     let (api_autocomplete_r, api_autocomplete_w) = create_signal(Autocomplete::default());
@@ -340,7 +340,7 @@ pub fn TraceGrid(root_path: String) -> impl IntoView {
     view! {
         <div class="main-grid">
             <div class="main">
-                <TraceTable rows={api_response_with_search_data} root_path=root_path/>
+                <TraceTable rows={api_response_with_search_data} page_root_url=page_root_url/>
             </div>
             <div class="search-panel">
                 <h1 class="traces-counter">{tracer_counter}</h1>
@@ -507,7 +507,7 @@ fn highlight(original: String, term: String) -> Fragment {
 }
 #[component]
 pub fn TraceTable(
-    root_path: String,
+    page_root_url: String,
     rows: Signal<(UiTraceGridResponse, UserSearchInput)>,
 ) -> impl IntoView {
     let headers = [
@@ -570,8 +570,6 @@ pub fn TraceTable(
                 .rows
                 .into_iter()
                 .map(|row| {
-                    // let kv = row.key_value.map(|kv| format!("{} => {}", kv.key, kv.value));
-                    let offset_minutes = js_sys::Date::new_0().get_timezone_offset() as i64;
                     let row_container_class = if row.has_errors{
                         "row-container row-container__error".to_string()
                     }else{
@@ -583,18 +581,9 @@ pub fn TraceTable(
                         <td class="trace-table__cell">{highlight( row.service_name.clone(), user_search.search_for.service_name.clone())}</td>
                         <td class="trace-table__cell">{row.top_level_span_name.to_string()}</td>
                         <td class="trace-table__cell">{(row.duration.map(|e| (e/1000_000).to_string())).unwrap_or_default()}</td>
-                        // <td class="trace-table__cell">{highlight( row.span.unwrap_or_default(), user_search.search_for.span.clone())}</td>
-                        // <td class="trace-table__cell">{row.sample_log.map(|sl| highlight( sl, user_search.search_for.event_name.clone()))}</td>
-                        // <td class="trace-table__cell">{highlight( kv.unwrap_or_default(), user_search.search_for.key.clone())}</td>
                         <td class="trace-table__cell">
                             {
-                                // printable_local_date()
-                                // let local_date_str = 
                                 crate::printable_local_date(row.started_at)
-                                // let timestamp = api_structs::time_conversion::nanos_to_db_i64(row.timestamp);
-                                // let nanos_in_1_sec = 1_000_000_000;
-                                // let timestamp =chrono::NaiveDateTime::from_timestamp_opt(timestamp/nanos_in_1_sec, u32::try_from(timestamp%nanos_in_1_sec).unwrap()).unwrap();
-                                // utc_to_local_date(timestamp, offset_minutes).format("%Y-%m-%d %H:%M:%S").to_string()
                             }
                         </td>
                         <td class="trace-table__cell">{format!("{} - {} s ago", crate::printable_local_date(row.updated_at), crate::secs_since(row.updated_at))}</td>
@@ -603,7 +592,7 @@ pub fn TraceTable(
                         <td class="trace-table__cell">{row.event_bytes_count/1000}</td>
                         <td class="trace-table__cell">{row.warning_count}</td>
                         <td class="trace-table__cell">
-                            <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, row.service_id, row.id, row.started_at)}>{"➔"}</a>
+                            <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", page_root_url, row.service_id, row.id, row.started_at)}>{"➔"}</a>
                         </td>
                 </tr>
             };

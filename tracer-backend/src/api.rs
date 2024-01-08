@@ -1,9 +1,11 @@
 use crate::api::handlers::{
-    instances_filter_post, instances_get, logs_get, orphan_events_service_names_get,
+    instances_filter_post, logs_get, orphan_events_service_names_get, service_data_get,
+    service_list_get,
 };
-use crate::api::state::{AppState, ServiceId};
+use crate::api::state::AppState;
 use api_structs::ui::live_services::LiveServiceInstance;
 use api_structs::ui::search_grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
+use api_structs::ui::service_health::ServiceId;
 use api_structs::ui::trace_view::{Event, SingleChunkTraceQuery, Span, TraceId};
 use api_structs::Severity;
 use axum::extract::{Path, State};
@@ -226,19 +228,18 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
 
     let app_state = AppState {
         con,
-        // service_configs: Default::default(),
         instance_runtime_stats: Default::default(),
-        // live_instances: LiveInstances {
-        //     trace_data: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
-        //     see_handle: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
-        // },
     };
     // let _clean_up_service_instances_task =
     //     clean_up_service_instances_task(app_state.live_instances.clone());
 
     let app = axum::Router::new()
         .route("/api/ready", axum::routing::get(ready))
-        .route("/api/instances", axum::routing::get(instances_get))
+        .route("/api/service/list", axum::routing::get(service_list_get))
+        .route(
+            "/api/service/data/:service_name/:env",
+            axum::routing::get(service_data_get),
+        )
         .route(
             "/api/logs/service_names",
             axum::routing::get(orphan_events_service_names_get),
