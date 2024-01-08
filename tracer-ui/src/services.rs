@@ -1,6 +1,7 @@
 use crate::services::graph_creation::create_create_chart_action;
 use crate::services::graphs::{
     create_active_traces_graph, create_dropped_traces_by_sampling_per_min_graph,
+    create_max_received_trace_duration_graph,
     create_orphan_events_dropped_by_sampling_per_minute_graph,
     create_orphan_events_per_minute_usage_graph, create_received_orphan_event_bytes_graph,
     create_received_spe_graph, create_received_trace_kbytes_graph,
@@ -184,6 +185,14 @@ fn single_service_view(page_root_url: String, service: ServiceData) -> leptos::H
             timestamp_to_show_details_for_w,
             create_chart_action,
         );
+    let (max_received_trace_duration_graph, max_received_trace_duration_graph_id): (
+        NodeRef<Div>,
+        String,
+    ) = create_max_received_trace_duration_graph(
+        &service.instances,
+        timestamp_to_show_details_for_w,
+        create_chart_action,
+    );
 
     let (trace_spe_usage, trace_spe_usage_graph_id): (NodeRef<Div>, String) =
         create_trace_spe_usage_traces_graph(
@@ -267,6 +276,7 @@ fn single_service_view(page_root_url: String, service: ServiceData) -> leptos::H
                 {active_services_html}
                 <div style="display: flex; flex-wrap: wrap; justify-content: center; margin: 5px 0 5px 0">
                     <div _ref=active_traces_graph id=active_traces_graph_id.clone()></div>
+                    <div _ref=max_received_trace_duration_graph id=max_received_trace_duration_graph_id.clone()></div>
                     <div _ref=trace_spe_usage id=trace_spe_usage_graph_id.clone()></div>
                     <div _ref=orphan_events_per_minute_usage_graph id=orphan_events_per_minute_usage_graph_id.clone()></div>
                     <div _ref=received_trace_kbytes_graph id=received_trace_kbytes_graph_id.clone()></div>
