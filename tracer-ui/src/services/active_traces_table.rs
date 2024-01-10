@@ -78,7 +78,7 @@ pub fn active_traces_table_html(
                     <td class="trace-table__cell">{secs_since(active.trace_header.trace_timestamp)}</td>
                     <td class="trace-table__cell">{active.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or(format!("{} seconds - Still Running", secs_since(active.trace_header.trace_timestamp)))}</td>
                     <td class="trace-table__cell">
-                        <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, active.instance_id, active.trace_header.trace_id, active.trace_header.trace_timestamp)}>{"➔"}</a>
+                        <a href={format!("{}trace/?instance_id={}&trace_id={}&start_timestamp={}", root_path, active.instance_id, active.trace_header.trace_id, active.trace_header.trace_timestamp)}>{"➔"}</a>
                     </td>
                 </tr>
             });
@@ -93,7 +93,7 @@ pub fn active_traces_table_html(
                     <td class="trace-table__cell">{secs_since(finished.trace_header.trace_timestamp)}</td>
                     <td class="trace-table__cell">{finished.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or_default()}</td>
                     <td class="trace-table__cell">
-                        <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", root_path, finished.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>
+                        <a href={format!("{}trace/?instance_id={}&trace_id={}&start_timestamp={}", root_path, finished.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>
                     </td>
                 </tr>
             });

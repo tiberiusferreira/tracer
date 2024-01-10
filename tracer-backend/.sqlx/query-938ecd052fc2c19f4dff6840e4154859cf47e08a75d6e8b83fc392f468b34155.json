@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select event.span_id, event.message, event.severity as \"severity: String\", event.relocated, event.timestamp, COALESCE(event_key_value.key_values, '{}') as key_values\nfrom (select *\n      from event\n      where event.instance_id = $1\n        and event.trace_id = $2\n        and event.timestamp >= $3\n        and event.timestamp <= $4) as event\n         left join (select span_id,\n                           event_id,\n                           json_object_agg(\n                                    event_key_value.key,\n                                    event_key_value.value\n                                    ) as key_values\n                    from event_key_value\n                    where event_key_value.instance_id = $1\n                      and event_key_value.trace_id = $2\n                    group by event_id, span_id) as event_key_value \n                   on event_key_value.span_id = event.span_id and event_key_value.event_id = event.id;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "span_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "message",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "severity: String",
+        "type_info": {
+          "Custom": {
+            "name": "severity_level",
+            "kind": {
+              "Enum": [
+                "trace",
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "relocated",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "key_values",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "938ecd052fc2c19f4dff6840e4154859cf47e08a75d6e8b83fc392f468b34155"
+}

@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into trace (env, service_name, instance_id, id, top_level_span_name, timestamp, updated_at) values \n        ($1, $2, $3, $4, $5, $6, $7);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "identifier",
+            "kind": {
+              "Domain": "Varchar"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "identifier",
+            "kind": {
+              "Domain": "Varchar"
+            }
+          }
+        },
+        "Int8",
+        "Int8",
+        {
+          "Custom": {
+            "name": "identifier",
+            "kind": {
+              "Domain": "Varchar"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "ubigint",
+            "kind": {
+              "Domain": "Int8"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "ubigint",
+            "kind": {
+              "Domain": "Int8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a8eb38cf85e448b4a0a30a1292e9259f97aac56d9bbce53f44b580578fd8bee"
+}

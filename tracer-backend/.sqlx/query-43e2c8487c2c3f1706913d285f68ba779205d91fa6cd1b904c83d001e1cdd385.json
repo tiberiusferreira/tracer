@@ -1,0 +1,119 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select \n            env,\n            service_name,\n            max_export_buffer_usage,\n            max_orphan_events_per_min,\n            max_orphan_events_dropped_by_sampling_per_min,\n            max_spe_dropped_due_to_full_export_buffer,\n            max_traces_dropped_by_sampling_per_min,\n            min_instance_count,\n            max_active_traces,\n            max_received_spe,\n            max_received_trace_kb,\n            max_received_orphan_event_kb,\n            max_trace_duration_ms,\n            max_traces_with_warning_percentage,\n            max_traces_with_error_percentage,\n            percentage_check_time_window_secs,\n            percentage_check_min_number_samples\n       from\n        service_alert_config\n         where env=$1 and service_name=$2;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "env",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "service_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "max_export_buffer_usage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "max_orphan_events_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_orphan_events_dropped_by_sampling_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_spe_dropped_due_to_full_export_buffer",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "max_traces_dropped_by_sampling_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "min_instance_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "max_active_traces",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "max_received_spe",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "max_received_trace_kb",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "max_received_orphan_event_kb",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "max_trace_duration_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "max_traces_with_warning_percentage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "max_traces_with_error_percentage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "percentage_check_time_window_secs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "percentage_check_min_number_samples",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "43e2c8487c2c3f1706913d285f68ba779205d91fa6cd1b904c83d001e1cdd385"
+}

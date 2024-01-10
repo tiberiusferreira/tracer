@@ -21,6 +21,7 @@ enum DatabaseError {
 }
 
 struct RawServiceConfig {
+    env: String,
     service_name: String,
     max_export_buffer_usage: i64,
     max_orphan_events_per_min: i64,
@@ -37,8 +38,6 @@ struct RawServiceConfig {
     max_traces_with_error_percentage: i64,
     percentage_check_time_window_secs: i64,
     percentage_check_min_number_samples: i64,
-    min_alert_period_seconds: i64,
-    alert_url: Option<String>,
 }
 
 struct RawServiceAlertConfigTraceOverwrite {
@@ -59,6 +58,7 @@ pub(crate) async fn get_service_raw_config(
     let raw_service_config = sqlx::query_as!(
         RawServiceConfig,
         "select 
+            env,
             service_name,
             max_export_buffer_usage,
             max_orphan_events_per_min,
@@ -74,13 +74,12 @@ pub(crate) async fn get_service_raw_config(
             max_traces_with_warning_percentage,
             max_traces_with_error_percentage,
             percentage_check_time_window_secs,
-            percentage_check_min_number_samples,
-            min_alert_period_seconds,
-            alert_url
+            percentage_check_min_number_samples
        from
         service_alert_config
-         where service_name=$1;",
-        format!("{}-{}", service_name, env)
+         where env=$1 and service_name=$2;",
+        env.to_string(),
+        service_name
     )
     .fetch_optional(con)
     .await?;
@@ -96,8 +95,9 @@ pub async fn get_or_init_service_alert_config(
     let (raw_service_config, overwrites) = match raw_service_config {
         None => {
             sqlx::query!(
-                "insert into service_alert_config (service_name) values ($1::TEXT);",
-                &format!("{}-{}", service_name, env)
+                "insert into service_alert_config (env, service_name) values ($1::TEXT, $2::TEXT);",
+                env.to_string(),
+                service_name
             )
             .execute(con)
             .await?;
@@ -139,7 +139,7 @@ pub async fn get_or_init_service_alert_config(
                 .percentage_check_min_number_samples
                 as u64,
             trace_alert_config: TraceAlertConfig {
-                max_trace_duration: raw_service_config.max_trace_duration_ms as u64,
+                max_trace_duration_ms: raw_service_config.max_trace_duration_ms as u64,
                 max_traces_with_warning_percentage: raw_service_config
                     .max_traces_with_warning_percentage
                     as u64,
@@ -150,8 +150,6 @@ pub async fn get_or_init_service_alert_config(
                     .max_traces_with_error_percentage
                     as u64,
             },
-            min_alert_period_seconds: raw_service_config.min_alert_period_seconds as u64,
-            alert_url: raw_service_config.alert_url,
         },
         service_alert_config_trace_overwrite: ServiceAlertConfigTraceOverwrite {
             trace_to_overwrite_config: overwrites
@@ -160,7 +158,7 @@ pub async fn get_or_init_service_alert_config(
                     (
                         single_overwrite.top_level_span_name,
                         TraceAlertConfig {
-                            max_trace_duration: single_overwrite.max_trace_duration_ms as u64,
+                            max_trace_duration_ms: single_overwrite.max_trace_duration_ms as u64,
                             max_traces_with_warning_percentage: single_overwrite
                                 .max_traces_with_warning_percentage
                                 as u64,
@@ -207,7 +205,7 @@ pub(crate) async fn insert_events(
     let names: Vec<Option<String>> = new_events.iter().map(|s| s.message.clone()).collect();
     let severities: Vec<Severity> = new_events.iter().map(|s| Severity::from(s.level)).collect();
     let db_event_ids: Vec<i64> = match sqlx::query_scalar!(
-            "insert into event (service_id, trace_id, span_id, timestamp, message, severity, relocated)
+            "insert into event (instance_id, trace_id, span_id, timestamp, message, severity, relocated)
             select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]) returning id;",
             &service_ids,
             &trace_ids,
@@ -244,7 +242,6 @@ pub(crate) async fn insert_events(
     let mut kv_event_id = vec![];
     let mut kv_key = vec![];
     let mut kv_value = vec![];
-    let mut kv_timestamp = vec![];
     for (idx, span) in new_events.iter().enumerate() {
         for (key, val) in &span.key_vals {
             kv_service_id.push(service_id);
@@ -253,7 +250,6 @@ pub(crate) async fn insert_events(
             kv_event_id.push(db_event_ids[idx]);
             kv_key.push(key.as_str());
             kv_value.push(val.as_str());
-            kv_timestamp.push(span.timestamp as i64);
         }
     }
     if kv_service_id.is_empty() {
@@ -263,15 +259,14 @@ pub(crate) async fn insert_events(
         info!("Inserting {} event key-values", kv_service_id.len());
     }
     match sqlx::query!(
-            "insert into event_key_value (service_id, trace_id, span_id, event_id, key, value, timestamp)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[], $7::BIGINT[]);",
+            "insert into event_key_value (instance_id, trace_id, span_id, event_id, key, value)
+            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[]);",
             &kv_service_id,
             &kv_trace_id,
             &kv_span_id,
             &kv_event_id,
             &kv_key as &Vec<&str>,
             &kv_value as &Vec<&str>,
-            &kv_timestamp
         )
         .execute(con.deref_mut())
         .await {
@@ -283,7 +278,6 @@ pub(crate) async fn insert_events(
             error!("kv_service_id: {:?}", kv_service_id);
             error!("kv_trace_id: {:?}", kv_trace_id);
             error!("kv_span_id: {:?}", kv_span_id);
-            error!("kv_timestamp: {:?}", kv_timestamp);
             error!("kv_key: {:?}", kv_key);
             error!("kv_value: {:?}", kv_value);
             return Err(e)

@@ -1,8 +1,9 @@
-use crate::Severity;
+use crate::{Env, Severity};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServiceOrphanEventsRequest {
+    pub env: Env,
     pub service_name: String,
     pub from_date_unix: u64,
     pub to_date_unix: u64,

@@ -8,7 +8,7 @@ pub struct TraceGridResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceGridRow {
-    pub service_id: i64,
+    pub instance_id: i64,
     pub id: i64,
     pub service_name: String,
     pub started_at: u64,
@@ -18,7 +18,7 @@ pub struct TraceGridRow {
     pub original_event_count: u64,
     pub stored_span_count: u64,
     pub stored_event_count: u64,
-    pub event_bytes_count: u64,
+    pub estimated_size_bytes: u64,
     pub warning_count: u32,
     pub has_errors: bool,
     pub updated_at: u64,

@@ -197,7 +197,7 @@ fn clean_up_service_instances(live_instances: &LiveInstances) {
                 if last_seen_as_secs > 12 * 60 * 60 {
                     debug!(
                         "dropping instance {} - id: {} - last seen {}s ago",
-                        single_instance.service_name, single_instance.service_id, last_seen_as_secs
+                        single_instance.service_name, single_instance.instance_id, last_seen_as_secs
                     );
                     false
                 } else {
@@ -370,7 +370,7 @@ impl QueryReadyParameters {
 
 #[derive(FromRow)]
 pub struct RawDbTraceGrid {
-    service_id: i64,
+    instance_id: i64,
     id: i64,
     service_name: String,
     timestamp: i64,
@@ -380,7 +380,7 @@ pub struct RawDbTraceGrid {
     original_event_count: i64,
     stored_span_count: i64,
     stored_event_count: i64,
-    event_bytes_count: i64,
+    estimated_size_bytes: i64,
     warning_count: i64,
     has_errors: bool,
     updated_at: i64,
@@ -415,7 +415,7 @@ where trace.updated_at >= $1::BIGINT
     .await?;
     let res: Vec<RawDbTraceGrid> = sqlx::query_as!(
         RawDbTraceGrid,
-        "select trace.service_id,
+        "select trace.instance_id,
        trace.id,
        trace.service_name,
        trace.timestamp,
@@ -425,7 +425,7 @@ where trace.updated_at >= $1::BIGINT
        trace.original_event_count,
        trace.stored_span_count,
        trace.stored_event_count,
-       trace.event_bytes_count,
+       trace.estimated_size_bytes,
        trace.warning_count,
        trace.has_errors,
        trace.updated_at
@@ -454,7 +454,7 @@ limit 100;",
     let rows = res
         .into_iter()
         .map(|e| TraceGridRow {
-            service_id: e.service_id,
+            instance_id: e.instance_id,
             id: e.id,
             service_name: e.service_name,
             started_at: handlers::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
@@ -466,7 +466,7 @@ limit 100;",
             original_event_count: e.original_event_count as u64,
             stored_span_count: e.stored_span_count as u64,
             stored_event_count: e.stored_event_count as u64,
-            event_bytes_count: e.event_bytes_count as u64,
+            estimated_size_bytes: e.estimated_size_bytes as u64,
             warning_count: u32::try_from(e.warning_count).expect("warning count to fit u32"),
             has_errors: e.has_errors,
             updated_at: e.updated_at as u64,
@@ -634,15 +634,15 @@ pub async fn get_trace_timestamp_chunks(
     let start: Option<i64> = sqlx::query_scalar!(
         "select timestamp as \"timestamp!\" from ((select timestamp 
     from span
-    where span.service_id = $1
+    where span.instance_id = $1
       and span.trace_id = $2 and span.timestamp >= $3)
       union all
     (select timestamp 
     from event
-             where event.service_id=$1
+             where event.instance_id=$1
                  and event.trace_id=$2)
     order by timestamp limit 1);",
-        trace_id.service_id,
+        trace_id.instance_id,
         trace_id.trace_id,
         0
     )
@@ -651,15 +651,15 @@ pub async fn get_trace_timestamp_chunks(
     let end: i64 = sqlx::query_scalar!(
         "select timestamp as \"timestamp!\" from ((select timestamp 
     from span
-    where span.service_id = $1
+    where span.instance_id = $1
       and span.trace_id = $2 and span.timestamp >= $3)
       union all
     (select timestamp 
     from event
-             where event.service_id=$1
+             where event.instance_id=$1
                  and event.trace_id=$2)
     order by timestamp desc limit 1);",
-        trace_id.service_id,
+        trace_id.instance_id,
         trace_id.trace_id,
         0
     )
@@ -680,15 +680,15 @@ pub async fn get_trace_timestamp_chunks(
         let timestamp: Option<i64> = sqlx::query_scalar!(
             "select timestamp as \"timestamp!\" from ((select timestamp 
     from span
-    where span.service_id = $1
+    where span.instance_id = $1
       and span.trace_id = $2 and span.timestamp >= $3)
       union all
     (select timestamp 
     from event
-             where event.service_id=$1
+             where event.instance_id=$1
                  and event.trace_id=$2 and event.timestamp >= $3)
     order by timestamp offset 300 limit 1);",
-            trace_id.service_id,
+            trace_id.instance_id,
             trace_id.trace_id,
             last_timestamp
         )
@@ -717,12 +717,12 @@ async fn get_single_trace_chunk_list(
     axum::extract::State(app_state): axum::extract::State<AppState>,
 ) -> Result<Json<Vec<u64>>, ApiError> {
     let con = app_state.con;
-    let service_id = single_trace_query.service_id;
+    let instance_id = single_trace_query.instance_id;
     let trace_id = single_trace_query.trace_id;
     let trace_ids = get_trace_timestamp_chunks(
         &con,
         TraceId {
-            service_id,
+            instance_id: instance_id,
             trace_id,
         },
     )
@@ -736,7 +736,7 @@ async fn get_single_trace(
     axum::extract::State(app_state): axum::extract::State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let con = app_state.con;
-    let service_id = single_trace_query.trace_id.service_id;
+    let instance_id = single_trace_query.trace_id.instance_id;
     let trace_id = single_trace_query.trace_id.trace_id;
     let start_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.start_timestamp)?;
     let end_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.end_timestamp)?;
@@ -756,7 +756,7 @@ async fn get_single_trace(
                             span.name,
                             span.relocated
                      from span
-                     where span.service_id = $1
+                     where span.instance_id = $1
                        and span.trace_id = $2
                        and
                        -- (start inside window or end inside window)
@@ -777,12 +777,10 @@ async fn get_single_trace(
                                                    span_key_value.value
                                                    ) as key_values
                                    from span_key_value
-                                   where span_key_value.service_id = $1
+                                   where span_key_value.instance_id = $1
                                      and span_key_value.trace_id = $2
-                                     and span_key_value.timestamp >= $3
-                                     and span_key_value.timestamp <= $4
                                    group by span_id) as span_key_value on span_key_value.span_id = span.id;",
-        service_id,
+        instance_id,
         trace_id,
         start_timestamp,
         end_timestamp
@@ -794,7 +792,7 @@ async fn get_single_trace(
         "select event.span_id, event.message, event.severity as \"severity: String\", event.relocated, event.timestamp, COALESCE(event_key_value.key_values, '{}') as key_values
 from (select *
       from event
-      where event.service_id = $1
+      where event.instance_id = $1
         and event.trace_id = $2
         and event.timestamp >= $3
         and event.timestamp <= $4) as event
@@ -805,13 +803,11 @@ from (select *
                                     event_key_value.value
                                     ) as key_values
                     from event_key_value
-                    where event_key_value.service_id = $1
+                    where event_key_value.instance_id = $1
                       and event_key_value.trace_id = $2
-                      and event_key_value.timestamp >= $3
-                      and event_key_value.timestamp <= $4
                     group by event_id, span_id) as event_key_value 
                    on event_key_value.span_id = event.span_id and event_key_value.event_id = event.id;",
-        service_id,
+        instance_id,
         trace_id,
         start_timestamp,
         end_timestamp

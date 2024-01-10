@@ -14,7 +14,7 @@ pub const BYTES_IN_1MB: usize = 1_000_000;
 pub const TIME_WAIT_BETWEEN_DELETE_TRACES_RUN_SECONDS: u64 = 60;
 pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
 pub const SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT: usize = 1_500_000;
-pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 1024;
+pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 256;
 
 // ~10 span+logs per trace, 2 traces per second = 20 span+logs per second
 pub const SPAN_PLUS_EVENTS_PER_SERVICE_PER_SECOND_NOTIFICATION_THRESHOLD: usize = 20;

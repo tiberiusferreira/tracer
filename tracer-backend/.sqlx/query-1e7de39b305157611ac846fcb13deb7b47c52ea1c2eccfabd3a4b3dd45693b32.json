@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select duration from trace where instance_id=$1 and id=$2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "duration",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1e7de39b305157611ac846fcb13deb7b47c52ea1c2eccfabd3a4b3dd45693b32"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into span_key_value (instance_id, trace_id, span_id,  key, value)\n            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::TEXT[], $5::TEXT[]);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f52e754a0e3184487130269cbd52cdb29b7fcd93676efccda36ffc30de912abf"
+}

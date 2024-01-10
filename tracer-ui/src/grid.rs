@@ -13,7 +13,7 @@ pub struct UiTraceGridResponse {
 }
 #[derive(PartialEq, Clone, Debug)]
 pub struct UiTraceGridRow {
-    service_id: i64,
+    instance_id: i64,
     id: i64,
     started_at: u64,
     updated_at: u64,
@@ -81,7 +81,7 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTra
         .rows
         .into_iter()
         .map(|e| UiTraceGridRow {
-            service_id: e.service_id,
+            instance_id: e.instance_id,
             id: e.id,
             duration: e.duration_ns,
             service_name: e.service_name,
@@ -105,7 +105,7 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTra
             original_event_count: e.original_event_count,
             stored_span_count: e.stored_span_count,
             stored_event_count: e.stored_event_count,
-            event_bytes_count: e.event_bytes_count,
+            event_bytes_count: e.estimated_size_bytes,
         })
         .collect();
 
@@ -592,7 +592,7 @@ pub fn TraceTable(
                         <td class="trace-table__cell">{row.event_bytes_count/1000}</td>
                         <td class="trace-table__cell">{row.warning_count}</td>
                         <td class="trace-table__cell">
-                            <a href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}", page_root_url, row.service_id, row.id, row.started_at)}>{"➔"}</a>
+                            <a href={format!("{}trace/?instance_id={}&trace_id={}&start_timestamp={}", page_root_url, row.instance_id, row.id, row.started_at)}>{"➔"}</a>
                         </td>
                 </tr>
             };

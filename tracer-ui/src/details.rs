@@ -139,8 +139,8 @@ struct ApiTraceData {
 #[component]
 pub fn TraceDetails(page_root_url: String) -> impl IntoView {
     let query_parameters = leptos_router::use_query_map().get();
-    let service_id = query_parameters
-        .get("service_id")
+    let instance_id = query_parameters
+        .get("instance_id")
         .unwrap()
         .parse::<i64>()
         .unwrap();
@@ -156,7 +156,7 @@ pub fn TraceDetails(page_root_url: String) -> impl IntoView {
         .get("end_timestamp")
         .map(|e| e.parse::<u64>().unwrap());
     let trace_id = TraceId {
-        service_id,
+        instance_id,
         trace_id,
     };
     let (trace_spans_r, trace_spans_w) = leptos::create_signal(Option::<ApiTraceData>::None);
@@ -230,7 +230,7 @@ pub fn TraceDetails(page_root_url: String) -> impl IntoView {
                         let dates = format!("{} - {}", printable_local_date(*start), printable_local_date(*end));
                         view!{
                             <>
-                                <a style={style} target="_self" href={format!("{}trace/?service_id={}&trace_id={}&start_timestamp={}&&end_timestamp={}", page_root_url.clone(), trace_id.service_id, trace_id.trace_id, start, end)}>{format!("{} - {dates}", idx+1)}</a>
+                                <a style={style} target="_self" href={format!("{}trace/?instance_id={}&trace_id={}&start_timestamp={}&&end_timestamp={}", page_root_url.clone(), trace_id.instance_id, trace_id.trace_id, start, end)}>{format!("{} - {dates}", idx+1)}</a>
                             <>
                         }
                     });
@@ -275,7 +275,7 @@ struct TraceGridRow {
 
 async fn get_single_trace_chunk_list(
     TraceId {
-        service_id,
+        instance_id,
         trace_id,
     }: TraceId,
     w: WriteSignal<Option<Vec<u64>>>,
@@ -284,7 +284,7 @@ async fn get_single_trace_chunk_list(
 ) {
     log!("Sending req");
     let chunks: Vec<u64> = gloo_net::http::Request::get(&format!(
-        "{}/api/trace_chunk_list?service_id={service_id}&trace_id={trace_id}",
+        "{}/api/trace_chunk_list?instance_id={instance_id}&trace_id={trace_id}",
         API_SERVER_URL_NO_TRAILING_SLASH,
     ))
     .send()
@@ -315,7 +315,7 @@ async fn get_single_trace_chunk_list(
 async fn get_single_trace(
     SingleChunkTraceQuery {
         trace_id: TraceId {
-            service_id,
+            instance_id,
             trace_id,
         },
         chunk_id: TraceChunkId {
@@ -327,7 +327,7 @@ async fn get_single_trace(
 ) {
     log!("Sending req");
     let spans: Vec<Span> = gloo_net::http::Request::get(&format!(
-        "{}/api/trace?service_id={service_id}&trace_id={trace_id}&start_timestamp={start_timestamp}&end_timestamp={end_timestamp}",
+        "{}/api/trace?instance_id={instance_id}&trace_id={trace_id}&start_timestamp={start_timestamp}&end_timestamp={end_timestamp}",
         API_SERVER_URL_NO_TRAILING_SLASH,
     ))
     .send()
@@ -339,7 +339,7 @@ async fn get_single_trace(
     log!("Got back");
     let api_trace_data = ApiTraceData {
         trace_id: TraceId {
-            service_id,
+            instance_id,
             trace_id,
         },
         chunk_id: TraceChunkId {
@@ -428,17 +428,9 @@ fn create_html_span(
                     "white"
                 }
             };
-            let event_k_v: Vec<String> = e.key_values
-                .iter()
-                .map(|(k, v)| format!("{k} => {v}"))
-                .collect();
-            let event_k_v = if !event_k_v.is_empty() {
-                format!(" - {}", event_k_v.join(", "))
-            } else {
-                "".to_string()
-            };
+            let key_values = format_kv(&e.key_values);
             let event_date = printable_local_date_ms(e.timestamp);
-            let event_msg = format!("{} - {}{}", event_date, e.message.as_ref().unwrap_or(&"null".to_string()), event_k_v);
+            let event_msg = format!("{} - {}{}", event_date, e.message.as_ref().unwrap_or(&"null".to_string()), key_values);
             // event offset % calculation
             let event_nanos_after_trace_start = e.timestamp
                 .checked_sub(start_timestamp_nanos).unwrap();
@@ -449,21 +441,12 @@ fn create_html_span(
             view! {
                 <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
                     <p style={format!("margin-left: {event_percentage_into_trace_duration}%")} class="trace-details__event-timestamp">{"|"}</p>
-                    <p class="trace-details__event" style={format!("color: {color}")}>{event_msg}</p>
+                    <p class="trace-details__event" style={format!("white-space: pre-wrap; color: {color}")}>{event_msg}</p>
                 </div>
             }
         })
         .collect();
-    let span_k_v: Vec<String> = span
-        .key_values
-        .iter()
-        .map(|(k, v)| format!("{k} => {v}"))
-        .collect();
-    let span_k_v = if !span_k_v.is_empty() {
-        format!(" - {}", span_k_v.join(", "))
-    } else {
-        "".to_string()
-    };
+    let span_key_vals = format_kv(&span.key_values);
     let span_with_code_namespace = span.name.to_string();
     let span_duration_ms_string = match span.duration {
         None => "still running".to_string(),
@@ -474,10 +457,25 @@ fn create_html_span(
 
     let span_html = view! {
         <>
-        <p class="trace-details__span-name">{format!("{} - {span_duration_ms_string}{span_k_v}", span_with_code_namespace)}</p>
+        <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string}{span_key_vals}", span_with_code_namespace)}</p>
         <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}></div>
             {events}
         </>
     };
     Some(span_html)
+}
+
+pub fn format_kv(kv: &HashMap<String, String>) -> String {
+    let span_key_vals = kv
+        .iter()
+        .map(|(k, v)| format!("{k}=>{v}"))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    let span_key_vals = if !span_key_vals.is_empty() {
+        format!("\n{}", span_key_vals)
+    } else {
+        "".to_string()
+    };
+    span_key_vals
 }

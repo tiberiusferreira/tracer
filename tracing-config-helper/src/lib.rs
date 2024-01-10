@@ -6,14 +6,12 @@
 use api_structs::exporter::trace_exporting::{
     ExportedServiceTraceData, SpanEventCount, TraceFragment,
 };
-use pprof::protos::Message;
+pub use api_structs::Env;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
-use std::thread;
 use std::time::Duration;
-
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Layer, Registry};
 mod sampling;
@@ -64,7 +62,7 @@ use crate::sampling::{Sampler, TracerSampler};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use api_structs::exporter::status::{ProducerStats, SamplerLimits};
-use api_structs::{Env, Severity};
+use api_structs::Severity;
 use rand::random;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -129,11 +127,6 @@ impl TracerConfig {
 }
 
 pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> FlushRequester {
-    // thread::spawn(move || loop {
-    //     thread::sleep(Duration::from_secs(1));
-    //     let mut file = std::fs::File::create("prof.svg").unwrap();
-    //
-    // });
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
     // runtime starved from CPU time
     let (s, r) = tokio::sync::oneshot::channel();
@@ -427,17 +420,17 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             );
             let flush_request = tokio::select! {
                 _ = tokio::time::sleep(period_time_secs) => {
-                    print_if_dbg(context, format!("Slept"));
+                    print_if_dbg(context, "Slept");
                     None
                 },
                 received_val = flush_request_receiver.recv() => {
                     match received_val{
                         Some(flush_request) => {
-                            print_if_dbg(context, format!("Got flush request"));
+                            print_if_dbg(context, "Got flush request");
                             Some(flush_request)
                         }
                         None => {
-                            print_if_dbg(context, format!("Flush request channel is closed, sleeping"));
+                            print_if_dbg(context, "Flush request channel is closed, sleeping");
                             tokio::time::sleep(period_time_secs).await;
                             None
                         }
@@ -456,8 +449,9 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             let mut tracer_stats = tracer_sampler.read().get_tracer_stats();
             tracer_stats.spe_buffer_capacity = spe_buffer_capacity;
             tracer_stats.spe_buffer_usage = events.len() as u64;
-            let should_export_profile =
-                time_last_profile_export.elapsed() > min_wait_duration_between_profile_exports;
+            let should_export_profile = (time_last_profile_export.elapsed()
+                > min_wait_duration_between_profile_exports)
+                || flush_request.is_some();
             let profile_data = if should_export_profile {
                 time_last_profile_export = std::time::Instant::now();
                 let mut profile_data = Vec::new();

@@ -9,6 +9,9 @@ pub mod ui;
 pub type TraceName = String;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// snake case because the DB expects lower case, so to_string() returns lowercase
+// but we also use to_string() when sending this in query parameters
+#[serde(rename_all = "snake_case")]
 pub enum Env {
     Local,
     Dev,
@@ -20,7 +23,7 @@ impl TryFrom<&str> for Env {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+        match value.to_ascii_lowercase().as_str() {
             "local" => Ok(Env::Local),
             "dev" => Ok(Env::Dev),
             "stage" => Ok(Env::Stage),

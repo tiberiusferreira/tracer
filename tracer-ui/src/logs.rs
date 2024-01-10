@@ -1,15 +1,17 @@
+use crate::details::format_kv;
 use crate::grid::DatePicker;
 use crate::grid::{local_date_to_utc, utc_to_local_date};
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
 use api_structs::ui::ServiceName;
-use api_structs::Severity;
+use api_structs::{Env, Severity};
 use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::Event;
 use leptos::logging::log;
 use leptos::*;
 use leptos::{component, SignalGet, SignalSet, WriteSignal};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchInput {
@@ -21,6 +23,7 @@ impl Default for UserSearchInput {
         let now = NaiveDateTime::from_timestamp_millis(Date::now().round() as i64).unwrap();
         Self {
             search_for: ServiceOrphanEventsRequest {
+                env: Env::Local,
                 service_name: "".to_string(),
                 from_date_unix: u64::try_from(
                     (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
@@ -60,7 +63,11 @@ pub fn Logs() -> impl IntoView {
             Some(logs) => {
                 let logs_view = logs.iter().map(|l|{
                     let date = crate::printable_local_date_ms(l.timestamp);
-                    let event_msg = format!("{date} - {} - {:?}", l.message.as_ref().unwrap_or(&"empty".to_string()), l.key_vals);
+                    let mut key_vals = format_kv(&l.key_vals);
+                    if !key_vals.is_empty(){
+                            key_vals.push('\n');
+                    }
+                    let event_msg = format!("{date} - {key_vals}{} ", l.message.as_ref().unwrap_or(&"empty".to_string()));
                     let color = match l.severity{
                         Severity::Warn => {
                             "yellow"
@@ -75,7 +82,7 @@ pub fn Logs() -> impl IntoView {
                     view!{
                         <>
                             <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
-                                <p class="trace-details__event" style={format!("color: {color}")}>{event_msg}</p>
+                                <p class="trace-details__event" style={format!("white-space: pre-wrap; color: {color}")}>{event_msg}</p>
                             </div>
                         </>
                     }
@@ -237,6 +244,7 @@ async fn get_logs(w: WriteSignal<Option<Vec<OrphanEvent>>>, user_search_input: U
     let logs: Vec<OrphanEvent> =
         gloo_net::http::Request::get(&format!("{}/api/logs", API_SERVER_URL_NO_TRAILING_SLASH))
             .query([
+                ("env", user_search_input.search_for.env.to_string()),
                 ("service_name", user_search_input.search_for.service_name),
                 (
                     "from_date_unix",

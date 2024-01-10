@@ -181,9 +181,21 @@ impl AttributesVisitor {
     }
 }
 impl Visit for AttributesVisitor {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        let context = "record_str";
+        let key = field.name();
+        print_if_dbg(context, format!("Got {} - {:?}", key, value));
+        if key == "message" {
+            self.message = Some(value.to_string());
+        } else {
+            self.key_vals.insert(key.to_string(), value.to_string());
+        }
+    }
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        let context = "record_debug";
         let key = field.name();
         let val = format!("{:?}", value);
+        print_if_dbg(context, format!("Got {} - {:?}", key, value));
         if key == "message" {
             self.message = Some(val);
         } else {
@@ -385,6 +397,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     w_sampler.allow_new_span(root_span.name())
                 };
                 if new_span_allowed {
+                    let key_vals = Self::take_tracer_span_data_key_vals(&span);
                     let parent_id = span.parent().expect("parent to exist if non-root").id();
                     print_if_dbg(context, "Allowed by sampler, sending to exporter");
                     self.send_subscriber_event_to_export(SubscriberEvent::NewSpan(NewSpan {
@@ -393,7 +406,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                         name: span_name.to_string(),
                         parent_id: Some(parent_id.into_u64()),
                         timestamp: now_nanos_u64(),
-                        key_vals: Default::default(),
+                        key_vals,
                         trace_name: root_span.name(),
                         spe_count,
                         trace_timestamp: Self::trace_timestamp(id.clone(), &ctx),

@@ -1,0 +1,107 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select trace.instance_id,\n       trace.id,\n       trace.service_name,\n       trace.timestamp,\n       trace.top_level_span_name,\n       trace.duration,\n       trace.original_span_count,\n       trace.original_event_count,\n       trace.stored_span_count,\n       trace.stored_event_count,\n       trace.estimated_size_bytes,\n       trace.warning_count,\n       trace.has_errors,\n       trace.updated_at\nfrom trace\nwhere trace.updated_at >= $1::BIGINT\n  and trace.updated_at <= $2::BIGINT\n  and ($3::TEXT is null or trace.service_name = $3::TEXT)\n  and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)\n  and (trace.duration >= $5::BIGINT or trace.duration is null)\n  and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)\n  and ($7::BOOL is null or trace.has_errors = $7::BOOL)\n  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT)\norder by trace.updated_at desc\nlimit 100;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "instance_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "service_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "top_level_span_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "duration",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "original_span_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "original_event_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "stored_span_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "stored_event_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "estimated_size_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "warning_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "has_errors",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "24dfa7c624cd9075535bc96b7f2aaea28cf082ac1ea398e5ff8413394a6243f1"
+}

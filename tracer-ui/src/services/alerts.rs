@@ -19,15 +19,13 @@ pub fn alerts_html(alert_config: AlertConfig, root_path: String) -> leptos::Html
                 max_received_orphan_event_kb,
                 trace_alert_config:
                     TraceAlertConfig {
-                        max_trace_duration,
+                        max_trace_duration_ms: max_trace_duration,
                         max_traces_with_warning_percentage,
                         max_traces_with_error_percentage,
                         max_traces_dropped_by_sampling_per_min,
                     },
-                min_alert_period_seconds,
                 percentage_check_time_window_secs,
                 percentage_check_min_number_samples,
-                alert_url,
             },
         service_alert_config_trace_overwrite,
     } = alert_config;
@@ -41,7 +39,7 @@ pub fn alerts_html(alert_config: AlertConfig, root_path: String) -> leptos::Html
                       {trace_name}
                   </th>
                   <th class="trace-table__cell">
-                      {trace_alert_config.max_trace_duration}
+                      {trace_alert_config.max_trace_duration_ms}
                   </th>
                   <th class="trace-table__cell">
                       {trace_alert_config.max_traces_with_warning_percentage}

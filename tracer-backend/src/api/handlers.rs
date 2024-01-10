@@ -134,6 +134,7 @@ pub(crate) async fn logs_get(
     let from_timestamp = nanos_to_db_i64(service_log_request.from_date_unix)?;
     let to_timestamp = nanos_to_db_i64(service_log_request.to_date_unix)?;
     let service_name = &service_log_request.service_name;
+    let env = &service_log_request.env;
     pub struct DbLog {
         pub timestamp: i64,
         pub severity: Severity,
@@ -153,14 +154,18 @@ pub(crate) async fn logs_get(
                 '{}') as key_vals
 from orphan_event
          left join orphan_event_key_value
-                   on orphan_event_key_value.orphan_event_id = orphan_event.id
-where orphan_event.timestamp >= $1 and orphan_event.timestamp <= $2 and orphan_event.service_name=$3
-group by orphan_event.id, orphan_event.timestamp
+                   on orphan_event_key_value.env = orphan_event.env
+                   and orphan_event_key_value.service_name = orphan_event.service_name
+                   and orphan_event_key_value.timestamp = orphan_event.timestamp
+                   and orphan_event_key_value.orphan_event_id = orphan_event.id
+where orphan_event.env=$1 and orphan_event.service_name=$2 and orphan_event.timestamp >= $3 and orphan_event.timestamp <= $4 
+group by  orphan_event.timestamp, orphan_event.severity, orphan_event.message
 order by timestamp desc
 limit 100000;"#,
+        env.to_string(),
+        service_name,
         from_timestamp,
         to_timestamp,
-        service_name
     )
     .fetch_all(&app_state.con)
     .await?;
@@ -344,14 +349,14 @@ pub struct TraceDuration {
 #[instrument(skip_all)]
 async fn get_db_trace(
     con: &PgPool,
-    service_id: i64,
+    instance_id: i64,
     trace_id: u64,
 ) -> Result<Option<TraceDuration>, sqlx::Error> {
-    debug!("service_id: {service_id}, trace_id: {trace_id}");
+    debug!("instance_id: {instance_id}, trace_id: {trace_id}");
     let raw: Option<RawTraceHeader> = sqlx::query_as!(
         RawTraceHeader,
-        "select duration from trace where service_id=$1 and id=$2",
-        service_id as i64,
+        "select duration from trace where instance_id=$1 and id=$2",
+        instance_id as i64,
         trace_id as i64
     )
     .fetch_optional(con)
@@ -410,7 +415,7 @@ async fn check_span_ids_exist_in_db_returning_missing(
     con: &PgPool,
     span_ids_to_check: &HashSet<u64>,
     trace_id: u64,
-    service_id: i64,
+    instance_id: i64,
 ) -> Result<HashSet<u64>, sqlx::Error> {
     if span_ids_to_check.is_empty() {
         debug!("Span ids to check is empty, returning empty list");
@@ -420,9 +425,9 @@ async fn check_span_ids_exist_in_db_returning_missing(
     debug!("Getting {} span ids from the db", as_vec.len());
     trace!("Span ids: {:?}", as_vec);
     let res: Vec<i64> = sqlx::query_scalar!(
-        "select id from span where trace_id=$1 and service_id=$2 and id = ANY($3::BIGINT[])",
+        "select id from span where trace_id=$1 and instance_id=$2 and id = ANY($3::BIGINT[])",
         trace_id as i64,
-        service_id,
+        instance_id,
         as_vec.as_slice()
     )
     .fetch_all(con)
@@ -440,9 +445,10 @@ async fn check_span_ids_exist_in_db_returning_missing(
 #[instrument(skip_all)]
 async fn insert_new_trace(
     con: &mut Transaction<'static, Postgres>,
-    service_id: i64,
-    trace_id: u64,
+    env: Env,
     service_name: &str,
+    instance_id: i64,
+    trace_id: u64,
     top_level_span_name: &str,
     timestamp: u64,
 ) -> Result<(), sqlx::Error> {
@@ -452,14 +458,14 @@ async fn insert_new_trace(
     );
     let now_nanos = now_nanos_u64();
     if let Err(e) = sqlx::query!(
-        "insert into trace (service_id, id, service_name, timestamp, top_level_span_name,
-                    updated_at) values (
-                    $1, $2, $3, $4, $5, $6);",
-        service_id as _,
-        trace_id as i64,
+        "insert into trace (env, service_name, instance_id, id, top_level_span_name, timestamp, updated_at) values 
+        ($1, $2, $3, $4, $5, $6, $7);",
+        env.to_string() as _,
         service_name as _,
-        timestamp as i64,
+        instance_id as _,
+        trace_id as i64,
         top_level_span_name as _,
+        timestamp as i64,
         now_nanos as i64
     )
     .execute(con.deref_mut())
@@ -467,7 +473,7 @@ async fn insert_new_trace(
     {
         error!(
             "DB Error when inserting trace with data:\
-         service_id={service_id} trace_id={trace_id} service_name={service_name} \
+         instance_id={instance_id} trace_id={trace_id} service_name={service_name} \
          timestamp={timestamp} top_level_span_name={top_level_span_name} updated_at={now_nanos}"
         );
         return Err(e);
@@ -518,14 +524,15 @@ fn relocate_span_references_from_lost_spans_to_root(
 #[instrument(skip_all)]
 pub async fn update_trace_with_new_fragment(
     con: &PgPool,
-    service_id: i64,
+    instance_id: i64,
+    env: Env,
     service_name: &str,
     mut fragment: TraceFragment,
 ) -> Result<(), sqlx::Error> {
     info!("fragment for: {}", fragment.trace_name);
     fragment.new_events.sort_by_key(|e| e.timestamp);
     fragment.new_spans.sort_by_key(|e| e.timestamp);
-    let db_trace = get_db_trace(&con, service_id, fragment.trace_id).await?;
+    let db_trace = get_db_trace(&con, instance_id, fragment.trace_id).await?;
     let trace_already_exists = db_trace.is_some();
     debug!("trace_already_exists = {trace_already_exists}");
     let trace_is_complete = db_trace
@@ -605,7 +612,7 @@ pub async fn update_trace_with_new_fragment(
         &con,
         &known_and_unknown_span_ids.unknown_span_ids,
         fragment.trace_id,
-        service_id,
+        instance_id,
     )
     .await?;
     debug!("{} lost span ids", lost_span_ids.len());
@@ -631,9 +638,10 @@ pub async fn update_trace_with_new_fragment(
     if !trace_already_exists {
         insert_new_trace(
             &mut transaction,
-            service_id,
-            fragment.trace_id,
+            env,
             &service_name,
+            instance_id,
+            fragment.trace_id,
             &fragment.trace_name,
             fragment.trace_timestamp,
         )
@@ -643,7 +651,7 @@ pub async fn update_trace_with_new_fragment(
         &mut transaction,
         &fragment.new_spans,
         fragment.trace_id,
-        service_id,
+        instance_id,
         &relocated_span_ids,
     )
     .await?;
@@ -651,7 +659,7 @@ pub async fn update_trace_with_new_fragment(
         &mut transaction,
         &fragment.new_events,
         fragment.trace_id,
-        service_id,
+        instance_id,
         &relocated_event_vec_indexes,
     )
     .await?;
@@ -687,7 +695,7 @@ has_errors={has_errors}",
     );
     update_trace_header(
         &mut transaction,
-        service_id,
+        instance_id,
         fragment.trace_id,
         root_duration,
         original_span_count,
@@ -704,14 +712,14 @@ has_errors={has_errors}",
 }
 
 #[instrument(skip_all)]
-async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[ClosedSpan]) {
+async fn update_closed_spans(con: &PgPool, instance_id: i64, closed_spans: &[ClosedSpan]) {
     info!("{} spans to close", closed_spans.len());
     for span in closed_spans {
         debug!("Closing span: {:?}", span);
         let res: Result<PgQueryResult, sqlx::Error> = sqlx::query!(
-            "update span set duration=$1 where service_id=$2 and trace_id=$3 and id=$4;",
+            "update span set duration=$1 where instance_id=$2 and trace_id=$3 and id=$4;",
             span.duration as i64,
-            service_id,
+            instance_id,
             span.trace_id as i64,
             span.span_id as i64,
         )
@@ -728,9 +736,9 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
         if span.span_id == span.trace_id {
             info!("Span was root, updating trace duration");
             let res = sqlx::query!(
-                "update trace set duration=$1 where service_id=$2 and id=$3",
+                "update trace set duration=$1 where instance_id=$2 and id=$3",
                 span.duration as i64,
-                service_id,
+                instance_id,
                 span.trace_id as i64
             )
             .execute(con)
@@ -741,8 +749,8 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
                 }
                 Err(err) => {
                     error!(
-                        "Error updating trace {err:?} duration={} service_id={} id={}",
-                        span.duration, service_id, span.trace_id
+                        "Error updating trace {err:?} duration={} instance_id={} id={}",
+                        span.duration, instance_id, span.trace_id
                     );
                 }
             }
@@ -753,6 +761,7 @@ async fn update_closed_spans(con: &PgPool, service_id: i64, closed_spans: &[Clos
 #[instrument(skip_all)]
 pub async fn insert_orphan_events(
     con: &PgPool,
+    env: Env,
     service_name: &str,
     orphan_events: &[NewOrphanEvent],
 ) {
@@ -761,19 +770,22 @@ pub async fn insert_orphan_events(
         trace!("Inserting event: {:?}", e);
     }
     let mut timestamps = vec![];
+    let mut envs = vec![];
     let mut service_names = vec![];
     let mut severities = vec![];
     let mut message = vec![];
     for event in orphan_events {
         timestamps.push(event.timestamp as i64);
+        envs.push(env.to_string());
         service_names.push(service_name);
         severities.push(Severity::from(event.level));
         message.push(event.message.clone());
     }
     let orphan_events_db_ids = match sqlx::query_scalar!(
-            "insert into orphan_event (timestamp, service_name, severity, message) select * from unnest($1::BIGINT[], \
-            $2::TEXT[], $3::severity_level[], $4::TEXT[]) returning id;",
+            "insert into orphan_event (timestamp, env, service_name, severity, message) select * from unnest($1::BIGINT[], \
+            $2::TEXT[], $3::TEXT[], $4::severity_level[], $5::TEXT[]) returning id;",
             &timestamps,
+            &envs,
             &service_names as &Vec<&str>,
             severities.as_slice() as &[Severity],
             &message as &Vec<Option<String>>
@@ -797,12 +809,17 @@ pub async fn insert_orphan_events(
     };
     let mut kv_orphan_event_id = vec![];
     let mut kv_orphan_timestamp = vec![];
+    let mut kv_envs = vec![];
     let mut kv_orphan_key = vec![];
     let mut kv_orphan_value = vec![];
+    let mut kv_service_names = vec![];
+
     for (idx, event) in orphan_events.iter().enumerate() {
         for (key, val) in &event.key_vals {
             kv_orphan_event_id.push(orphan_events_db_ids[idx]);
             kv_orphan_timestamp.push(event.timestamp as i64);
+            kv_envs.push(env.to_string());
+            kv_service_names.push(service_name);
             kv_orphan_key.push(key.as_str());
             kv_orphan_value.push(val.as_str());
         }
@@ -810,10 +827,12 @@ pub async fn insert_orphan_events(
     info!("{} events key values to insert", kv_orphan_event_id.len());
 
     match sqlx::query!(
-            "insert into orphan_event_key_value (orphan_event_id, timestamp, key, value) select * from unnest($1::BIGINT[], \
-            $2::BIGINT[], $3::TEXT[], $4::TEXT[]);",
-            &kv_orphan_event_id,
+            "insert into orphan_event_key_value (env, service_name, timestamp, orphan_event_id, key, value) select * from unnest($1::TEXT[], \
+            $2::TEXT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[]);",
+            &kv_envs,
+            &kv_service_names as &Vec<&str>,
             &kv_orphan_timestamp,
+            &kv_orphan_event_id,
             &kv_orphan_key as &Vec<&str>,
             &kv_orphan_value as &Vec<&str>,
         )
@@ -887,7 +906,7 @@ fn truncate_events_if_needed(events: &mut Vec<NewSpanEvent>) {
 }
 
 #[instrument(skip_all)]
-fn truncate_orphan_events_if_needed(events: &mut Vec<NewOrphanEvent>) {
+fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<NewOrphanEvent>) {
     for e in events {
         if let Some(msg) = &mut e.message {
             if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
@@ -939,8 +958,9 @@ pub async fn collector_trace_data_post(
             message: "Instance not registed by SSE".to_string(),
         }
     })?;
-    let service_id = trace_data.instance_id;
+    let instance_id = trace_data.instance_id;
     let service_name = trace_data.service_name;
+    let env = trace_data.env;
     info!(
         "Got {} new fragments",
         trace_data.active_trace_fragments.len()
@@ -952,16 +972,16 @@ pub async fn collector_trace_data_post(
         truncate_span_key_values_if_needed(&mut fragment.new_spans);
         truncate_events_if_needed(&mut fragment.new_events);
         if let Err(db_error) =
-            update_trace_with_new_fragment(&con, service_id, &service_name, fragment).await
+            update_trace_with_new_fragment(&con, instance_id, env, &service_name, fragment).await
         {
             error!("DB error when inserting fragment: {:#?}", db_error);
         }
     }
 
-    update_closed_spans(&con, service_id, &trace_data.closed_spans).await;
+    update_closed_spans(&con, instance_id, &trace_data.closed_spans).await;
     let mut orphan_events = trace_data.orphan_events;
-    truncate_orphan_events_if_needed(&mut orphan_events);
-    insert_orphan_events(&con, &service_name, &orphan_events).await;
+    truncate_orphan_events_and_kv_if_needed(&mut orphan_events);
+    insert_orphan_events(&con, env, &service_name, &orphan_events).await;
 
     Ok(())
 }
@@ -969,14 +989,14 @@ pub async fn collector_trace_data_post(
 #[instrument(skip_all)]
 async fn update_trace_header(
     con: &mut Transaction<'static, Postgres>,
-    service_id: i64,
+    instance_id: i64,
     trace_id: u64,
     duration: Option<u64>,
     original_span_count: u64,
     original_event_count: u64,
     stored_span_count_increase: u64,
     stored_event_count_increase: u64,
-    event_bytes_count_increase: u64,
+    estimated_size_bytes: u64,
     warnings_count_increase: u64,
     has_errors: bool,
 ) -> Result<(), sqlx::Error> {
@@ -987,19 +1007,19 @@ async fn update_trace_header(
             original_event_count=$5,
             stored_span_count=(stored_span_count + $6),
             stored_event_count=(stored_event_count + $7),
-            event_bytes_count=(event_bytes_count + $8),
+            estimated_size_bytes=(estimated_size_bytes + $8),
             warning_count=(warning_count + $9),
             has_errors=(has_errors or $10)
-        where service_id = $1
+        where instance_id = $1
           and id = $2;",
-        service_id,
+        instance_id,
         trace_id as i64 as _,
         duration.map(|d| d as i64) as Option<i64>,
         original_span_count as i64 as _,
         original_event_count as i64 as _,
         stored_span_count_increase as i64 as _,
         stored_event_count_increase as i64 as _,
-        event_bytes_count_increase as i64 as _,
+        estimated_size_bytes as i64 as _,
         warnings_count_increase as i64 as _,
         has_errors,
     )
@@ -1013,7 +1033,7 @@ pub(crate) async fn insert_spans(
     con: &mut Transaction<'static, Postgres>,
     new_spans: &[NewSpan],
     trace_id: u64,
-    service_id: i64,
+    instance_id: i64,
     relocated_span_ids: &HashSet<u64>,
 ) -> Result<(), sqlx::Error> {
     if new_spans.is_empty() {
@@ -1023,7 +1043,7 @@ pub(crate) async fn insert_spans(
         info!("Inserting {} spans", new_spans.len());
     }
     let span_ids: Vec<i64> = new_spans.iter().map(|s| s.id as i64).collect();
-    let service_ids: Vec<i64> = new_spans.iter().map(|_s| service_id).collect();
+    let instance_ids: Vec<i64> = new_spans.iter().map(|_s| instance_id).collect();
     let trace_ids: Vec<i64> = new_spans.iter().map(|_s| trace_id as i64).collect();
     let timestamp: Vec<i64> = new_spans.iter().map(|s| s.timestamp as i64).collect();
     let relocated: Vec<bool> = new_spans
@@ -1040,10 +1060,10 @@ pub(crate) async fn insert_spans(
         .collect();
     let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
     match sqlx::query!(
-            "insert into span (id, service_id, trace_id, timestamp, parent_id, duration, name, relocated)
+            "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration, name, relocated)
             select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::BOOLEAN[]);",
             &span_ids,
-            &service_ids,
+            &instance_ids,
             &trace_ids,
             &timestamp,
             &parent_id as &Vec<Option<i64>>,
@@ -1059,7 +1079,7 @@ pub(crate) async fn insert_spans(
         Err(e) => {
             error!("Error when inserting spans");
             error!("Span Ids: {:?}", span_ids);
-            error!("Service Ids: {:?}", service_ids);
+            error!("Instance Ids: {:?}", instance_ids);
             error!("Trace Ids: {:?}", trace_id);
             error!("Timestamp: {:?}", timestamp);
             error!("Relocated: {:?}", relocated);
@@ -1069,35 +1089,32 @@ pub(crate) async fn insert_spans(
             return Err(e)
         }
     };
-    let mut kv_service_id = vec![];
+    let mut kv_instance_id = vec![];
     let mut kv_trace_id = vec![];
     let mut kv_span_id = vec![];
-    let mut kv_timestamp = vec![];
     let mut kv_key = vec![];
     let mut kv_value = vec![];
     for (_idx, span) in new_spans.iter().enumerate() {
         for (key, val) in &span.key_vals {
-            kv_service_id.push(service_id);
+            kv_instance_id.push(instance_id);
             kv_trace_id.push(trace_id as i64);
             kv_span_id.push(span.id as i64);
-            kv_timestamp.push(span.timestamp as i64);
             kv_key.push(key.as_str());
             kv_value.push(val.as_str());
         }
     }
-    if kv_service_id.is_empty() {
+    if kv_instance_id.is_empty() {
         info!("No span key-values to insert");
         return Ok(());
     } else {
-        info!("Inserting {} span key-values", kv_service_id.len());
+        info!("Inserting {} span key-values", kv_instance_id.len());
     }
     match sqlx::query!(
-            "insert into span_key_value (service_id, trace_id, span_id, timestamp, key, value)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[]);",
-            &kv_service_id,
+            "insert into span_key_value (instance_id, trace_id, span_id,  key, value)
+            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::TEXT[], $5::TEXT[]);",
+            &kv_instance_id,
             &kv_trace_id,
             &kv_span_id,
-            &kv_timestamp,
             &kv_key as &Vec<&str>,
             &kv_value as &Vec<&str>
         )
@@ -1108,10 +1125,9 @@ pub(crate) async fn insert_spans(
         },
         Err(e) => {
             error!("Error when inserting span key-values");
-            error!("kv_service_id: {:?}", kv_service_id);
+            error!("kv_instance_id: {:?}", kv_instance_id);
             error!("kv_trace_id: {:?}", kv_trace_id);
             error!("kv_span_id: {:?}", kv_span_id);
-            error!("kv_timestamp: {:?}", kv_timestamp);
             error!("kv_key: {:?}", kv_key);
             error!("kv_value: {:?}", kv_value);
             return Err(e)
@@ -1120,96 +1136,3 @@ pub(crate) async fn insert_spans(
 
     Ok(())
 }
-
-// pub(crate) async fn insert_new_trace(
-//     con: &PgPool,
-//     service_name: &str,
-//     service_id: i64,
-//     new_span: &api_structs::exporter::NewSpan,
-// ) -> Result<(), ApiError> {
-//     let timestamp = i64::try_from(new_span.timestamp).expect("timestamp to fit i64");
-//     let trace_id = i64::try_from(new_span.trace_id.get()).expect("id to fit i64");
-//     sqlx::query!(
-//         "insert into trace (service_id, id, timestamp, service_name, \
-//         top_level_span_name, duration, warning_count, has_errors) values \
-//         ($1, $2, $3, $4, $5, null, 0, false);",
-//         service_id,
-//         trace_id as _,
-//         timestamp as _,
-//         service_name as _,
-//         new_span.name as _
-//     )
-//     .execute(con)
-//     .await?;
-//     Ok(())
-// }
-
-// pub(crate) async fn insert_new_span(
-//     con: &PgPool,
-//     service_id: i64,
-//     new_span: &api_structs::exporter::NewSpan,
-// ) -> Result<(), ApiError> {
-//     let timestamp = i64::try_from(new_span.timestamp).expect("timestamp to fit i64");
-//     let trace_id = i64::try_from(new_span.trace_id.get()).expect("id to fit i64");
-//     let span_id = i64::try_from(new_span.id).expect("id to fit i64");
-//     let parent_id = new_span
-//         .parent_id
-//         .map(|e| i64::try_from(e).expect("id to fit i64"));
-//     sqlx::query!(
-//         "insert into span (id, service_id, trace_id, timestamp, parent_id, \
-//         duration, name) values \
-//         ($1, $2, $3, $4, $5, null, $6);",
-//         span_id as _,
-//         service_id,
-//         trace_id as _,
-//         timestamp as _,
-//         parent_id as _,
-//         new_span.name as _
-//     )
-//     .execute(con)
-//     .await?;
-//     Ok(())
-// }
-
-// pub(crate) async fn process_new_span_event(
-//     con: &PgPool,
-//     service_id: i64,
-//     span_event: api_structs::exporter::NewSpanEvent,
-// ) -> Result<(), ApiError> {
-//     let timestamp = i64::try_from(span_event.timestamp).expect("timestamp to fit i64");
-//     let span_id = i64::try_from(span_event.span_id).expect("id to fit i64");
-//     let trace_id = i64::try_from(span_event.trace_id.get()).expect("id to fit i64");
-//     let id = i64::try_from(span_event.id).expect("id to fit i64");
-//     let level = Severity::from(span_event.level);
-//
-//     sqlx::query!(
-//         "insert into event (service_id, trace_id, span_id, id, timestamp, name, \
-//         severity) values \
-//         ($1, $2, $3, $4, $5, $6, $7);",
-//         service_id,
-//         trace_id,
-//         span_id,
-//         id,
-//         timestamp as _,
-//         span_event.message as _,
-//         level as Severity
-//     )
-//     .execute(con)
-//     .await?;
-//     Ok(())
-// }
-
-// pub(crate) async fn process_new_span(
-//     con: &PgPool,
-//     service_name: &str,
-//     service_id: i64,
-//     new_span: api_structs::exporter::NewSpan,
-// ) -> Result<(), ApiError> {
-//     if new_span.parent_id.is_none() {
-//         insert_new_trace(con, service_name, service_id, &new_span).await?;
-//         insert_new_span(con, service_id, &new_span).await?;
-//     } else {
-//         insert_new_span(con, service_id, &new_span).await?;
-//     }
-//     Ok(())
-// }

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select timestamp as \"timestamp!\" from ((select timestamp \n    from span\n    where span.instance_id = $1\n      and span.trace_id = $2 and span.timestamp >= $3)\n      union all\n    (select timestamp \n    from event\n             where event.instance_id=$1\n                 and event.trace_id=$2 and event.timestamp >= $3)\n    order by timestamp offset 300 limit 1);",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "timestamp!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "513bf618dad6902394f990afc8ef1d76df3d1ddaaf8ce4b7385183846ad23117"
+}

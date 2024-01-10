@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update trace\n        set duration=$3,\n            original_span_count=$4,\n            original_event_count=$5,\n            stored_span_count=(stored_span_count + $6),\n            stored_event_count=(stored_event_count + $7),\n            estimated_size_bytes=(estimated_size_bytes + $8),\n            warning_count=(warning_count + $9),\n            has_errors=(has_errors or $10)\n        where instance_id = $1\n          and id = $2;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        {
+          "Custom": {
+            "name": "ubigint",
+            "kind": {
+              "Domain": "Int8"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "ubigint",
+            "kind": {
+              "Domain": "Int8"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "ubigint",
+            "kind": {
+              "Domain": "Int8"
+            }
+          }
+        },
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b1a3d588df5cc9cb499b34a2d0b039143ad548a35517425ba50996603047214"
+}

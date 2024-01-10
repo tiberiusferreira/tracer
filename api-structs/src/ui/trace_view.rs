@@ -16,7 +16,7 @@ pub struct SingleChunkTraceQuery {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct TraceId {
     #[serde_as(as = "DisplayFromStr")]
-    pub service_id: i64,
+    pub instance_id: i64,
     #[serde_as(as = "DisplayFromStr")]
     pub trace_id: i64,
 }

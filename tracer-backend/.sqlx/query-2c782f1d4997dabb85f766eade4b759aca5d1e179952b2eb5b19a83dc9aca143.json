@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update span set duration=$1 where instance_id=$2 and trace_id=$3 and id=$4;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "ubigint",
+            "kind": {
+              "Domain": "Int8"
+            }
+          }
+        },
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2c782f1d4997dabb85f766eade4b759aca5d1e179952b2eb5b19a83dc9aca143"
+}
