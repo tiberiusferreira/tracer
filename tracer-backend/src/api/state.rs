@@ -1,7 +1,6 @@
-use crate::api::ChangeFilterInternalRequest;
-use api_structs::ui::service_health::{AlertConfig, InstanceDataPoint, ProfileData, ServiceId};
-use api_structs::Env;
-use serde::{Deserialize, Serialize};
+use crate::api::handlers::instance::connect::ChangeFilterInternalRequest;
+use api_structs::ui::service::{AlertConfig, InstanceDataPoint, ProfileData};
+use api_structs::ServiceId;
 use sqlx::PgPool;
 use std::collections::{HashMap, VecDeque};
 

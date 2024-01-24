@@ -1,5 +1,6 @@
 use crate::print_if_dbg;
-use api_structs::exporter::SseRequest;
+use api_structs::instance::connect::SseRequest;
+use api_structs::InstanceId;
 use futures_util::StreamExt;
 use reqwest_eventsource::Event;
 use std::time::Duration;
@@ -7,15 +8,22 @@ use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{EnvFilter, Registry};
 
 pub async fn continuously_handle_server_sent_events(
-    service_name: String,
-    env: api_structs::Env,
+    instance_id: InstanceId,
     collector_url: String,
     filter_reload_handle: Handle<EnvFilter, Registry>,
-    instance_id: i64,
 ) {
     let context = "continuously_handle_server_sent_events";
     loop {
-        let url = format!("{collector_url}/collector/sse/{service_name}/{env}/{instance_id}");
+        // let url = format!("{collector_url}/collector/sse/{service_name}/{env}/{instance_id}");
+        let url = reqwest::Url::parse_with_params(
+            &format!("{collector_url}/collector/sse"),
+            [
+                ("name", instance_id.service_id.name.as_str()),
+                ("env", instance_id.service_id.env.to_string().as_str()),
+                ("instance_id", instance_id.instance_id.to_string().as_str()),
+            ],
+        )
+        .unwrap();
         print_if_dbg(context, format!("Starting sse loop, connecting to {url}"));
         let mut event_source = reqwest_eventsource::EventSource::get(url);
         print_if_dbg(context, "sse connected");

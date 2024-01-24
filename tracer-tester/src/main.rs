@@ -1,6 +1,7 @@
 use std::time::Duration;
 use thiserror::Error;
-use tracing::{info, instrument, warn};
+use tokio::join;
+use tracing::{debug, error, info, instrument, trace, warn};
 use tracing_config_helper::{Env, TracerConfig};
 
 #[derive(Debug, Error)]
@@ -122,23 +123,75 @@ fn multiple_fields() {
     info!("inside multiple_fields");
 }
 
+#[instrument(skip_all)]
+async fn basic_tracer_trace_tests() {
+    trace!(r#"Sample Trace event"#);
+    debug!("Sample Debug event");
+    info!("Sample Info event");
+    warn!("Sample Warn event");
+    error!(
+        r#"Sample Error event 
+Second Line!"#
+    );
+    let basic_struct = BasicStructArg::new();
+    nested_function_taking_1s(
+        &basic_struct,
+        12,
+        "Some Extra String\nSecond Line!".to_string(),
+    )
+    .await;
+    let _ = join!(
+        nested_function_taking_1s(&basic_struct, 12, "Two concurrent calls 1".to_string()),
+        nested_function_taking_1s(&basic_struct, 12, "Two concurrent calls 2".to_string())
+    );
+}
+
+#[derive(Debug, Clone)]
+struct BasicStructArg {
+    int_field: i32,
+    float_field: f32,
+    string_field: String,
+}
+impl BasicStructArg {
+    pub fn new() -> Self {
+        BasicStructArg {
+            int_field: 2,
+            float_field: 2.5,
+            string_field: "This is a Sample String Field".to_string(),
+        }
+    }
+}
+#[instrument(fields(extra_string_input_as_display=%extra_string_input))]
+async fn nested_function_taking_1s(
+    struct_as_input: &BasicStructArg,
+    extra_number_input: i32,
+    extra_string_input: String,
+) {
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    info!(?struct_as_input, "input debug struct as key-val");
+    info!(extra_number_input, "extra_number_input as key-val");
+    info!(extra_string_input, "extra_string_input as key-val");
+}
+
+fn simple_orphan_logs_test() {
+    trace!("Sample Trace orphan event");
+    debug!("Sample Debug orphan event");
+    info!("Sample Info orphan event");
+    warn!("Sample Warn orphan event");
+    error!("Sample Error orphan event");
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    println!("Hello, world!");
+    println!("Hello, world from Tracer Test");
     let tracer_config = TracerConfig::new(
         Env::Local,
         env!("CARGO_BIN_NAME").to_string(),
         "http://127.0.0.1:4200".to_string(),
     );
     let flush_requester = tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
-    // simple_orphan_logs();
-    span_small_tests();
-    // span_tests();
-    // let mut my_vec = vec![1];
-    // for i in 0..1_000_000 {
-    //     my_vec.push(i);
-    // }
-    // info!(my_vec = ?my_vec);
+    simple_orphan_logs_test();
+    basic_tracer_trace_tests().await;
 
     flush_requester
         .flush(Duration::from_secs(100))

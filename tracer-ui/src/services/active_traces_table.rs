@@ -1,12 +1,12 @@
 use crate::secs_since;
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::ui::service_health::{ServiceData, TraceHeader};
+use api_structs::ui::service::{ServiceOverview, TraceHeader};
 use leptos::html::Div;
 use leptos::ReadSignal;
 use leptos::{view, IntoView, SignalGet};
 pub fn active_traces_table_html(
     active_trace_graph_click_event_on_timestamp_r: ReadSignal<Option<u64>>,
-    service: ServiceData,
+    service: ServiceOverview,
     root_path: String,
 ) -> leptos::HtmlElement<Div> {
     let view = move || {

@@ -2,13 +2,28 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-pub mod exporter;
+pub mod instance;
 pub mod time_conversion;
 pub mod ui;
 
 pub type TraceName = String;
 
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct ServiceId {
+    /// tracer-backend
+    pub name: String,
+    /// Local
+    pub env: Env,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct InstanceId {
+    #[serde(flatten)]
+    pub service_id: ServiceId,
+    pub instance_id: i64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 // snake case because the DB expects lower case, so to_string() returns lowercase
 // but we also use to_string() when sending this in query parameters
 #[serde(rename_all = "snake_case")]
@@ -17,18 +32,17 @@ pub enum Env {
     Dev,
     Stage,
     Prod,
+    Other(String),
 }
 
-impl TryFrom<&str> for Env {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+impl From<String> for Env {
+    fn from(value: String) -> Self {
         match value.to_ascii_lowercase().as_str() {
-            "local" => Ok(Env::Local),
-            "dev" => Ok(Env::Dev),
-            "stage" => Ok(Env::Stage),
-            "prod" => Ok(Env::Prod),
-            x => Err(format!("Invalid Env value: {}", x)),
+            "local" => Env::Local,
+            "dev" => Env::Dev,
+            "stage" => Env::Stage,
+            "prod" => Env::Prod,
+            x => Env::Other(x.to_ascii_lowercase()),
         }
     }
 }
@@ -39,6 +53,7 @@ impl Display for Env {
             Env::Dev => f.write_str("dev"),
             Env::Stage => f.write_str("stage"),
             Env::Prod => f.write_str("prod"),
+            Env::Other(x) => f.write_str(x.as_str()),
         }
     }
 }

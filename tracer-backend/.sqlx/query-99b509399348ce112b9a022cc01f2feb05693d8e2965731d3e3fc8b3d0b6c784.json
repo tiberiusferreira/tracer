@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select env, name from service;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "env",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "99b509399348ce112b9a022cc01f2feb05693d8e2965731d3e3fc8b3d0b6c784"
+}

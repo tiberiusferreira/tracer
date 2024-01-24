@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select top_level_span_name, max_traces_with_warning_percentage, max_traces_dropped_by_sampling_per_min, max_traces_with_error_percentage, max_trace_duration_ms from service_alert_config_trace_overwrite where service_name=$1;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "top_level_span_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_traces_with_warning_percentage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "max_traces_dropped_by_sampling_per_min",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "max_traces_with_error_percentage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_trace_duration_ms",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "07fe03f05a7b0a67099ca067d7e5fab44b4a43c4bd0edf7e85110bb7815f5431"
+}

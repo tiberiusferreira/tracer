@@ -1,4 +1,4 @@
-use api_structs::exporter::status::{ProducerStats, SamplerLimits, SingleTraceStatus};
+use api_structs::instance::update::{ProducerStats, SamplerLimits, SingleTraceStatus};
 use std::collections::HashMap;
 use std::time::Instant;
 

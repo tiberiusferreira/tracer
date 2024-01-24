@@ -2,7 +2,7 @@ use crate::secs_since;
 use crate::services::graph_creation::{
     create_dom_el_ref_and_graph_call_action, GraphData, GraphSeries,
 };
-use api_structs::ui::service_health::Instance;
+use api_structs::ui::service::Instance;
 use leptos::html::Div;
 use leptos::{Action, NodeRef, WriteSignal};
 use std::collections::HashMap;

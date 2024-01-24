@@ -1,5 +1,5 @@
-use api_structs::ui::service_health::{
-    AlertConfig, ServiceAlertConfig, ServiceData, TraceAlertConfig,
+use api_structs::ui::service::{
+    AlertConfig, ServiceAlertConfig, ServiceOverview, TraceAlertConfig,
 };
 use leptos::html::Div;
 use leptos::view;
@@ -10,7 +10,7 @@ pub fn alerts_html(alert_config: AlertConfig, root_path: String) -> leptos::Html
             ServiceAlertConfig {
                 min_instance_count,
                 max_active_traces,
-                max_spe_export_buffer_usage,
+                max_export_buffer_usage: max_spe_export_buffer_usage,
                 max_orphan_events_per_min,
                 max_orphan_events_dropped_by_sampling_per_min,
                 max_spe_dropped_due_to_full_export_buffer_per_min,

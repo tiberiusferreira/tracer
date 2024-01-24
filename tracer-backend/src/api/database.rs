@@ -1,11 +1,10 @@
 use crate::api::handlers::Severity;
-use api_structs::exporter::trace_exporting::NewSpanEvent;
-use api_structs::ui::service_health::{
-    AlertConfig, ServiceAlertConfigTraceOverwrite, TraceAlertConfig,
-};
-use api_structs::Env;
+use api_structs::instance::update::NewSpanEvent;
+use api_structs::ui::service::{AlertConfig, ServiceAlertConfigTraceOverwrite, TraceAlertConfig};
+use api_structs::{Env, InstanceId};
+use backtraced_error::SqlxError;
 use sqlx::{PgPool, Postgres, Transaction};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::DerefMut;
 use thiserror::Error;
 use tracing::{error, info, instrument, trace};
@@ -21,8 +20,6 @@ enum DatabaseError {
 }
 
 struct RawServiceConfig {
-    env: String,
-    service_name: String,
     max_export_buffer_usage: i64,
     max_orphan_events_per_min: i64,
     max_orphan_events_dropped_by_sampling_per_min: i64,
@@ -41,7 +38,6 @@ struct RawServiceConfig {
 }
 
 struct RawServiceAlertConfigTraceOverwrite {
-    service_name: String,
     top_level_span_name: String,
     max_trace_duration_ms: i64,
     max_traces_with_warning_percentage: i64,
@@ -54,12 +50,10 @@ pub(crate) async fn get_service_raw_config(
     con: &PgPool,
     service_name: &str,
     env: Env,
-) -> Result<Option<RawServiceConfig>, sqlx::Error> {
+) -> Result<Option<RawServiceConfig>, SqlxError> {
     let raw_service_config = sqlx::query_as!(
         RawServiceConfig,
         "select 
-            env,
-            service_name,
             max_export_buffer_usage,
             max_orphan_events_per_min,
             max_orphan_events_dropped_by_sampling_per_min,
@@ -82,7 +76,17 @@ pub(crate) async fn get_service_raw_config(
         service_name
     )
     .fetch_optional(con)
-    .await?;
+    .await
+    .map_err(|e| {
+        SqlxError::from_sqlx_error(
+            e,
+            format!(
+                "getting service_alert_config using {} {}",
+                env.to_string(),
+                service_name
+            ),
+        )
+    })?;
     Ok(raw_service_config)
 }
 #[instrument(skip_all)]
@@ -90,8 +94,8 @@ pub async fn get_or_init_service_alert_config(
     con: &PgPool,
     service_name: &str,
     env: Env,
-) -> Result<AlertConfig, sqlx::Error> {
-    let raw_service_config = get_service_raw_config(con, &service_name, env).await?;
+) -> Result<AlertConfig, SqlxError> {
+    let raw_service_config = get_service_raw_config(con, &service_name, env.clone()).await?;
     let (raw_service_config, overwrites) = match raw_service_config {
         None => {
             sqlx::query!(
@@ -100,7 +104,16 @@ pub async fn get_or_init_service_alert_config(
                 service_name
             )
             .execute(con)
-            .await?;
+            .await
+            .map_err(|e| {
+                SqlxError::from_sqlx_error(
+                    e,
+                    format!(
+                        "inserting service_alert_config for new service {} {service_name}",
+                        env.to_string()
+                    ),
+                )
+            })?;
             let raw_service_config = get_service_raw_config(con, &service_name, env)
                 .await?
                 .expect("to exist, just inserted it");
@@ -108,20 +121,21 @@ pub async fn get_or_init_service_alert_config(
         }
         Some(existing) => {
             let overwrites = sqlx::query_as!(RawServiceAlertConfigTraceOverwrite,
-                "select service_name, top_level_span_name, max_traces_with_warning_percentage, \
-            max_traces_dropped_by_sampling_per_min, max_traces_with_error_percentage, max_trace_duration_ms from service_alert_config_trace_overwrite \
+                "select top_level_span_name, max_traces_with_warning_percentage, \
+            max_traces_dropped_by_sampling_per_min, max_traces_with_error_percentage, max_trace_duration_ms \
+            from service_alert_config_trace_overwrite \
              where service_name=$1;",
             format!("{}-{}", service_name, env)
             )
                 .fetch_all(con)
-                .await?;
+                .await.map_err(|e| SqlxError::from_sqlx_error(e, format!("selecting service_alert_config_trace_overwrite using env={} service_name={}", env, service_name)))?;
             (existing, overwrites)
         }
     };
     Ok(AlertConfig {
-        service_alert_config: api_structs::ui::service_health::ServiceAlertConfig {
-            max_spe_export_buffer_usage: raw_service_config.max_export_buffer_usage as u64,
-            max_orphan_events_per_min: raw_service_config.max_export_buffer_usage as u64,
+        service_alert_config: api_structs::ui::service::ServiceAlertConfig {
+            max_export_buffer_usage: raw_service_config.max_export_buffer_usage as u64,
+            max_orphan_events_per_min: raw_service_config.max_orphan_events_per_min as u64,
             max_orphan_events_dropped_by_sampling_per_min: raw_service_config
                 .max_orphan_events_dropped_by_sampling_per_min
                 as u64,
@@ -181,7 +195,7 @@ pub(crate) async fn insert_events(
     con: &mut Transaction<'static, Postgres>,
     new_events: &[NewSpanEvent],
     trace_id: u64,
-    service_id: i64,
+    instance_id: &InstanceId,
     relocated_event_vec_indexes: &HashSet<usize>,
 ) -> Result<(), sqlx::Error> {
     if new_events.is_empty() {
@@ -193,7 +207,10 @@ pub(crate) async fn insert_events(
     for e in new_events {
         trace!("Inserting event: {:?}", e);
     }
-    let service_ids: Vec<i64> = new_events.iter().map(|_s| service_id).collect();
+    let instance_ids: Vec<i64> = new_events
+        .iter()
+        .map(|_s| instance_id.instance_id)
+        .collect();
     let trace_ids: Vec<i64> = new_events.iter().map(|_s| trace_id as i64).collect();
     let timestamps: Vec<i64> = new_events.iter().map(|s| s.timestamp as i64).collect();
     let relocateds: Vec<bool> = new_events
@@ -207,7 +224,7 @@ pub(crate) async fn insert_events(
     let db_event_ids: Vec<i64> = match sqlx::query_scalar!(
             "insert into event (instance_id, trace_id, span_id, timestamp, message, severity, relocated)
             select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]) returning id;",
-            &service_ids,
+            &instance_ids,
             &trace_ids,
             &span_ids,
             &timestamps,
@@ -223,7 +240,7 @@ pub(crate) async fn insert_events(
         }
         Err(e) => {
             error!("Error when inserting events");
-            error!("service_ids={:?}", service_ids);
+            error!("service_ids={:?}", instance_ids);
             error!("trace_id={:?}", trace_id);
             error!("span_ids={:?}", span_ids);
             error!("timestamps={:?}", timestamps);
@@ -236,7 +253,7 @@ pub(crate) async fn insert_events(
         }
     };
 
-    let mut kv_service_id = vec![];
+    let mut kv_instance_id = vec![];
     let mut kv_trace_id = vec![];
     let mut kv_span_id = vec![];
     let mut kv_event_id = vec![];
@@ -244,7 +261,7 @@ pub(crate) async fn insert_events(
     let mut kv_value = vec![];
     for (idx, span) in new_events.iter().enumerate() {
         for (key, val) in &span.key_vals {
-            kv_service_id.push(service_id);
+            kv_instance_id.push(instance_id.instance_id);
             kv_trace_id.push(trace_id as i64);
             kv_span_id.push(span.span_id as i64);
             kv_event_id.push(db_event_ids[idx]);
@@ -252,16 +269,16 @@ pub(crate) async fn insert_events(
             kv_value.push(val.as_str());
         }
     }
-    if kv_service_id.is_empty() {
+    if kv_instance_id.is_empty() {
         info!("No event key-values to insert");
         return Ok(());
     } else {
-        info!("Inserting {} event key-values", kv_service_id.len());
+        info!("Inserting {} event key-values", kv_instance_id.len());
     }
     match sqlx::query!(
             "insert into event_key_value (instance_id, trace_id, span_id, event_id, key, value)
             select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::TEXT[]);",
-            &kv_service_id,
+            &kv_instance_id,
             &kv_trace_id,
             &kv_span_id,
             &kv_event_id,
@@ -275,7 +292,7 @@ pub(crate) async fn insert_events(
         },
         Err(e) => {
             error!("Error when inserting span key-values");
-            error!("kv_service_id: {:?}", kv_service_id);
+            error!("kv_service_id: {:?}", kv_instance_id);
             error!("kv_trace_id: {:?}", kv_trace_id);
             error!("kv_span_id: {:?}", kv_span_id);
             error!("kv_key: {:?}", kv_key);

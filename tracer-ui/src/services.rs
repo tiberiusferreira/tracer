@@ -9,7 +9,7 @@ use crate::services::graphs::{
     create_trace_spe_usage_traces_graph,
 };
 use crate::{secs_since, API_SERVER_URL_NO_TRAILING_SLASH};
-use api_structs::ui::service_health::{Instance, ServiceData, ServiceId};
+use api_structs::ui::service::{Instance, ServiceId, ServiceOverview};
 use api_structs::ui::NewFiltersRequest;
 use js_sys::encode_uri_component;
 use leptos::html::{Div, Input};
@@ -25,7 +25,7 @@ mod graphs;
 
 #[component]
 pub fn ServicesStatistics(page_root_url: String) -> impl IntoView {
-    let (service_data_r, service_data_w) = leptos::create_signal(Option::<ServiceData>::None);
+    let (service_data_r, service_data_w) = leptos::create_signal(Option::<ServiceOverview>::None);
     let (selected_service_r, selected_service_w) = leptos::create_signal(Option::<ServiceId>::None);
     let (service_list_r, service_list_w) = leptos::create_signal(Option::<Vec<ServiceId>>::None);
     let _api_service_list_request_sender = leptos::create_local_resource(
@@ -94,7 +94,10 @@ pub fn ServicesStatistics(page_root_url: String) -> impl IntoView {
     view
 }
 
-fn services_view(page_root_url: String, services: Vec<ServiceData>) -> leptos::HtmlElement<Div> {
+fn services_view(
+    page_root_url: String,
+    services: Vec<ServiceOverview>,
+) -> leptos::HtmlElement<Div> {
     let mut services_els = vec![];
     for service in services {
         services_els.push(single_service_view(page_root_url.clone(), service));
@@ -107,13 +110,16 @@ fn services_view(page_root_url: String, services: Vec<ServiceData>) -> leptos::H
 }
 
 fn instance_specific_data_ui(
+    service_id: &ServiceId,
     instance: &Instance,
     change_rust_log_action: Action<NewFiltersRequest, Result<(), String>>,
 ) -> leptos::HtmlElement<Div> {
     let rust_log_ui_input: NodeRef<Input> = create_node_ref();
     let instance_id = instance.id;
+    let service_id = service_id.clone();
     let change_rust_log_closure = move |_| {
         change_rust_log_action.dispatch(NewFiltersRequest {
+            service_id: service_id.clone(),
             instance_id,
             filters: rust_log_ui_input.get().unwrap().value(),
         });
@@ -155,23 +161,30 @@ fn instance_specific_data_ui(
     }
 }
 
-fn instance_specific_data_els(instances: &[Instance]) -> Vec<leptos::HtmlElement<Div>> {
+fn instance_specific_data_els(
+    service_id: &ServiceId,
+    instances: &[Instance],
+) -> Vec<leptos::HtmlElement<Div>> {
     let change_rust_log_action = create_action(move |new_filters: &NewFiltersRequest| {
         send_change_rust_log_http_request(new_filters.clone())
     });
     let mut instance_specific_data_els = vec![];
     for instance in instances {
-        let els = instance_specific_data_ui(&instance, change_rust_log_action);
+        let els = instance_specific_data_ui(service_id, &instance, change_rust_log_action);
         instance_specific_data_els.push(els);
     }
     instance_specific_data_els
 }
 
-fn single_service_view(page_root_url: String, service: ServiceData) -> leptos::HtmlElement<Div> {
+fn single_service_view(
+    page_root_url: String,
+    service: ServiceOverview,
+) -> leptos::HtmlElement<Div> {
     let (timestamp_to_show_details_for_r, timestamp_to_show_details_for_w) =
         leptos::create_signal(Option::<u64>::None);
     let create_chart_action = create_create_chart_action();
-    let instance_specific_data_els = instance_specific_data_els(&service.instances);
+    let instance_specific_data_els =
+        instance_specific_data_els(&service.service_id, &service.instances);
 
     let (active_traces_graph, active_traces_graph_id): (NodeRef<Div>, String) =
         create_active_traces_graph(
@@ -259,8 +272,8 @@ fn single_service_view(page_root_url: String, service: ServiceData) -> leptos::H
         create_chart_action,
     );
 
-    let service_name = service.name.clone();
-    let env = service.env;
+    let service_name = service.service_id.name.clone();
+    let env = service.service_id.env.clone();
 
     let alerts_html = alerts::alerts_html(service.alert_config.clone(), page_root_url.clone());
 
@@ -341,9 +354,9 @@ async fn get_services_list(
     }
 }
 
-async fn get_service_data(service_id: ServiceId, w: WriteSignal<Option<ServiceData>>) {
+async fn get_service_data(service_id: ServiceId, w: WriteSignal<Option<ServiceOverview>>) {
     log!("Sending get_service_data req");
-    let traces: ServiceData = gloo_net::http::Request::get(&format!(
+    let traces: ServiceOverview = gloo_net::http::Request::get(&format!(
         "{}/api/service/data/{}/{}",
         API_SERVER_URL_NO_TRAILING_SLASH, service_id.name, service_id.env
     ))
