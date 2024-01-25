@@ -74,6 +74,8 @@ pub struct TraceHeader {
     pub trace_id: u64,
     pub trace_name: String,
     pub trace_timestamp: u64,
+    pub new_warnings: bool,
+    pub new_errors: bool,
     pub duration: Option<u64>,
 }
 

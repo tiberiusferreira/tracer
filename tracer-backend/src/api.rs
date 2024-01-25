@@ -56,7 +56,7 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
     let instance_routes = axum::Router::new()
         .route(
             "/connect",
-            axum::routing::get(handlers::instance::connect::instance_connect_post),
+            axum::routing::get(handlers::instance::connect::instance_connect_get),
         )
         .route(
             "/update",
@@ -77,12 +77,12 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
         )
         .route(
             "/autocomplete",
-            axum::routing::post(handlers::ui::trace::grid::ui_trace_autocomplete_post),
+            axum::routing::get(handlers::ui::trace::grid::ui_trace_autocomplete_get),
         );
     let app = axum::Router::new()
         .route("/api/ready", axum::routing::get(ready_get))
         .nest("/api/ui/service", service_routes)
-        .nest("/api/ui/instance", instance_routes)
+        .nest("/api/instance", instance_routes)
         .nest("/api/ui/trace", trace_routes)
         .route(
             "/api/ui/orphan_events",

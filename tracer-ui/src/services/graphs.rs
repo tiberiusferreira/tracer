@@ -1,4 +1,4 @@
-use crate::secs_since;
+use crate::datetime::secs_since;
 use crate::services::graph_creation::{
     create_dom_el_ref_and_graph_call_action, GraphData, GraphSeries,
 };
@@ -30,6 +30,37 @@ fn create_active_graph_data(
         }
         active_trace_series.push(received_trace_series);
     }
+
+    for instance in instances {
+        let mut received_trace_series = GraphSeries::new(format!("warnings-{}", instance.id));
+        for d in &instance.time_data_points {
+            received_trace_series.push_data(
+                d.timestamp,
+                d.active_traces
+                    .iter()
+                    .chain(d.finished_traces.iter())
+                    .filter(|t| t.new_warnings)
+                    .count() as f64,
+            );
+        }
+        active_trace_series.push(received_trace_series);
+    }
+
+    for instance in instances {
+        let mut received_trace_series = GraphSeries::new(format!("errors-{}", instance.id));
+        for d in &instance.time_data_points {
+            received_trace_series.push_data(
+                d.timestamp,
+                d.active_traces
+                    .iter()
+                    .chain(d.finished_traces.iter())
+                    .filter(|t| t.new_errors)
+                    .count() as f64,
+            );
+        }
+        active_trace_series.push(received_trace_series);
+    }
+
     let active_traces_graph_data = GraphData {
         dom_id_to_render_to: "active_traces_graph_id".to_string(),
         y_name: "Active and Received Traces".to_string(),
@@ -50,7 +81,7 @@ fn create_max_received_trace_duration_graph_data(
         for d in &instance.time_data_points {
             let max = d.finished_traces.iter().filter_map(|d| d.duration).max();
             if let Some(max_duration) = max {
-                single_series.push_data(d.timestamp, (max_duration as f64 / 1000_000_000.));
+                single_series.push_data(d.timestamp, max_duration as f64 / 1000_000_000.);
             }
         }
         series.push(single_series);

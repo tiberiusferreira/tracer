@@ -26,6 +26,17 @@ impl TraceFragment {
     pub fn is_closed(&self, closed_spans: &[ClosedSpan]) -> bool {
         self.duration_if_closed(closed_spans).is_some()
     }
+    pub fn has_warnings(&self) -> bool {
+        self.new_events
+            .iter()
+            .any(|event| event.level == Severity::Warn)
+    }
+    pub fn has_errors(&self) -> bool {
+        self.new_events
+            .iter()
+            .any(|event| event.level == Severity::Error)
+    }
+
     pub fn duration_if_closed(&self, closed_spans: &[ClosedSpan]) -> Option<u64> {
         let root_closed = self.new_spans.iter().find_map(|span| {
             if let Some(duration) = span.duration {

@@ -2,7 +2,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::join;
 use tracing::{debug, error, info, instrument, trace, warn};
-use tracing_config_helper::{Env, TracerConfig};
+use tracing_config_helper::{Env, ServiceId, TracerConfig};
 
 #[derive(Debug, Error)]
 enum MyErr {}
@@ -124,6 +124,14 @@ fn multiple_fields() {
 }
 
 #[instrument(skip_all)]
+fn only_warning() {
+    warn!("Simple Warning");
+}
+#[instrument(skip_all)]
+fn only_error() {
+    error!("Simple Error");
+}
+#[instrument(skip_all)]
 async fn basic_tracer_trace_tests() {
     trace!(r#"Sample Trace event"#);
     debug!("Sample Debug event");
@@ -185,11 +193,15 @@ fn simple_orphan_logs_test() {
 async fn main() {
     println!("Hello, world from Tracer Test");
     let tracer_config = TracerConfig::new(
-        Env::Local,
-        env!("CARGO_BIN_NAME").to_string(),
+        ServiceId {
+            name: env!("CARGO_BIN_NAME").to_string(),
+            env: Env::Local,
+        },
         "http://127.0.0.1:4200".to_string(),
     );
     let flush_requester = tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
+    only_warning();
+    only_error();
     simple_orphan_logs_test();
     basic_tracer_trace_tests().await;
 

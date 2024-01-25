@@ -1,4 +1,4 @@
-use crate::Severity;
+use crate::{InstanceId, Severity};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
@@ -15,8 +15,8 @@ pub struct SingleChunkTraceQuery {
 #[serde_as]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct TraceId {
-    #[serde_as(as = "DisplayFromStr")]
-    pub instance_id: i64,
+    #[serde(flatten)]
+    pub instance_id: InstanceId,
     #[serde_as(as = "DisplayFromStr")]
     pub trace_id: i64,
 }
@@ -24,6 +24,7 @@ pub struct TraceId {
 #[serde_as]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct TraceChunkId {
+    // DisplayFromStr needed for using this as query parameter
     #[serde_as(as = "DisplayFromStr")]
     pub start_timestamp: u64,
     #[serde_as(as = "DisplayFromStr")]

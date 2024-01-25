@@ -14,9 +14,8 @@ pub async fn continuously_handle_server_sent_events(
 ) {
     let context = "continuously_handle_server_sent_events";
     loop {
-        // let url = format!("{collector_url}/collector/sse/{service_name}/{env}/{instance_id}");
         let url = reqwest::Url::parse_with_params(
-            &format!("{collector_url}/collector/sse"),
+            &format!("{collector_url}/api/instance/connect"),
             [
                 ("name", instance_id.service_id.name.as_str()),
                 ("env", instance_id.service_id.env.to_string().as_str()),

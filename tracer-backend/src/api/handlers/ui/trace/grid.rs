@@ -1,13 +1,14 @@
 use crate::api::state::AppState;
 use crate::api::{handlers, u64_nanos_to_db_i64, ApiError};
+use api_structs::ui::trace::chunk::TraceId;
 use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
+use api_structs::{Env, InstanceId, ServiceId};
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use backtraced_error::SqlxError;
 use futures::TryFutureExt;
 use sqlx::{FromRow, PgPool};
-use std::ops::Deref;
 use tokio::task::JoinHandle;
 use tracing::instrument::Instrumented;
 use tracing::{error, info, info_span, instrument, Instrument};
@@ -52,9 +53,10 @@ where trace.updated_at >= $1::BIGINT
     .await?;
     let res: Vec<RawDbTraceGrid> = sqlx::query_as!(
         RawDbTraceGrid,
-        "select trace.instance_id,
-       trace.id,
+        "select trace.env,
        trace.service_name,
+       trace.instance_id,
+       trace.id,
        trace.timestamp,
        trace.top_level_span_name,
        trace.duration,
@@ -92,9 +94,16 @@ limit 100;",
     let rows = res
         .into_iter()
         .map(|e| TraceGridRow {
-            instance_id: e.instance_id,
-            id: e.id,
-            service_name: e.service_name,
+            trace_id: TraceId {
+                instance_id: InstanceId {
+                    service_id: ServiceId {
+                        name: e.service_name,
+                        env: Env::from(e.env),
+                    },
+                    instance_id: e.instance_id,
+                },
+                trace_id: e.id,
+            },
             started_at: handlers::db_i64_to_nanos(e.timestamp).expect("db timestamp to fit i64"),
             top_level_span_name: e.top_level_span_name,
             duration_ns: e
@@ -177,9 +186,10 @@ impl QueryReadyParameters {
 
 #[derive(FromRow)]
 pub struct RawDbTraceGrid {
+    env: String,
+    service_name: String,
     instance_id: i64,
     id: i64,
-    service_name: String,
     timestamp: i64,
     top_level_span_name: String,
     duration: Option<i64>,
@@ -234,12 +244,15 @@ async fn get_top_level_span_autocomplete_data(
 }
 
 #[instrument(level = "error", skip_all)]
-pub(crate) async fn ui_trace_autocomplete_post(
+pub(crate) async fn ui_trace_autocomplete_get(
     State(app_state): State<AppState>,
-    search_for: Json<SearchFor>,
+    search_for: Query<SearchFor>,
 ) -> Result<Json<Autocomplete>, ApiError> {
+    let search_for = search_for.0;
+    info!(?search_for);
     let con = app_state.con;
-    let query_params = QueryReadyParameters::from_search(search_for.deref().clone())?;
+    let query_params = QueryReadyParameters::from_search(search_for)?;
+    info!(?query_params);
     let closure_query_params = query_params.clone();
     let closure_con = con.clone();
     let service_names_fut: Instrumented<JoinHandle<Result<Vec<String>, ApiError>>> =

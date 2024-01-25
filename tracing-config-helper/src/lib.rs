@@ -4,7 +4,6 @@
 //!
 
 use api_structs::instance::update::{ExportedServiceTraceData, SpanEventCount, TraceFragment};
-pub use api_structs::Env;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::io::Read;
@@ -60,7 +59,7 @@ use crate::sampling::{Sampler, TracerSampler};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use api_structs::instance::update::{ProducerStats, SamplerLimits};
-use api_structs::{InstanceId, ServiceId, Severity};
+pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 use rand::random;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -531,7 +530,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                 ),
             );
             let send_result = match client
-                .post(format!("{}/collector/trace_data", config.collector_url))
+                .post(format!("{}/api/instance/update", config.collector_url))
                 .body(export_data_json)
                 .header("Content-Type", "application/json")
                 .timeout(config.export_timeout)
@@ -550,12 +549,12 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                     let err = format!(
                         "Sent events, but got fail response: {status}.\nResponse:{response:#?}"
                     );
-                    print_if_dbg(context, &err);
+                    println!("{} - {}", context, err);
                     Err(err)
                 }
                 Err(e) => {
                     let err = format!("Error sending events: {e:#?}");
-                    print_if_dbg(context, format!("Error sending events: {e:#?}"));
+                    println!("{} - {}", context, err);
                     Err(err)
                 }
             };

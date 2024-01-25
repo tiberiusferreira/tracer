@@ -1,5 +1,5 @@
-use crate::secs_since;
-use charming::component::{Axis, DataZoom, DataZoomType, Legend};
+use crate::datetime::secs_since;
+use charming::component::{Axis, DataZoom, DataZoomType, Legend, LegendType};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
     AxisPointer, AxisPointerAxis, AxisType, NameLocation, TextStyle, Tooltip, Trigger, TriggerOn,
@@ -96,7 +96,8 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                                 .map(|s| s.name.clone())
                                 .collect::<Vec<String>>(),
                         )
-                        .show(true),
+                        .show(true)
+                        .type_(LegendType::Scroll),
                 )
                 .tooltip(
                     Tooltip::new()

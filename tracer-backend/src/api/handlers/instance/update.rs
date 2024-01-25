@@ -83,6 +83,8 @@ fn update_instance_data(
             trace_id: trace_frag.trace_id,
             trace_name: trace_frag.trace_name.clone(),
             trace_timestamp: trace_frag.trace_timestamp,
+            new_warnings: trace_frag.has_warnings(),
+            new_errors: trace_frag.has_errors(),
             duration: trace_frag.duration_if_closed(&exported_service_trace_data.closed_spans),
         };
         if header.duration.is_some() {

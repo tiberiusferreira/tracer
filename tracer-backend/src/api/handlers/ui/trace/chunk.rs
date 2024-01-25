@@ -31,7 +31,7 @@ pub async fn get_trace_timestamp_chunks(
              where event.instance_id=$1
                  and event.trace_id=$2)
     order by timestamp limit 1);",
-        trace_id.instance_id,
+        trace_id.instance_id.instance_id,
         trace_id.trace_id,
         0
     )
@@ -57,7 +57,7 @@ pub async fn get_trace_timestamp_chunks(
              where event.instance_id=$1
                  and event.trace_id=$2)
     order by timestamp desc limit 1);",
-        trace_id.instance_id,
+        trace_id.instance_id.instance_id,
         trace_id.trace_id,
         0
     )
@@ -84,7 +84,7 @@ pub async fn get_trace_timestamp_chunks(
              where event.instance_id=$1
                  and event.trace_id=$2 and event.timestamp >= $3)
     order by timestamp offset 300 limit 1);",
-            trace_id.instance_id,
+            trace_id.instance_id.instance_id,
             trace_id.trace_id,
             last_timestamp
         )
@@ -133,7 +133,7 @@ pub(crate) async fn ui_trace_chunk_get(
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let con = app_state.con;
-    let instance_id = single_trace_query.trace_id.instance_id;
+    let instance_id = single_trace_query.trace_id.instance_id.instance_id;
     let trace_id = single_trace_query.trace_id.trace_id;
     let start_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.start_timestamp)?;
     let end_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.end_timestamp)?;

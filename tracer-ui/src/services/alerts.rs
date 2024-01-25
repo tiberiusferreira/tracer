@@ -1,10 +1,8 @@
-use api_structs::ui::service::{
-    AlertConfig, ServiceAlertConfig, ServiceOverview, TraceAlertConfig,
-};
+use api_structs::ui::service::{AlertConfig, ServiceAlertConfig, TraceAlertConfig};
 use leptos::html::Div;
 use leptos::view;
 
-pub fn alerts_html(alert_config: AlertConfig, root_path: String) -> leptos::HtmlElement<Div> {
+pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
     let AlertConfig {
         service_alert_config:
             ServiceAlertConfig {

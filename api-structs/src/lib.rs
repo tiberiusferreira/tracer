@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-
 pub mod instance;
 pub mod time_conversion;
 pub mod ui;
@@ -16,10 +17,12 @@ pub struct ServiceId {
     pub env: Env,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct InstanceId {
     #[serde(flatten)]
     pub service_id: ServiceId,
+    #[serde_as(as = "DisplayFromStr")]
     pub instance_id: i64,
 }
 

@@ -1,23 +1,12 @@
 use crate::api::handlers::Severity;
 use api_structs::instance::update::NewSpanEvent;
 use api_structs::ui::service::{AlertConfig, ServiceAlertConfigTraceOverwrite, TraceAlertConfig};
-use api_structs::{Env, InstanceId};
+use api_structs::{InstanceId, ServiceId};
 use backtraced_error::SqlxError;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::HashSet;
 use std::ops::DerefMut;
-use thiserror::Error;
 use tracing::{error, info, instrument, trace};
-
-#[derive(Debug, Error)]
-enum DatabaseError {
-    #[error("Database error")]
-    Sqlx {
-        // backtrace: std::backtrace::Backtrace,
-        #[from]
-        source: sqlx::Error,
-    },
-}
 
 struct RawServiceConfig {
     max_export_buffer_usage: i64,
@@ -48,8 +37,7 @@ struct RawServiceAlertConfigTraceOverwrite {
 #[instrument(skip_all)]
 pub(crate) async fn get_service_raw_config(
     con: &PgPool,
-    service_name: &str,
-    env: Env,
+    service_id: &ServiceId,
 ) -> Result<Option<RawServiceConfig>, SqlxError> {
     let raw_service_config = sqlx::query_as!(
         RawServiceConfig,
@@ -72,19 +60,15 @@ pub(crate) async fn get_service_raw_config(
        from
         service_alert_config
          where env=$1 and service_name=$2;",
-        env.to_string(),
-        service_name
+        service_id.env.to_string(),
+        service_id.name
     )
     .fetch_optional(con)
     .await
     .map_err(|e| {
         SqlxError::from_sqlx_error(
             e,
-            format!(
-                "getting service_alert_config using {} {}",
-                env.to_string(),
-                service_name
-            ),
+            format!("getting service_alert_config using {service_id:?}",),
         )
     })?;
     Ok(raw_service_config)
@@ -92,16 +76,15 @@ pub(crate) async fn get_service_raw_config(
 #[instrument(skip_all)]
 pub async fn get_or_init_service_alert_config(
     con: &PgPool,
-    service_name: &str,
-    env: Env,
+    service_id: &ServiceId,
 ) -> Result<AlertConfig, SqlxError> {
-    let raw_service_config = get_service_raw_config(con, &service_name, env.clone()).await?;
+    let raw_service_config = get_service_raw_config(con, &service_id).await?;
     let (raw_service_config, overwrites) = match raw_service_config {
         None => {
             sqlx::query!(
-                "insert into service_alert_config (env, service_name) values ($1::TEXT, $2::TEXT);",
-                env.to_string(),
-                service_name
+                "insert into service (env, name) values ($1::TEXT, $2::TEXT) on conflict do nothing;",
+                service_id.env.to_string(),
+                service_id.name
             )
             .execute(con)
             .await
@@ -109,12 +92,25 @@ pub async fn get_or_init_service_alert_config(
                 SqlxError::from_sqlx_error(
                     e,
                     format!(
-                        "inserting service_alert_config for new service {} {service_name}",
-                        env.to_string()
+                        "inserting service entry for new service {service_id:?}",
+
                     ),
                 )
             })?;
-            let raw_service_config = get_service_raw_config(con, &service_name, env)
+            sqlx::query!(
+                "insert into service_alert_config (env, service_name) values ($1::TEXT, $2::TEXT);",
+                service_id.env.to_string(),
+                service_id.name
+            )
+            .execute(con)
+            .await
+            .map_err(|e| {
+                SqlxError::from_sqlx_error(
+                    e,
+                    format!("inserting service_alert_config for new service {service_id:?}",),
+                )
+            })?;
+            let raw_service_config = get_service_raw_config(con, &service_id)
                 .await?
                 .expect("to exist, just inserted it");
             (raw_service_config, vec![])
@@ -124,11 +120,15 @@ pub async fn get_or_init_service_alert_config(
                 "select top_level_span_name, max_traces_with_warning_percentage, \
             max_traces_dropped_by_sampling_per_min, max_traces_with_error_percentage, max_trace_duration_ms \
             from service_alert_config_trace_overwrite \
-             where service_name=$1;",
-            format!("{}-{}", service_name, env)
+             where service_name=$1 and service_name=$2;",
+                service_id.env.to_string(),
+                service_id.name,
             )
                 .fetch_all(con)
-                .await.map_err(|e| SqlxError::from_sqlx_error(e, format!("selecting service_alert_config_trace_overwrite using env={} service_name={}", env, service_name)))?;
+                .await
+                .map_err(|e|
+                    SqlxError::from_sqlx_error(e, format!("selecting service_alert_config_trace_overwrite using {service_id:?}"))
+                )?;
             (existing, overwrites)
         }
     };

@@ -1,11 +1,8 @@
-use crate::API_SERVER_URL_NO_TRAILING_SLASH;
+use crate::{API_SERVER_URL_NO_TRAILING_SLASH, PAGE_ROOT_URL, TRACE_CHUNK_PATH};
 use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::{Event, MouseEvent};
 use leptos::*;
-
-use api_structs::ui::search_grid::{Autocomplete, SearchFor, TraceGridResponse};
-
 #[derive(PartialEq, Clone, Debug, Default)]
 pub struct UiTraceGridResponse {
     pub rows: Vec<UiTraceGridRow>,
@@ -13,8 +10,7 @@ pub struct UiTraceGridResponse {
 }
 #[derive(PartialEq, Clone, Debug)]
 pub struct UiTraceGridRow {
-    instance_id: i64,
-    id: i64,
+    trace_id: TraceId,
     started_at: u64,
     updated_at: u64,
     original_span_count: u64,
@@ -23,7 +19,6 @@ pub struct UiTraceGridRow {
     stored_event_count: u64,
     event_bytes_count: u64,
     duration: Option<u64>,
-    service_name: String,
     has_errors: bool,
     warning_count: u32,
     top_level_span_name: String,
@@ -66,11 +61,10 @@ impl Default for UserSearchInput {
 }
 
 async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTraceGridResponse>) {
-    let url = format!("{}/api/traces-grid", API_SERVER_URL_NO_TRAILING_SLASH);
+    let url = format!("{}/api/ui/trace/grid", API_SERVER_URL_NO_TRAILING_SLASH);
     log!("URL = {}", url);
-    let resp: TraceGridResponse = gloo_net::http::Request::post(&url)
-        .json(&search_data)
-        .unwrap()
+    let resp: TraceGridResponse = gloo_net::http::Request::get(&url)
+        .query(search_data.to_query_parameters())
         .send()
         .await
         .unwrap()
@@ -81,10 +75,8 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTra
         .rows
         .into_iter()
         .map(|e| UiTraceGridRow {
-            instance_id: e.instance_id,
-            id: e.id,
+            trace_id: e.trace_id,
             duration: e.duration_ns,
-            service_name: e.service_name,
             has_errors: e.has_errors,
             warning_count: e.warning_count,
             top_level_span_name: e.top_level_span_name,
@@ -116,10 +108,12 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTra
 }
 
 async fn get_autocomplete_data(search_data: SearchFor, api_response_w: WriteSignal<Autocomplete>) {
-    let url = format!("{}/api/autocomplete-data", API_SERVER_URL_NO_TRAILING_SLASH);
-    let resp: Autocomplete = gloo_net::http::Request::post(&url)
-        .json(&search_data)
-        .unwrap()
+    let url = format!(
+        "{}/api/ui/trace/autocomplete",
+        API_SERVER_URL_NO_TRAILING_SLASH
+    );
+    let resp: Autocomplete = gloo_net::http::Request::get(&url)
+        .query(search_data.to_query_parameters())
         .send()
         .await
         .unwrap()
@@ -127,13 +121,6 @@ async fn get_autocomplete_data(search_data: SearchFor, api_response_w: WriteSign
         .await
         .unwrap();
     api_response_w.set(resp);
-}
-
-pub fn utc_to_local_date(utc: NaiveDateTime, offset_minutes: i64) -> NaiveDateTime {
-    utc - Duration::minutes(offset_minutes)
-}
-pub fn local_date_to_utc(local: NaiveDateTime, offset_minutes: i64) -> NaiveDateTime {
-    local + Duration::minutes(offset_minutes)
 }
 
 #[derive(Clone)]
@@ -185,7 +172,7 @@ where
 }
 
 #[component]
-pub fn TraceGrid(page_root_url: String) -> impl IntoView {
+pub fn TraceBrowser() -> impl IntoView {
     let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
     let (api_response_r, api_response_w) = create_signal(UiTraceGridResponse::default());
     let (api_autocomplete_r, api_autocomplete_w) = create_signal(Autocomplete::default());
@@ -340,7 +327,7 @@ pub fn TraceGrid(page_root_url: String) -> impl IntoView {
     view! {
         <div class="main-grid">
             <div class="main">
-                <TraceTable rows={api_response_with_search_data} page_root_url=page_root_url/>
+                <TraceTable rows={api_response_with_search_data}/>
             </div>
             <div class="search-panel">
                 <h1 class="traces-counter">{tracer_counter}</h1>
@@ -438,6 +425,9 @@ pub fn TraceGrid(page_root_url: String) -> impl IntoView {
         </div>
     }
 }
+use crate::datetime::{local_date_to_utc, printable_local_date, secs_since, utc_to_local_date};
+use api_structs::ui::trace::chunk::TraceId;
+use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse};
 use leptos::logging::log;
 use std::rc::Rc;
 
@@ -506,10 +496,7 @@ fn highlight(original: String, term: String) -> Fragment {
     };
 }
 #[component]
-pub fn TraceTable(
-    page_root_url: String,
-    rows: Signal<(UiTraceGridResponse, UserSearchInput)>,
-) -> impl IntoView {
+pub fn TraceTable(rows: Signal<(UiTraceGridResponse, UserSearchInput)>) -> impl IntoView {
     let headers = [
         view! {
             <th class="trace-table__cell">
@@ -578,21 +565,21 @@ pub fn TraceTable(
                     let node = view! {
 
                 <tr class={row_container_class}>
-                        <td class="trace-table__cell">{highlight( row.service_name.clone(), user_search.search_for.service_name.clone())}</td>
+                        <td class="trace-table__cell">{highlight( row.trace_id.instance_id.service_id.name.clone(), user_search.search_for.service_name.clone())}</td>
                         <td class="trace-table__cell">{row.top_level_span_name.to_string()}</td>
                         <td class="trace-table__cell">{(row.duration.map(|e| (e/1000_000).to_string())).unwrap_or_default()}</td>
                         <td class="trace-table__cell">
                             {
-                                crate::printable_local_date(row.started_at)
+                                printable_local_date(row.started_at)
                             }
                         </td>
-                        <td class="trace-table__cell">{format!("{} - {} s ago", crate::printable_local_date(row.updated_at), crate::secs_since(row.updated_at))}</td>
+                        <td class="trace-table__cell">{format!("{} - {} s ago", printable_local_date(row.updated_at), secs_since(row.updated_at))}</td>
                         <td class="trace-table__cell">{format!("{} / {}", row.original_span_count, row.original_span_count as i64 - row.stored_span_count as i64)}</td>
                         <td class="trace-table__cell">{format!("{} / {}", row.original_event_count, row.original_event_count as i64 - row.stored_event_count as i64)}</td>
                         <td class="trace-table__cell">{row.event_bytes_count/1000}</td>
                         <td class="trace-table__cell">{row.warning_count}</td>
                         <td class="trace-table__cell">
-                            <a href={format!("{}trace/?instance_id={}&trace_id={}&start_timestamp={}", page_root_url, row.instance_id, row.id, row.started_at)}>{"➔"}</a>
+                            <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, row.trace_id.instance_id.service_id.env, row.trace_id.instance_id.service_id.name, row.trace_id.instance_id.instance_id, row.trace_id.trace_id, row.started_at)}>{"➔"}</a>                        
                         </td>
                 </tr>
             };

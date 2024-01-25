@@ -57,7 +57,7 @@ impl From<ApiError> for SseError {
 }
 
 #[instrument(skip_all)]
-pub(crate) async fn instance_connect_post(
+pub(crate) async fn instance_connect_get(
     State(app_state): State<AppState>,
     instance_id: axum::extract::Query<InstanceId>,
 ) -> axum::response::Sse<
@@ -76,8 +76,7 @@ pub(crate) async fn instance_connect_post(
     if !exists {
         let config = match database::get_or_init_service_alert_config(
             &app_state.con,
-            &instance_id.service_id.name,
-            instance_id.service_id.env.clone(),
+            &instance_id.service_id,
         )
         .await
         {

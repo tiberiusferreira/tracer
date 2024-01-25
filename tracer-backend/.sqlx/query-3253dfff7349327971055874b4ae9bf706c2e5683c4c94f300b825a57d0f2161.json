@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into service (env, name) values ($1::TEXT, $2::TEXT) on conflict do nothing;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3253dfff7349327971055874b4ae9bf706c2e5683c4c94f300b825a57d0f2161"
+}
