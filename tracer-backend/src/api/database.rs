@@ -21,7 +21,6 @@ struct RawServiceConfig {
     max_received_orphan_event_kb: i64,
     max_trace_duration_ms: i64,
     max_traces_with_warning_percentage: i64,
-    max_traces_with_error_percentage: i64,
     percentage_check_time_window_secs: i64,
     percentage_check_min_number_samples: i64,
 }
@@ -30,7 +29,6 @@ struct RawServiceAlertConfigTraceOverwrite {
     top_level_span_name: String,
     max_trace_duration_ms: i64,
     max_traces_with_warning_percentage: i64,
-    max_traces_with_error_percentage: i64,
     max_traces_dropped_by_sampling_per_min: i64,
 }
 
@@ -54,7 +52,6 @@ pub(crate) async fn get_service_raw_config(
             max_received_orphan_event_kb,
             max_trace_duration_ms,
             max_traces_with_warning_percentage,
-            max_traces_with_error_percentage,
             percentage_check_time_window_secs,
             percentage_check_min_number_samples
        from
@@ -116,19 +113,23 @@ pub async fn get_or_init_service_alert_config(
             (raw_service_config, vec![])
         }
         Some(existing) => {
-            let overwrites = sqlx::query_as!(RawServiceAlertConfigTraceOverwrite,
+            let overwrites = sqlx::query_as!(
+                RawServiceAlertConfigTraceOverwrite,
                 "select top_level_span_name, max_traces_with_warning_percentage, \
-            max_traces_dropped_by_sampling_per_min, max_traces_with_error_percentage, max_trace_duration_ms \
+            max_traces_dropped_by_sampling_per_min, max_trace_duration_ms \
             from service_alert_config_trace_overwrite \
              where service_name=$1 and service_name=$2;",
                 service_id.env.to_string(),
                 service_id.name,
             )
-                .fetch_all(con)
-                .await
-                .map_err(|e|
-                    SqlxError::from_sqlx_error(e, format!("selecting service_alert_config_trace_overwrite using {service_id:?}"))
-                )?;
+            .fetch_all(con)
+            .await
+            .map_err(|e| {
+                SqlxError::from_sqlx_error(
+                    e,
+                    format!("selecting service_alert_config_trace_overwrite using {service_id:?}"),
+                )
+            })?;
             (existing, overwrites)
         }
     };
@@ -160,9 +161,6 @@ pub async fn get_or_init_service_alert_config(
                 max_traces_dropped_by_sampling_per_min: raw_service_config
                     .max_traces_dropped_by_sampling_per_min
                     as u64,
-                max_traces_with_error_percentage: raw_service_config
-                    .max_traces_with_error_percentage
-                    as u64,
             },
         },
         service_alert_config_trace_overwrite: ServiceAlertConfigTraceOverwrite {
@@ -175,9 +173,6 @@ pub async fn get_or_init_service_alert_config(
                             max_trace_duration_ms: single_overwrite.max_trace_duration_ms as u64,
                             max_traces_with_warning_percentage: single_overwrite
                                 .max_traces_with_warning_percentage
-                                as u64,
-                            max_traces_with_error_percentage: single_overwrite
-                                .max_traces_with_error_percentage
                                 as u64,
                             max_traces_dropped_by_sampling_per_min: single_overwrite
                                 .max_traces_dropped_by_sampling_per_min

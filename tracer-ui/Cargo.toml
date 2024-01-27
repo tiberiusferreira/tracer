@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 tracing-wasm = "0.2.1"
+tracing.workspace = true
 api-structs = {path="../api-structs"}
 console_error_panic_hook = "0.1"
 tracing-subscriber-wasm = "0.1.0"

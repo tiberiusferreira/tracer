@@ -1,3 +1,4 @@
+use rand::random;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::join;
@@ -189,6 +190,16 @@ fn simple_orphan_logs_test() {
     error!("Sample Error orphan event");
 }
 
+#[instrument(skip_all)]
+fn trace_60_percent_warning() {
+    let random_0_1: f32 = random();
+    if random_0_1 < 0.6 {
+        warn!("Sample Warn orphan event");
+    } else {
+        info!("Sample Info orphan event");
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     println!("Hello, world from Tracer Test");
@@ -204,6 +215,10 @@ async fn main() {
     only_error();
     simple_orphan_logs_test();
     basic_tracer_trace_tests().await;
+    for _i in 0..100 {
+        trace_60_percent_warning();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 
     flush_requester
         .flush(Duration::from_secs(100))

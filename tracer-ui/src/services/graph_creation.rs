@@ -7,8 +7,8 @@ use charming::element::{
 use charming::series::Scatter;
 use charming::{Chart, WasmRenderer};
 use leptos::html::Div;
-use leptos::leptos_dom::log;
 use leptos::{create_action, Action, NodeRef, SignalSet, WriteSignal};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct GraphSeries {
@@ -125,14 +125,14 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 );
             }
 
-            let renderer = WasmRenderer::new(800, 500);
+            let renderer = WasmRenderer::new(825, 500);
             let chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
             let listener = graph_data.click_event_timestamp_receiver.take();
             let series = graph_data.series;
             WasmRenderer::on_event(&chart_instance, "click", move |c| {
                 let timestamp = series[c.series_index].original_x_values[c.data_index];
-                log!("Clicked on {:#?}", timestamp);
-                log!("{:#?}", c);
+                info!("Clicked on {:#?}", timestamp);
+                info!("{:#?}", c);
                 if let Some(l) = listener {
                     l.set(Some(timestamp));
                 }

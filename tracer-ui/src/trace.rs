@@ -4,7 +4,6 @@ use crate::{API_SERVER_URL_NO_TRAILING_SLASH, PAGE_ROOT_URL};
 use api_structs::ui::trace::chunk::{SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
 use api_structs::{Env, InstanceId, ServiceId, Severity};
 use leptos::logging::log;
-use leptos::tracing;
 use leptos::{
     component, create_local_resource, view, CollectView, Fragment, IntoView, ReadSignal, Signal,
     SignalGet, SignalSet, WriteSignal,

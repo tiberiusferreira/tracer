@@ -166,7 +166,6 @@ create table service_alert_config
     max_received_orphan_event_kb                  ubigint    not null default 1000000,
     max_trace_duration_ms                         ubigint    not null default 1000000,
     max_traces_with_warning_percentage            ubigint    not null default 100,
-    max_traces_with_error_percentage              ubigint    not null default 100,
     percentage_check_time_window_secs             ubigint    not null default 60,
     percentage_check_min_number_samples           ubigint    not null default 5,
 
@@ -181,7 +180,6 @@ create table service_alert_config_trace_overwrite
     top_level_span_name                    identifier not null,
     max_traces_with_warning_percentage     ubigint    not null default 100,
     max_traces_dropped_by_sampling_per_min ubigint    not null default 100000,
-    max_traces_with_error_percentage       ubigint    not null default 100,
     max_trace_duration_ms                  ubigint    not null default 1000000,
     primary key (env, service_name, top_level_span_name),
     foreign key (env, service_name) references service (env, name)

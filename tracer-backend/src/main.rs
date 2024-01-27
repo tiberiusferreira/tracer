@@ -7,6 +7,7 @@ use std::str::FromStr;
 use tracing::{info, info_span, instrument, Instrument};
 use tracing_config_helper::TracerConfig;
 mod api;
+mod background_tasks;
 mod notification_worthy_events;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;

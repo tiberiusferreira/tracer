@@ -54,7 +54,6 @@ pub struct ServiceAlertConfigTraceOverwrite {
 pub struct TraceAlertConfig {
     pub max_trace_duration_ms: u64,
     pub max_traces_with_warning_percentage: u64,
-    pub max_traces_with_error_percentage: u64,
     pub max_traces_dropped_by_sampling_per_min: u64,
 }
 
@@ -67,6 +66,12 @@ pub struct InstanceDataPoint {
     pub received_spe: u64,
     pub received_trace_bytes: u64,
     pub received_orphan_event_bytes: u64,
+}
+
+impl InstanceDataPoint {
+    pub fn active_and_finished_iter(&self) -> impl Iterator<Item = &TraceHeader> {
+        self.active_traces.iter().chain(self.finished_traces.iter())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

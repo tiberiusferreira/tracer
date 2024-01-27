@@ -19,7 +19,6 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                     TraceAlertConfig {
                         max_trace_duration_ms: max_trace_duration,
                         max_traces_with_warning_percentage,
-                        max_traces_with_error_percentage,
                         max_traces_dropped_by_sampling_per_min,
                     },
                 percentage_check_time_window_secs,
@@ -41,9 +40,6 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                   </th>
                   <th class="trace-table__cell">
                       {trace_alert_config.max_traces_with_warning_percentage}
-                  </th>
-                  <th class="trace-table__cell">
-                      {trace_alert_config.max_traces_with_error_percentage}
                   </th>
                   <th class="trace-table__cell">
                       {trace_alert_config.max_traces_dropped_by_sampling_per_min}
@@ -128,11 +124,6 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                         <button style="margin-left: 5px; margin-bottom: 10px" disabled=true>"Apply"</button>
                     </div>
                     <div style="">
-                        <label style="align-self: center" for="filters">"Max Error %: "</label>
-                        <input type="text" name="filters" size="6" value={max_traces_with_error_percentage} />
-                        <button style="margin-left: 5px; margin-bottom: 10px" disabled=true>"Apply"</button>
-                    </div>
-                    <div style="">
                         <label style="align-self: center" for="filters">"Max Dropped by Sampling/min: "</label>
                         <input type="text" name="filters" size="6" value={max_traces_dropped_by_sampling_per_min} />
                         <button style="margin-left: 5px; margin-bottom: 10px" disabled=true>"Apply"</button>
@@ -148,15 +139,13 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                         <input style="margin-right: 7px" type="text" name="trace_duration" size="3" />
                         <label style="align-self: center" for="warning_percentage">"Warning %:"</label>
                         <input style="margin-right: 7px" type="text" name="warning_percentage" size="3" />
-                        <label style="align-self: center" for="error_percentage">"Error %:"</label>
-                        <input style="margin-right: 7px" type="text" name="error_percentage" size="3" />
                         <button style="margin-left: 5px; margin-bottom: 10px" disabled=true>"Apply"</button>
                     </div>
                 </div>
 
                 <table class="trace-table">
                     <tr class="row-container">
-                        <th style="text-align: center" colspan="5" class="trace-table__cell">
+                        <th style="text-align: center" colspan="4" class="trace-table__cell">
                             <a>"Trace Alert Overrides"</a>
                         </th>
                     </tr>
@@ -169,9 +158,6 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                         </th>
                         <th class="trace-table__cell">
                             <a>"Allowed Warning %"</a>
-                        </th>
-                        <th class="trace-table__cell">
-                            <a>"Allowed Error %"</a>
                         </th>
                         <th class="trace-table__cell">
                             <a>"Dropped By Sampling Per Min"</a>

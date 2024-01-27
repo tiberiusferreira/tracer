@@ -1,12 +1,14 @@
 use chrono::NaiveDateTime;
 
+pub const NANOS_IN_1_MS: u64 = 1_000_000;
+pub const NANOS_IN_1_SEC: u64 = 1_000_000_000;
+
 // doesnt panic
 pub fn time_from_nanos(nanos: u64) -> NaiveDateTime {
-    let nanos_in_1_sec = 1_000_000_000;
     let timestamp = NaiveDateTime::from_timestamp_opt(
-        i64::try_from(nanos / nanos_in_1_sec)
+        i64::try_from(nanos / NANOS_IN_1_SEC)
             .expect("u64 should always fit i64 after division by nanos_in_1_sec"),
-        u32::try_from(nanos % nanos_in_1_sec).unwrap(),
+        u32::try_from(nanos % NANOS_IN_1_SEC).unwrap(),
     )
     .unwrap();
     timestamp
@@ -18,7 +20,7 @@ fn time_from_nanos_doesnt_panic() {
     println!("{}", time_from_nanos(0));
 }
 
-// doesnt panic before the year 2200
+// doesn't panic before the year 2200
 pub fn now_nanos_u64() -> u64 {
     time_to_nanos_u64(chrono::Utc::now().naive_utc())
 }
