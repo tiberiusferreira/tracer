@@ -148,39 +148,62 @@ create table alert_notification_config
 );
 
 
-create table service_alert_config
+create table service_wide_alert_config
 (
-    env                                           identifier not null,
-    service_name                                  identifier not null,
-    -- Producer data
-    max_export_buffer_usage                       ubigint    not null default 100000,
-    max_orphan_events_per_min                     ubigint    not null default 100000,
-    max_orphan_events_dropped_by_sampling_per_min ubigint    not null default 100000,
-    max_spe_dropped_due_to_full_export_buffer     ubigint    not null default 100000,
-    max_traces_dropped_by_sampling_per_min        ubigint    not null default 100000,
-    -- Instance data
-    min_instance_count                            ubigint    not null default 0,
-    max_active_traces                             ubigint    not null default 100000,
-    max_received_spe                              ubigint    not null default 100000,
-    max_received_trace_kb                         ubigint    not null default 1000000,
-    max_received_orphan_event_kb                  ubigint    not null default 1000000,
-    max_trace_duration_ms                         ubigint    not null default 1000000,
-    max_traces_with_warning_percentage            ubigint    not null default 100,
-    percentage_check_time_window_secs             ubigint    not null default 60,
-    percentage_check_min_number_samples           ubigint    not null default 5,
-
+    env                identifier not null,
+    service_name       identifier not null,
+    min_instance_count ubigint    not null default 0,
+    max_active_traces  ubigint    not null default 100000,
     primary key (env, service_name),
-    foreign key (env, service_name) references service (env, name)
+    foreign key (env, service_name) references service (env, name) deferrable initially deferred
 );
 
-create table service_alert_config_trace_overwrite
+create table instance_wide_alert_config
+(
+    env                                               identifier not null,
+    service_name                                      identifier not null,
+    max_received_spe                                  ubigint    not null default 100000,
+    max_received_trace_kb                             ubigint    not null default 1000000,
+    max_received_orphan_event_kb                      ubigint    not null default 1000000,
+    max_export_buffer_usage                           ubigint    not null default 1000000,
+    max_orphan_events_per_min                         ubigint    not null default 1000000,
+    max_orphan_events_dropped_by_sampling_per_min     ubigint    not null default 1000000,
+    max_spe_dropped_due_to_full_export_buffer_per_min ubigint    not null default 1000000,
+    primary key (env, service_name),
+    foreign key (env, service_name) references service (env, name) deferrable initially deferred
+);
+
+create table trace_wide_alert_config
+(
+    env                                    identifier not null,
+    service_name                           identifier not null,
+    max_trace_duration_ms                  ubigint    not null default 1000000,
+    max_traces_with_warning_percentage     ubigint    not null default 100,
+    max_traces_dropped_by_sampling_per_min ubigint    not null default 100000,
+    percentage_check_time_window_secs      ubigint    not null default 60,
+    percentage_check_min_number_samples    ubigint    not null default 5,
+    primary key (env, service_name),
+    foreign key (env, service_name) references service (env, name) deferrable initially deferred
+);
+
+
+create table trace_wide_alert_config_overwrite
 (
     env                                    identifier not null,
     service_name                           identifier not null,
     top_level_span_name                    identifier not null,
     max_traces_with_warning_percentage     ubigint    not null default 100,
-    max_traces_dropped_by_sampling_per_min ubigint    not null default 100000,
     max_trace_duration_ms                  ubigint    not null default 1000000,
     primary key (env, service_name, top_level_span_name),
-    foreign key (env, service_name) references service (env, name)
+    foreign key (env, service_name) references service (env, name) deferrable initially deferred
 );
+
+ALTER TABLE service
+    ADD CONSTRAINT fk_service_wide_alert_config FOREIGN KEY (env, name) REFERENCES service_wide_alert_config (env, service_name) initially deferred;
+
+ALTER TABLE service
+    ADD CONSTRAINT fk_instance_wide_alert_config FOREIGN KEY (env, name) REFERENCES instance_wide_alert_config (env, service_name) initially deferred;
+
+ALTER TABLE service
+    ADD CONSTRAINT fk_trace_wide_alert_config FOREIGN KEY (env, name) REFERENCES trace_wide_alert_config (env, service_name) initially deferred;
+

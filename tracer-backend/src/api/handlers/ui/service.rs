@@ -16,7 +16,7 @@ pub(crate) async fn ui_service_filter_post(
 ) -> Result<(), ApiError> {
     let handle = {
         match app_state
-            .instance_runtime_stats
+            .services_runtime_stats
             .write()
             .get(&new_filter.service_id)
         {
@@ -78,7 +78,7 @@ pub(crate) async fn ui_service_overview_get(
 ) -> Result<Json<api_structs::ui::service::ServiceOverview>, ApiError> {
     let service_id = service_id.0;
     let service_data = app_state
-        .instance_runtime_stats
+        .services_runtime_stats
         .read()
         .clone()
         .get(&service_id)

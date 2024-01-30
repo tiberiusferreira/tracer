@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select \n            min_instance_count,\n            max_active_traces\n       from\n        service_wide_alert_config\n         where env=$1 and service_name=$2;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "min_instance_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_active_traces",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e7233379da9367be202965ecc763e0e861754a3f5c938ff48c4634b886a3e4cb"
+}

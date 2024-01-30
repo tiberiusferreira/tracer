@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into service_wide_alert_config (env, service_name) values ($1::TEXT, $2::TEXT)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d301acfd516c03dbe6867e612ec9db054e5734f8659506dfb531562ef9b4ca9"
+}

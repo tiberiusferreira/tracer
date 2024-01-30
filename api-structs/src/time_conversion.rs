@@ -32,3 +32,10 @@ fn time_to_nanos_u64(time: NaiveDateTime) -> u64 {
     )
     .expect("current time in nanos to be positive")
 }
+
+pub fn nanos_to_millis(nanos: u64) -> u64 {
+    nanos / NANOS_IN_1_MS
+}
+pub fn nanos_to_secs(nanos: u64) -> u64 {
+    nanos / NANOS_IN_1_SEC
+}

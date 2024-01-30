@@ -32,10 +32,3 @@ pub fn secs_since(timestamp: u64) -> u64 {
     let secs = nanos / NANOS_IN_1_SEC;
     secs
 }
-
-pub fn nanos_to_millis(nanos: u64) -> u64 {
-    nanos / NANOS_IN_1_MS
-}
-pub fn nanos_to_secs(nanos: u64) -> u64 {
-    nanos / NANOS_IN_1_SEC
-}

@@ -1,11 +1,15 @@
+use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
+use std::time::Duration;
 use tracing::{info, info_span, instrument, Instrument};
 use tracing_config_helper::TracerConfig;
+
 mod api;
 mod background_tasks;
 mod notification_worthy_events;
@@ -53,7 +57,20 @@ async fn start_api_and_background_tasks(
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     info!("Using config: {:#?}", config);
     let con = connect_to_db(&config).await?;
-    let api_handle = api::start(con.clone(), config.api_listen_port);
+    let app_state = AppState {
+        con,
+        services_runtime_stats: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
+    };
+    let api_handle = api::start(app_state.clone(), config.api_listen_port);
+    tokio::task::spawn(async move {
+        loop {
+            let state = app_state.clone();
+            info!("Checking for check_for_alerts_and_send");
+            background_tasks::check_for_alerts_and_send(state);
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
+
     // TODO
     // let _clean_up_service_instances_task =
     //     clean_up_service_instances_task(app_state.live_instances.clone());

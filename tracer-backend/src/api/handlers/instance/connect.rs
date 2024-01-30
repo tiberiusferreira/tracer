@@ -70,11 +70,11 @@ pub(crate) async fn instance_connect_get(
     let instance_id = instance_id.0;
     trace!("New SSE connection request for {:?}", instance_id);
     let exists = {
-        let w_lock = app_state.instance_runtime_stats.read();
+        let w_lock = app_state.services_runtime_stats.read();
         w_lock.get(&instance_id.service_id).is_some()
     };
     if !exists {
-        let config = match database::get_or_init_service_alert_config(
+        let config = match database::alerts::get_or_init_service_config(
             &app_state.con,
             &instance_id.service_id,
         )
@@ -88,16 +88,17 @@ pub(crate) async fn instance_connect_get(
                 return axum::response::sse::Sse::new(stream);
             }
         };
-        let mut w_lock = app_state.instance_runtime_stats.write();
+        let mut w_lock = app_state.services_runtime_stats.write();
         w_lock.insert(
             instance_id.service_id.clone(),
             state::ServiceData {
                 alert_config: config,
+                last_time_checked_for_alerts: chrono::Utc::now().naive_utc(),
                 instances: HashMap::new(),
             },
         );
     }
-    let mut w_lock = app_state.instance_runtime_stats.write();
+    let mut w_lock = app_state.services_runtime_stats.write();
     let instance_list = &mut w_lock
         .get_mut(&instance_id.service_id)
         .expect("To exist, just inserted")

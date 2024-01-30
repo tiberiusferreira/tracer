@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into service (env, name) values ($1::TEXT, $2::TEXT)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90b3e6d9279fcecfb435a416ee987f54bafe3192ecd630363a37cd8432ad3a50"
+}

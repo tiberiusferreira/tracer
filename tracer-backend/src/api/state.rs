@@ -1,6 +1,7 @@
 use crate::api::handlers::instance::connect::ChangeFilterInternalRequest;
-use api_structs::ui::service::{AlertConfig, InstanceDataPoint, ProfileData};
+use api_structs::ui::service::{InstanceDataPoint, ProfileData};
 use api_structs::ServiceId;
+use chrono::NaiveDateTime;
 use sqlx::PgPool;
 use std::collections::{HashMap, VecDeque};
 
@@ -9,7 +10,7 @@ pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 #[derive(Clone)]
 pub struct AppState {
     pub con: PgPool,
-    pub instance_runtime_stats: Shared<HashMap<ServiceId, ServiceData>>,
+    pub services_runtime_stats: Shared<HashMap<ServiceId, ServiceData>>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +26,7 @@ pub struct InstanceState {
 
 #[derive(Debug, Clone)]
 pub struct ServiceData {
-    pub alert_config: AlertConfig,
+    pub alert_config: api_structs::ui::service::alerts::AlertConfig,
+    pub last_time_checked_for_alerts: NaiveDateTime,
     pub instances: HashMap<i64, InstanceState>,
 }

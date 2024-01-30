@@ -1,12 +1,11 @@
 use crate::instance::update::ProducerStats;
 use crate::ServiceId;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
+pub mod alerts;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServiceOverview {
     pub service_id: ServiceId,
-    pub alert_config: AlertConfig,
+    pub alert_config: alerts::AlertConfig,
     pub instances: Vec<Instance>,
 }
 
@@ -22,39 +21,6 @@ pub struct Instance {
 pub struct ProfileData {
     pub profile_data_timestamp: u64,
     pub profile_data: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AlertConfig {
-    pub service_alert_config: ServiceAlertConfig,
-    pub service_alert_config_trace_overwrite: ServiceAlertConfigTraceOverwrite,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ServiceAlertConfig {
-    pub min_instance_count: u64,
-    pub max_active_traces: u64,
-    pub max_export_buffer_usage: u64,
-    pub max_orphan_events_per_min: u64,
-    pub max_orphan_events_dropped_by_sampling_per_min: u64,
-    pub max_spe_dropped_due_to_full_export_buffer_per_min: u64,
-    pub max_received_spe: u64,
-    pub max_received_trace_kb: u64,
-    pub max_received_orphan_event_kb: u64,
-    pub trace_alert_config: TraceAlertConfig,
-    pub percentage_check_time_window_secs: u64,
-    pub percentage_check_min_number_samples: u64,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ServiceAlertConfigTraceOverwrite {
-    pub trace_to_overwrite_config: HashMap<String, TraceAlertConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TraceAlertConfig {
-    pub max_trace_duration_ms: u64,
-    pub max_traces_with_warning_percentage: u64,
-    pub max_traces_dropped_by_sampling_per_min: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

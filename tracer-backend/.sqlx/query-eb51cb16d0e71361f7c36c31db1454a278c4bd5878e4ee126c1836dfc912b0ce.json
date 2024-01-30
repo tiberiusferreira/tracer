@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into trace_wide_alert_config (env, service_name) values ($1::TEXT, $2::TEXT)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eb51cb16d0e71361f7c36c31db1454a278c4bd5878e4ee126c1836dfc912b0ce"
+}

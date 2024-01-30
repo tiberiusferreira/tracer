@@ -6,7 +6,7 @@ use crate::services::graphs::{
     create_trace_spe_usage_traces_graph,
 };
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
-use api_structs::ui::service::{AlertConfig, NewFiltersRequest};
+use api_structs::ui::service::NewFiltersRequest;
 use api_structs::ui::service::{Instance, ServiceOverview};
 use api_structs::ServiceId;
 use js_sys::encode_uri_component;
@@ -22,6 +22,7 @@ mod alerts;
 mod graph_creation;
 mod graphs;
 use crate::datetime::secs_since;
+use api_structs::ui::service::alerts::AlertConfig;
 use tracing::{info, instrument};
 
 #[component]
@@ -149,7 +150,7 @@ fn instance_specific_data_ui(
 fn instance_specific_data_els(
     service_id: &ServiceId,
     instances: &[Instance],
-) -> Vec<leptos::HtmlElement<Div>> {
+) -> Vec<HtmlElement<Div>> {
     let change_rust_log_action = create_action(move |new_filters: &NewFiltersRequest| {
         send_change_rust_log_http_request(new_filters.clone())
     });
@@ -214,12 +215,8 @@ fn single_trace_details_els(
         ) = graphs::trace_details_graphs::warning_percentage::create_graph(
             &instances,
             trace_name.clone(),
-            alert_config
-                .service_alert_config
-                .percentage_check_time_window_secs,
-            alert_config
-                .service_alert_config
-                .percentage_check_min_number_samples,
+            alert_config.trace_wide.percentage_check_time_window_secs,
+            alert_config.trace_wide.percentage_check_min_number_samples,
             click_timestamp_receiver,
             create_chart_action,
         );
@@ -401,7 +398,7 @@ async fn send_change_rust_log_http_request(new_filter: NewFiltersRequest) -> Res
         new_filter.instance_id, new_filter.filters
     );
     let traces = gloo_net::http::Request::post(&format!(
-        "{}/api/instances/filter",
+        "{}/api/ui/service/filter",
         API_SERVER_URL_NO_TRAILING_SLASH
     ))
     .json(&new_filter)

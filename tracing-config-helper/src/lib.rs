@@ -10,7 +10,7 @@ use std::io::Read;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Layer, Registry};
+use tracing_subscriber::{EnvFilter, Registry};
 mod sampling;
 mod server_connection;
 mod subscriber;
@@ -81,6 +81,8 @@ pub struct TracerConfig {
     pub sampler_limits: SamplerLimits,
     /// Maximum number of span plus events to keep in memory at a given time
     pub spe_buffer_capacity: u64,
+    pub log_stdout: bool,
+    pub log_stdout_json: bool,
 }
 
 impl TracerConfig {
@@ -100,7 +102,9 @@ impl TracerConfig {
                 logs_per_minute_limit: 1000,
             },
             spe_buffer_capacity: 10_000,
+            log_stdout: false,
             service_id,
+            log_stdout_json: false,
         }
     }
     pub fn with_export_timeout(mut self, duration: Duration) {
@@ -376,6 +380,17 @@ impl FlushRequester {
     }
 }
 
+// #[derive(Clone)]
+// pub struct ReloadableFilters {
+//     tracing: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
+//     console: Option<tracing_subscriber::reload::Handle<EnvFilter, Registry>>,
+// }
+//
+// impl ReloadableFilters {
+//     pub fn reload(&self, new_value: EnvFilter) -> Result<(), Error> {
+//         self.tracing.reload(new_value)
+//     }
+// }
 async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
     let profiler_guard = pprof::ProfilerGuardBuilder::default()
         .frequency(100)
@@ -384,19 +399,22 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         .expect("to be able to start profiler");
     let (mut flush_request_receiver, flush_request_sender) = FlushRequester::new();
     let spe_buffer_len = usize::try_from(config.spe_buffer_capacity).expect("u32 to fit usize");
-    let filter = EnvFilter::builder()
+    let tracer_filter = EnvFilter::builder()
         .parse(&config.initial_filters)
         .expect("initial filters to be valid");
+    let (reloadable_tracer_filter, reload_tracer_handle) =
+        tracing_subscriber::reload::Layer::new(tracer_filter);
 
-    let (reloadable_filter, reload_handle) = tracing_subscriber::reload::Layer::new(filter);
     let (subscriber_event_sender, mut subscriber_event_receiver) =
         tokio::sync::mpsc::channel::<SubscriberEvent>(spe_buffer_len);
     let tracer =
         TracerTracingSubscriber::new(config.sampler_limits.clone(), subscriber_event_sender);
     let tracer_sampler = Arc::clone(&tracer.sampler);
 
-    let trace_with_filter = tracer.with_filter(reloadable_filter);
-    let registry = Registry::default().with(trace_with_filter);
+    let registry = Registry::default()
+        .with(reloadable_tracer_filter)
+        .with(tracer)
+        .with(tracing_subscriber::fmt::layer());
     tracing::subscriber::set_global_default(registry).expect("no other global subscriber to exist");
     let instance_id = InstanceId {
         service_id: config.service_id,
@@ -406,7 +424,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         tokio::task::spawn_local(server_connection::continuously_handle_server_sent_events(
             instance_id.clone(),
             config.collector_url.clone(),
-            reload_handle.clone(),
+            reload_tracer_handle.clone(),
         ));
 
     let trace_export_task = tokio::task::spawn_local(async move {
@@ -446,7 +464,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                     }
                 },
             };
-            let current_filters = reload_handle
+            let current_filters = reload_tracer_handle
                 .with_current(|c| c.to_string())
                 .expect("subscriber to exist");
             print_if_dbg(context, "Checking for new events");

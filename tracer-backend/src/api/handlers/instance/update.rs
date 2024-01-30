@@ -719,7 +719,7 @@ pub async fn instance_update_post(
             }
         })?;
     let con = app_state.con;
-    update_instance_data(&app_state.instance_runtime_stats, &trace_data).map_err(|_e| {
+    update_instance_data(&app_state.services_runtime_stats, &trace_data).map_err(|_e| {
         error!("Tried to connect, but was not registered!");
         ApiError {
             code: StatusCode::BAD_REQUEST,

@@ -7,7 +7,6 @@ use axum::response::{IntoResponse, Response};
 use backtraced_error::error_to_pretty_formatted;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
@@ -25,7 +24,7 @@ pub struct LiveServiceInstance {
 }
 
 #[instrument(skip_all)]
-pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
+pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     info!("Starting API, checking if index.html UI file exist");
     if std::fs::read("./tracer-ui/dist/index.html").is_err() {
         panic!("Failed to read ./tracer-ui/dist/index.html");
@@ -34,10 +33,6 @@ pub fn start(con: PgPool, api_port: u16) -> JoinHandle<()> {
     let serve_ui = tower_http::services::ServeDir::new("./tracer-ui/dist").fallback(
         tower_http::services::ServeFile::new("./tracer-ui/dist/index.html"),
     );
-    let app_state = AppState {
-        con,
-        instance_runtime_stats: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
-    };
 
     // List, Overview and Manage Services
     let service_routes = axum::Router::new()

@@ -1,7 +1,7 @@
-use crate::datetime::nanos_to_millis;
 use crate::services::graph_creation::{
     create_dom_el_ref_and_graph_call_action, GraphData, GraphSeries,
 };
+use api_structs::time_conversion::nanos_to_millis;
 use api_structs::ui::service::Instance;
 use leptos::html::Div;
 use leptos::{Action, NodeRef, WriteSignal};
