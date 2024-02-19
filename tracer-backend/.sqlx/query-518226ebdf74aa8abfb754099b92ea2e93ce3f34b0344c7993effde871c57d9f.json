@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from orphan_event where timestamp < (EXTRACT(epoch FROM now() - INTERVAL '1 DAY') * 1000000000);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "518226ebdf74aa8abfb754099b92ea2e93ce3f34b0344c7993effde871c57d9f"
+}

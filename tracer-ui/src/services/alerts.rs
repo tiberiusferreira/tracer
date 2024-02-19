@@ -137,9 +137,6 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                         <th class="trace-table__cell">
                             <a>"Allowed Warning %"</a>
                         </th>
-                        <th class="trace-table__cell">
-                            <a>"Dropped By Sampling Per Min"</a>
-                        </th>
                     </tr>
                     {overwrite_rows}
                 </table>

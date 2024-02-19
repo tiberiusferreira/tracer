@@ -51,7 +51,7 @@ pub async fn enrich_service_data_with_alert_config(
 }
 
 #[instrument(skip_all)]
-pub async fn check_for_alerts_and_send(app_state: AppState) -> Result<(), AlertingError> {
+pub async fn check_for_alerts_and_send(app_state: &AppState) -> Result<(), AlertingError> {
     let mut services_runtime_stats_guard = app_state.services_runtime_stats.write();
     let services_runtime_stats = services_runtime_stats_guard.clone();
     for service in services_runtime_stats_guard.values_mut() {

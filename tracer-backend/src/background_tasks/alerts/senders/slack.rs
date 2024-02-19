@@ -1,5 +1,4 @@
 use crate::background_tasks::alerts::AlertingError;
-use crate::background_tasks::insert_notification_in_db;
 use axum::http::header::InvalidHeaderValue;
 use axum::http::{HeaderMap, HeaderValue};
 use backtraced_error::{
@@ -45,8 +44,14 @@ pub async fn send_to_slack_and_update_database(
         let error_str = send_slack_msg_logging_error(&s.bot_token, &s.channel_id, &notification)
             .await
             .err();
-        insert_notification_in_db(con, &s.bot_token, &s.channel_id, &notification, error_str)
-            .await?;
+        database::insert_notification_in_db(
+            con,
+            &s.bot_token,
+            &s.channel_id,
+            &notification,
+            error_str,
+        )
+        .await?;
     }
     Ok(())
 }

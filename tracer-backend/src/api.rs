@@ -100,59 +100,6 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     })
 }
 
-// fn clean_up_service_instances_task(live_instances: LiveInstances) -> JoinHandle<()> {
-//     trace!("Starting clean_up_services_task");
-//     spawn_local(async move {
-//         tokio::time::sleep(Duration::from_secs(60)).await;
-//         clean_up_service_instances(&live_instances);
-//     })
-// }
-
-// #[instrument(skip_all)]
-// fn clean_up_service_instances(live_instances: &LiveInstances) {
-//     trace!("cleaning up service");
-//     live_instances.see_handle.write().retain(|id, val| {
-//         if val.is_closed() {
-//             debug!("dropping sse_handle for instance with id: {id}");
-//             false
-//         } else {
-//             true
-//         }
-//     });
-//     live_instances
-//         .trace_data
-//         .write()
-//         .retain(|service_name, instance_list| {
-//             instance_list.retain(|single_instance| {
-//                 let date = api_structs::time_conversion::time_from_nanos(
-//                     single_instance.last_seen_timestamp,
-//                 );
-//                 let last_seen_as_secs = chrono::Utc::now()
-//                     .naive_utc()
-//                     .signed_duration_since(date)
-//                     .num_seconds();
-//                 if last_seen_as_secs > 12 * 60 * 60 {
-//                     debug!(
-//                         "dropping instance {} - id: {} - last seen {}s ago",
-//                         single_instance.service_name, single_instance.instance_id, last_seen_as_secs
-//                     );
-//                     false
-//                 } else {
-//                     true
-//                 }
-//             });
-//             if instance_list.is_empty(){
-//                 debug!(
-//                         "Last instance of {service_name} was dropped, removing it from list of services",
-//                     );
-//                 false
-//             }else{
-//                 true
-//             }
-//
-//         });
-// }
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct RawGridErrorSample {
     span_name: String,

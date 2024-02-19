@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from slack_alert where created_at < (now() - INTERVAL '3 DAY');",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6ba56fd14969603d47529a7f694116cabce202c870eaa205ea6725cea472eac3"
+}

@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::spawn_local;
 use tracing::{error, info, info_span, instrument, Instrument};
@@ -22,6 +23,9 @@ pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
 pub const DB_INTERNAL_ERROR_CHAR_LIMIT: usize = 4096;
 pub const SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT: usize = 1_500_000;
 pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 256;
+pub const DEAD_INSTANCE_RETENTION_TIME_SECONDS: usize = 12 * 60 * 60;
+pub const DEAD_INSTANCE_MAX_STATS_HISTORY_DATA_COUNT: usize = 50;
+pub const CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS: usize = 60;
 
 pub const MAX_STATS_HISTORY_DATA_COUNT: usize = 500;
 pub const MAX_NOTIFICATION_SIZE_CHARS: usize = 2048;
@@ -72,20 +76,23 @@ async fn start_api_and_background_tasks(
             async {
                 let state = app_state.clone();
                 info!("Checking for check_for_alerts_and_send");
-                if let Err(e) = background_tasks::alerts::check_for_alerts_and_send(state).await {
+                if let Err(e) = background_tasks::alerts::check_for_alerts_and_send(&state).await {
                     let error_chain_as_string = error_chain_to_pretty_formatted(&e);
                     error!("{}", error_chain_as_string);
                 }
+                background_tasks::clean_up::instance_runtime_data::clean_up_dead_instances_and_services(
+                    Arc::clone(&state.services_runtime_stats),
+                );
+                background_tasks::clean_up::database_old_traces_and_logs::delete_old_traces_logging_error(&state.con).await;
+                background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
+                background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
             }
             .instrument(info_span!("background_task"))
             .await;
-            tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
         }
     });
 
-    // TODO
-    // let _clean_up_service_instances_task =
-    //     clean_up_service_instances_task(app_state.live_instances.clone());
     Ok(api_handle)
 }
 

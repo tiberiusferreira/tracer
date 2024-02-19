@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from trace where timestamp < (EXTRACT(epoch FROM now() - INTERVAL '1 DAY') * 1000000000);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "23270bf09bb73d61e8e9075c0d14dcd514e085f8009be9c3de52c3eed9d78258"
+}

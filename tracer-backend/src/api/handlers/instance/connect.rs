@@ -4,6 +4,7 @@ use api_structs::{InstanceId, ServiceId};
 use axum::extract::State;
 use futures::StreamExt;
 use std::collections::{HashMap, VecDeque};
+use std::time::Instant;
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, instrument, trace};
 #[derive(Debug, Clone)]
@@ -107,6 +108,7 @@ pub(crate) async fn instance_connect_get(
         instance_id.instance_id,
         state::InstanceState {
             id: instance_id.instance_id,
+            created_at: Instant::now(),
             rust_log: "unknown".to_string(),
             profile_data: None,
             time_data_points: VecDeque::new(),
