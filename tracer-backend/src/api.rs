@@ -1,10 +1,10 @@
 use crate::api::state::AppState;
 
 use api_structs::instance::update::ProducerStats;
-use api_structs::InstanceId;
+use api_structs::{InstanceId, ServiceId};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use backtraced_error::error_to_pretty_formatted;
+use backtraced_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -185,6 +185,37 @@ pub struct ApiError {
     pub message: String,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum AppStateError {
+    #[error("AppStateError")]
+    ServiceInAppStateButNotDB(#[from] ServiceInAppStateButNotDBError),
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("ServiceInAppStateButNotDBError:\n {error}\n{backtrace}")]
+pub struct ServiceInAppStateButNotDBError {
+    pub error: String,
+    pub backtrace: OptionBacktracePrettyPrinter,
+}
+impl ServiceInAppStateButNotDBError {
+    pub fn new(service_id: &ServiceId) -> Self {
+        Self{
+            error: format!("Service {service_id:?} exists in memory cache, but not in DB, this should never happen"),
+            backtrace: OptionBacktracePrettyPrinter::capture(),
+        }
+    }
+}
+
+impl From<AppStateError> for ApiError {
+    fn from(err: AppStateError) -> Self {
+        error!("{:?}", error_chain_to_pretty_formatted(err));
+        ApiError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "AppStateError error when handling the request".to_string(),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.code, self.message).into_response()
@@ -193,7 +224,7 @@ impl IntoResponse for ApiError {
 
 impl From<backtraced_error::SqlxError> for ApiError {
     fn from(err: backtraced_error::SqlxError) -> Self {
-        error!("{:?}", error_to_pretty_formatted(err));
+        error!("{:?}", error_chain_to_pretty_formatted(err));
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: "DB error when handling the request".to_string(),

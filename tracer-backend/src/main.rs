@@ -1,5 +1,6 @@
 use crate::api::state::AppState;
 use api_structs::ServiceId;
+use backtraced_error::error_chain_to_pretty_formatted;
 use clap::Parser;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
@@ -7,19 +8,23 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{info, info_span, instrument, Instrument};
+use tokio::task::spawn_local;
+use tracing::{error, info, info_span, instrument, Instrument};
 use tracing_config_helper::TracerConfig;
 
 mod api;
 mod background_tasks;
+mod database;
 mod notification_worthy_events;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;
 pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
+pub const DB_INTERNAL_ERROR_CHAR_LIMIT: usize = 4096;
 pub const SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT: usize = 1_500_000;
 pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 256;
 
 pub const MAX_STATS_HISTORY_DATA_COUNT: usize = 500;
+pub const MAX_NOTIFICATION_SIZE_CHARS: usize = 2048;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -62,12 +67,19 @@ async fn start_api_and_background_tasks(
         services_runtime_stats: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
     };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
-    tokio::task::spawn(async move {
+    spawn_local(async move {
         loop {
-            let state = app_state.clone();
-            info!("Checking for check_for_alerts_and_send");
-            background_tasks::check_for_alerts_and_send(state);
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            async {
+                let state = app_state.clone();
+                info!("Checking for check_for_alerts_and_send");
+                if let Err(e) = background_tasks::alerts::check_for_alerts_and_send(state).await {
+                    let error_chain_as_string = error_chain_to_pretty_formatted(&e);
+                    error!("{}", error_chain_as_string);
+                }
+            }
+            .instrument(info_span!("background_task"))
+            .await;
+            tokio::time::sleep(Duration::from_secs(5 * 60)).await;
         }
     });
 
@@ -88,6 +100,7 @@ pub struct LaunchConfig {
     #[clap(long, env)]
     pub environment: String,
 }
+
 #[derive(clap::Parser)]
 pub struct DbConfig {
     #[clap(long, env = "DATABASE_URL")]

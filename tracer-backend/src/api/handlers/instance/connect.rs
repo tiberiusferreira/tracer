@@ -1,5 +1,5 @@
 use crate::api::state::AppState;
-use crate::api::{database, state, ApiError, LiveServiceInstance};
+use crate::api::{state, ApiError, LiveServiceInstance};
 use api_structs::{InstanceId, ServiceId};
 use axum::extract::State;
 use futures::StreamExt;
@@ -74,7 +74,7 @@ pub(crate) async fn instance_connect_get(
         w_lock.get(&instance_id.service_id).is_some()
     };
     if !exists {
-        let config = match database::alerts::get_or_init_service_config(
+        let _config = match crate::database::service_initialization::get_or_init_service_config(
             &app_state.con,
             &instance_id.service_id,
         )
@@ -91,8 +91,7 @@ pub(crate) async fn instance_connect_get(
         let mut w_lock = app_state.services_runtime_stats.write();
         w_lock.insert(
             instance_id.service_id.clone(),
-            state::ServiceData {
-                alert_config: config,
+            state::ServiceRuntimeData {
                 last_time_checked_for_alerts: chrono::Utc::now().naive_utc(),
                 instances: HashMap::new(),
             },
@@ -108,7 +107,7 @@ pub(crate) async fn instance_connect_get(
         instance_id.instance_id,
         state::InstanceState {
             id: instance_id.instance_id,
-            rust_log: "".to_string(),
+            rust_log: "unknown".to_string(),
             profile_data: None,
             time_data_points: VecDeque::new(),
             see_handle,

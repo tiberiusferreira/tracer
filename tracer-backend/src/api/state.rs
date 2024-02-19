@@ -10,7 +10,7 @@ pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 #[derive(Clone)]
 pub struct AppState {
     pub con: PgPool,
-    pub services_runtime_stats: Shared<HashMap<ServiceId, ServiceData>>,
+    pub services_runtime_stats: Shared<HashMap<ServiceId, ServiceRuntimeData>>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,8 +25,7 @@ pub struct InstanceState {
 }
 
 #[derive(Debug, Clone)]
-pub struct ServiceData {
-    pub alert_config: api_structs::ui::service::alerts::AlertConfig,
+pub struct ServiceRuntimeData {
     pub last_time_checked_for_alerts: NaiveDateTime,
     pub instances: HashMap<i64, InstanceState>,
 }

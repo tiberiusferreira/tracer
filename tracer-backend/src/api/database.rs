@@ -6,8 +6,6 @@ use std::collections::HashSet;
 use std::ops::DerefMut;
 use tracing::{error, info, instrument, trace};
 
-pub mod alerts;
-
 #[instrument(skip_all)]
 pub(crate) async fn insert_events(
     con: &mut Transaction<'static, Postgres>,

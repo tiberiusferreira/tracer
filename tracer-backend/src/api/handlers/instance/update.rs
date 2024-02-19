@@ -24,7 +24,7 @@ pub struct ServiceNotRegisteredError;
 
 #[instrument(skip_all)]
 fn update_instance_data(
-    live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceData>>,
+    live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceRuntimeData>>,
     exported_service_trace_data: &ExportedServiceTraceData,
 ) -> Result<(), ServiceNotRegisteredError> {
     let mut w_lock = live_instances.write();

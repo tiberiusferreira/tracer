@@ -1,12 +1,21 @@
 use std::backtrace::Backtrace;
+use thiserror::__private::AsDynError;
 
-pub fn error_to_pretty_formatted<T: std::error::Error + Send + Sync + 'static>(e: T) -> String {
-    let err = anyhow::Error::new(e);
-    format!("{err:?}")
+pub fn error_chain_to_pretty_formatted<E>(error: E) -> String
+where
+    E: std::error::Error,
+{
+    let mut error = error.as_dyn_error();
+    let mut err = format!("{}", error);
+    while let Some(inner_err) = error.source() {
+        err.push_str(&format!("\nCaused by: \n{}", inner_err));
+        error = inner_err;
+    }
+    err
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Sqlx error. Context: {context}\n{backtrace}")]
+#[error("SqlxError Context: {context}\n{backtrace}")]
 pub struct SqlxError {
     #[source]
     pub source: sqlx::Error,
@@ -15,7 +24,7 @@ pub struct SqlxError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Serde error. Context: {context}\n{bad_input_sample}\n{backtrace}")]
+#[error("SerdeJsonError Context: {context}\n{bad_input_sample}\n{backtrace}")]
 pub struct SerdeJsonError {
     #[source]
     pub source: serde_json::Error,
@@ -40,7 +49,7 @@ impl SerdeJsonError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Reqwest error. Context: {context}\n{backtrace}")]
+#[error("ReqwestError Context: {context}\n{backtrace}")]
 pub struct ReqwestError {
     #[source]
     pub source: reqwest::Error,

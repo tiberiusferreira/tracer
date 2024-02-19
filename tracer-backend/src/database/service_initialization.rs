@@ -9,8 +9,14 @@ use std::collections::HashMap;
 use std::ops::DerefMut;
 use tracing::instrument;
 
+#[derive(Debug, Clone)]
+pub struct ServiceConfig {
+    pub service_id: ServiceId,
+    pub alert_config: AlertConfig,
+}
+
 #[instrument(skip_all)]
-pub async fn insert_service(con: &PgPool, service_id: &ServiceId) -> Result<(), SqlxError> {
+pub async fn insert_service_config(con: &PgPool, service_id: &ServiceId) -> Result<(), SqlxError> {
     let mut transaction = con
         .begin()
         .await
@@ -74,7 +80,7 @@ pub async fn insert_service(con: &PgPool, service_id: &ServiceId) -> Result<(), 
 pub async fn get_service_config(
     con: &PgPool,
     service_id: &ServiceId,
-) -> Result<Option<AlertConfig>, SqlxError> {
+) -> Result<Option<ServiceConfig>, SqlxError> {
     let (service, instance, trace, trace_overwrites) = tokio::try_join!(
         get_service_wide_alert_config(con, &service_id),
         get_instance_wide_alert_config(con, &service_id),
@@ -85,11 +91,14 @@ pub async fn get_service_config(
         None => return Ok(None),
         Some(service) => service,
     };
-    Ok(Some(AlertConfig {
-        service_wide: service,
-        instance_wide: instance.expect("instance to exist if service does"),
-        trace_wide: trace.expect("trace to exist if service does"),
-        service_alert_config_trace_overwrite: trace_overwrites,
+    Ok(Some(ServiceConfig {
+        service_id: service_id.clone(),
+        alert_config: AlertConfig {
+            service_wide: service,
+            instance_wide: instance.expect("instance to exist if service does"),
+            trace_wide: trace.expect("trace to exist if service does"),
+            service_alert_config_trace_overwrite: trace_overwrites,
+        },
     }))
 }
 
@@ -97,16 +106,17 @@ pub async fn get_service_config(
 pub async fn get_or_init_service_config(
     con: &PgPool,
     service_id: &ServiceId,
-) -> Result<AlertConfig, SqlxError> {
-    let alert_config = get_service_config(con, service_id).await?;
-    return match alert_config {
+) -> Result<ServiceConfig, SqlxError> {
+    let service_config = get_service_config(con, service_id).await?;
+    return match service_config {
         None => {
-            insert_service(con, service_id).await?;
-            Ok(get_service_config(con, service_id)
+            insert_service_config(con, service_id).await?;
+            let service_config = get_service_config(con, service_id)
                 .await?
-                .expect("inserted service to exist"))
+                .expect("service config to exist if just inserted");
+            Ok(service_config)
         }
-        Some(alert_config) => Ok(alert_config),
+        Some(service_config) => Ok(service_config),
     };
 }
 

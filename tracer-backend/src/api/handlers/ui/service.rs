@@ -1,6 +1,6 @@
 use crate::api::handlers::instance::connect::ChangeFilterInternalRequest;
 use crate::api::state::AppState;
-use crate::api::ApiError;
+use crate::api::{ApiError, AppStateError, ServiceInAppStateButNotDBError};
 use api_structs::ui::service::Instance;
 use api_structs::ServiceId;
 use axum::extract::{Query, State};
@@ -92,9 +92,19 @@ pub(crate) async fn ui_service_overview_get(
         }
         Some(service_data) => service_data,
     };
+    let config =
+        crate::database::service_initialization::get_service_config(&app_state.con, &service_id)
+            .await?
+            .ok_or_else(|| {
+                AppStateError::ServiceInAppStateButNotDB(ServiceInAppStateButNotDBError::new(
+                    &service_id,
+                ))
+            })?;
+    /*
+     */
     let mut api_service_data = api_structs::ui::service::ServiceOverview {
         service_id,
-        alert_config: service_data.alert_config,
+        alert_config: config.alert_config,
         instances: vec![],
     };
     for (_instance_id, instance_state) in service_data.instances {

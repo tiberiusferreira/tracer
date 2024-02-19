@@ -2,6 +2,7 @@ create database tracer;
 ALTER DATABASE tracer set default_statistics_target = 1000;
 alter database tracer set plan_cache_mode = 'force_custom_plan';
 alter database tracer set work_mem = '8MB';
+
 -- CREATE EXTENSION if not exists btree_gin;
 CREATE TYPE severity_level AS ENUM ('trace', 'debug', 'info', 'warn', 'error');
 
@@ -20,6 +21,14 @@ create domain ubigint AS bigint
         );
 
 comment on domain ubigint is 'Positive Bigint';
+
+
+create domain u32 AS bigint
+    CHECK (
+        value >= 0 and value <= 4294967295
+        );
+
+
 
 create table service
 (
@@ -139,12 +148,24 @@ create table event_key_value
 create index on event_key_value (key, value, instance_id, trace_id);
 
 
-create table alert_notification_config
+create table slack_alert_config
 (
-    alert_service            identifier,
-    url                      varchar(2048) not null,
-    min_alert_period_seconds ubigint       not null default 3600,
-    enabled                  boolean
+    bot_user_oauth_token     varchar(150) not null,
+    channel_id               varchar(150) not null,
+    min_alert_period_seconds u32          not null default 3600,
+    enabled                  boolean      not null,
+    primary key (bot_user_oauth_token, channel_id)
+);
+
+create table slack_alert
+(
+    bot_user_oauth_token varchar(150)  not null,
+    channel_id           varchar(150)  not null,
+    notification         varchar(2048) not null,
+    send_error           varchar(4096),
+    created_at           timestamp     not null default NOW(),
+    primary key (bot_user_oauth_token, channel_id, created_at),
+    foreign key (bot_user_oauth_token, channel_id) references slack_alert_config (bot_token, channel_id) on update cascade
 );
 
 
@@ -189,11 +210,11 @@ create table trace_wide_alert_config
 
 create table trace_wide_alert_config_overwrite
 (
-    env                                    identifier not null,
-    service_name                           identifier not null,
-    top_level_span_name                    identifier not null,
-    max_traces_with_warning_percentage     ubigint    not null default 100,
-    max_trace_duration_ms                  ubigint    not null default 1000000,
+    env                                identifier not null,
+    service_name                       identifier not null,
+    top_level_span_name                identifier not null,
+    max_traces_with_warning_percentage ubigint    not null default 100,
+    max_trace_duration_ms              ubigint    not null default 1000000,
     primary key (env, service_name, top_level_span_name),
     foreign key (env, service_name) references service (env, name) deferrable initially deferred
 );
