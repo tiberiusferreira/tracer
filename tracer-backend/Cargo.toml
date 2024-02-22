@@ -7,31 +7,31 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1"
-deepsize = {version = "0.2", features=['derive']}
-axum = {version = "0.6", features=['query', 'macros']}
-tower-http = {version="0.4", features=['cors', 'fs']}
+deepsize = { version = "0.2", features = ['derive'] }
+axum = { version = "0.7.4", features = ['query', 'macros'] }
+tower-http = { version = "0.5.1", features = ['cors', 'fs', 'trace'] }
 
 reqwest = "0.11"
 serde_json.workspace = true
-tokio = { version = "1", features = ["rt", "macros"]}
+tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenv = "0.15"
 sqlx.workspace = true
 futures = "0.3"
 thiserror = "1.0.50"
 anyhow = "1.0.75"
-brotli.workspace=true
+brotli.workspace = true
 serde.workspace = true
 parking_lot = "0.12"
-uuid = {version="1"}
+uuid = { version = "1" }
 tokio-util = "0.7"
 indexmap = "2.1.0"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
 
-api-structs = {path="../api-structs"}
-backtraced_error = {path="../backtraced_error"}
+api-structs = { path = "../api-structs" }
+backtraced_error = { path = "../backtraced_error" }
 tokio-stream = "0.1"
 [dependencies.tracing-config-helper]
 version = "0.1.0"

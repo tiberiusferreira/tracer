@@ -22,6 +22,18 @@ pub struct TraceFragment {
     pub new_events: Vec<NewSpanEvent>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SamplingData {
+    pub new_traces_sampling_rate_0_to_1: f32,
+    pub existing_traces_new_data_sampling_rate_0_to_1: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Sampling {
+    pub traces: HashMap<TraceName, SamplingData>,
+    pub orphan_events: f32,
+}
+
 impl TraceFragment {
     pub fn is_closed(&self, closed_spans: &[ClosedSpan]) -> bool {
         self.duration_if_closed(closed_spans).is_some()

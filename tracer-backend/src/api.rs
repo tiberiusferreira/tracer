@@ -8,6 +8,7 @@ use backtraced_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPri
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
 
@@ -85,18 +86,37 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         )
         .with_state(app_state)
         .fallback_service(serve_ui)
-        // 100 MB
-        .layer(axum::extract::DefaultBodyLimit::max(104857600))
-        .layer(tower_http::cors::CorsLayer::very_permissive());
+        .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
+        .layer(tower_http::cors::CorsLayer::very_permissive())
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http().make_span_with(
+                |request: &axum::http::Request<_>| {
+                    let method = request.method();
+                    let uri = request.uri().path();
+                    let version = request.version();
+                    let new_span_name = format!("{method} {uri} {version:?}");
+                    tracing::error_span!(
+                        "request",
+                        tracer_span_rename_to = new_span_name,
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        version = ?request.version(),
+                        headers = ?request.headers(),
+                    )
+                },
+            ),
+        );
     tokio::spawn(async move {
-        axum::Server::bind(
+        let listener = tokio::net::TcpListener::bind(
             &format!("0.0.0.0:{}", api_port)
-                .parse()
+                .parse::<SocketAddr>()
                 .expect("should be able to api server desired address and port"),
         )
-        .serve(app.into_make_service())
         .await
-        .expect("http server launch to not fail")
+        .unwrap();
+        axum::serve(listener, app.into_make_service())
+            .await
+            .expect("http server launch to not fail")
     })
 }
 
@@ -144,9 +164,10 @@ pub struct ServiceInAppStateButNotDBError {
     pub error: String,
     pub backtrace: OptionBacktracePrettyPrinter,
 }
+
 impl ServiceInAppStateButNotDBError {
     pub fn new(service_id: &ServiceId) -> Self {
-        Self{
+        Self {
             error: format!("Service {service_id:?} exists in memory cache, but not in DB, this should never happen"),
             backtrace: OptionBacktracePrettyPrinter::capture(),
         }

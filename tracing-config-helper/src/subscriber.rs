@@ -13,6 +13,8 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 use tracing_subscriber::Layer;
 
+pub const TRACER_RENAME_SPAN_TO_KEY: &str = "tracer_span_rename_to";
+
 impl TracerTracingSubscriber {
     pub fn new(
         sampler_limits: SamplerLimits,
@@ -26,13 +28,44 @@ impl TracerTracingSubscriber {
         tracer
     }
 
-    fn create_tracer_span_data_with_key_vals<S: Subscriber + for<'a> LookupSpan<'a>>(
+    fn create_tracer_span_data_with_key_vals_and_final_name<
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    >(
         span: &SpanRef<S>,
-        key_vals: HashMap<String, String>,
+        mut key_vals: HashMap<String, String>,
     ) {
+        let context = "create_tracer_span_data_with_key_vals_and_final_name";
         let mut extensions = span.extensions_mut();
+        let name = match key_vals.remove(TRACER_RENAME_SPAN_TO_KEY) {
+            None => span.name().to_string(),
+            Some(alternative_name) => {
+                let alternative_name = if alternative_name.len() > 128 {
+                    print_if_dbg(
+                        context,
+                        format!(
+                            "span {} alternative name was too big: {}, trimmed to 128 chars",
+                            span.name(),
+                            alternative_name,
+                        ),
+                    );
+                    alternative_name.chars().take(128).collect::<String>()
+                } else {
+                    alternative_name
+                };
+                print_if_dbg(
+                    context,
+                    format!(
+                        "span {} renamed to {} because of tracer_span_rename_to key value set",
+                        span.name(),
+                        alternative_name
+                    ),
+                );
+                alternative_name
+            }
+        };
         extensions.insert(TracerSpanData {
             key_vals,
+            name,
             first_entered_at: None,
         });
     }
@@ -69,6 +102,14 @@ impl TracerTracingSubscriber {
         let root = ctx.span(&span_id)?.scope().from_root().next()?;
         Some(root)
     }
+    fn span_final_name<'a, S: Subscriber + for<'b> LookupSpan<'b>>(span: &SpanRef<S>) -> String {
+        let extensions = span.extensions();
+        let tracer_span_data: &TracerSpanData = extensions
+            .get()
+            .expect("tracer_span_data to exist when span_final_name is called");
+        return tracer_span_data.name.to_string();
+    }
+
     fn trace_was_dropped<'a, S: Subscriber + for<'b> LookupSpan<'b>>(
         span_id: Id,
         ctx: &'a Context<S>,
@@ -178,6 +219,7 @@ impl AttributesVisitor {
         }
     }
 }
+
 impl Visit for AttributesVisitor {
     fn record_str(&mut self, field: &Field, value: &str) {
         let context = "record_str";
@@ -206,6 +248,7 @@ impl Visit for AttributesVisitor {
 /// and then the first entered is added on enter
 struct TracerSpanData {
     key_vals: HashMap<String, String>,
+    name: String,
     // we use this data to calculate the span duration when it gets closed
     first_entered_at: Option<std::time::Instant>,
 }
@@ -229,10 +272,29 @@ pub struct EventData {
 }
 
 impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscriber {
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let context = "on_new_span";
+        let span = ctx.span(id).expect("new span to exist!");
+        let mut attributes_visitor = AttributesVisitor::new();
+        attrs.record(&mut attributes_visitor);
+        print_if_dbg(
+            context,
+            format!(
+                "span {} had {} key-val",
+                span.name(),
+                attributes_visitor.key_vals.len()
+            ),
+        );
+        Self::create_tracer_span_data_with_key_vals_and_final_name(
+            &span,
+            attributes_visitor.key_vals,
+        );
+    }
     fn on_record(&self, _span: &Id, _values: &Record<'_>, _ctx: Context<'_, S>) {
         let context = "on_record";
         print_if_dbg(context, "on record");
     }
+
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let context = "on_event";
         let span = ctx.event_span(event);
@@ -273,16 +335,17 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             return;
         }
         let root = Self::span_root(span.id(), &ctx).expect("root span to exist");
+        let root_name = Self::span_final_name(&root);
         let spe_count = Self::increment_trace_event_count(span.id(), &ctx);
         let new_event_allowed = {
             let mut w_sampler = self.sampler.write();
-            w_sampler.allow_new_event(root.name())
+            w_sampler.allow_new_event(&root_name)
         };
         if new_event_allowed {
             print_if_dbg(context, "Allowed by sampler, sending to exporter.");
             self.send_subscriber_event_to_export(SubscriberEvent::NewSpanEvent(NewSpanEvent {
                 trace_id: root.id().into_non_zero_u64().get(),
-                trace_name: root.name(),
+                trace_name: root_name,
                 spe_count,
                 trace_timestamp: Self::trace_timestamp(span.id(), &ctx),
                 span_id: span.id().into_u64(),
@@ -298,33 +361,17 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             );
             self.send_subscriber_event_to_export(SubscriberEvent::SpanEventCountUpdate {
                 trace_id: root.id().into_non_zero_u64().get(),
-                trace_name: root.name(),
+                trace_name: root_name,
                 trace_timestamp: Self::trace_timestamp(span.id(), &ctx),
                 spe_count,
             });
         }
     }
 
-    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
-        let context = "on_new_span";
-        let span = ctx.span(id).expect("new span to exist!");
-        let mut attributes_visitor = AttributesVisitor::new();
-        attrs.record(&mut attributes_visitor);
-        print_if_dbg(
-            context,
-            format!(
-                "span {} had {} key-val",
-                span.name(),
-                attributes_visitor.key_vals.len()
-            ),
-        );
-        Self::create_tracer_span_data_with_key_vals(&span, attributes_visitor.key_vals);
-    }
-
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
         let context = "on_enter";
         let span = ctx.span(id).expect("entered span to exist!");
-        let span_name = span.name();
+        let span_name = Self::span_final_name(&span);
         if Self::span_was_already_entered(&span) {
             print_if_dbg(context, format!("span {span_name} entered again"));
             return;
@@ -336,14 +383,21 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             Self::set_span_as_entered(&span);
         }
         let root_span = Self::span_root(id.clone(), &ctx).expect("root span to exist");
-
+        let root_span_name = Self::span_final_name(&root_span);
         // if span and root_span are the same, we are the root span, so a new trace is being born here
         if root_span.id() == *id {
-            print_if_dbg(context, format!("Span is root. Id: {}", id.into_u64()));
+            print_if_dbg(
+                context,
+                format!(
+                    "Span is root. Name: {} Id: {}",
+                    root_span_name,
+                    id.into_u64()
+                ),
+            );
             // check is this new trace is not over the limit
             let new_trace_allowed = {
                 let mut w_sampler = self.sampler.write();
-                w_sampler.allow_new_trace(&root_span.name())
+                w_sampler.allow_new_trace(&root_span_name)
             };
             if new_trace_allowed {
                 print_if_dbg(context, "Allowed by sampler, sending to exporter");
@@ -356,7 +410,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     parent_id: None,
                     timestamp: now_nanos,
                     key_vals,
-                    trace_name: root_span.name(),
+                    trace_name: root_span_name,
                     spe_count: SpanEventCount {
                         span_count: 1,
                         event_count: 0,
@@ -392,7 +446,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 print_if_dbg(context, "Span belongs to non-dropped trace");
                 let new_span_allowed = {
                     let mut w_sampler = self.sampler.write();
-                    w_sampler.allow_new_span(root_span.name())
+                    w_sampler.allow_new_span(&root_span_name)
                 };
                 if new_span_allowed {
                     let key_vals = Self::take_tracer_span_data_key_vals(&span);
@@ -405,7 +459,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                         parent_id: Some(parent_id.into_u64()),
                         timestamp: now_nanos_u64(),
                         key_vals,
-                        trace_name: root_span.name(),
+                        trace_name: root_span_name,
                         spe_count,
                         trace_timestamp: Self::trace_timestamp(id.clone(), &ctx),
                     }));
@@ -413,7 +467,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     print_if_dbg(context, format!("Span Not Allowed by sampler"));
                     self.send_subscriber_event_to_export(SubscriberEvent::SpanEventCountUpdate {
                         trace_id: root_span.id().into_non_zero_u64().get(),
-                        trace_name: root_span.name(),
+                        trace_name: root_span_name,
                         trace_timestamp: Self::trace_timestamp(span.id(), &ctx),
                         spe_count,
                     });

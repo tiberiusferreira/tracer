@@ -1,9 +1,10 @@
 use crate::api::ApiError;
 
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 
 pub mod instance;
 pub mod ui;
+
 #[derive(Debug, Clone, sqlx::Type)]
 #[sqlx(type_name = "severity_level", rename_all = "lowercase")]
 pub enum Severity {
@@ -13,6 +14,7 @@ pub enum Severity {
     Warn,
     Error,
 }
+
 impl sqlx::postgres::PgHasArrayType for Severity {
     fn array_type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("_severity_level")
@@ -30,6 +32,7 @@ impl Severity {
         }
     }
 }
+
 impl From<api_structs::Severity> for Severity {
     fn from(value: api_structs::Severity) -> Self {
         match value {
@@ -41,6 +44,7 @@ impl From<api_structs::Severity> for Severity {
         }
     }
 }
+
 impl TryFrom<&str> for Severity {
     type Error = ();
 
@@ -62,6 +66,7 @@ pub fn nanos_to_db_i64(nanos: u64) -> Result<i64, ApiError> {
         message: format!("Error converting nanos {nanos} to i64"),
     })
 }
+
 pub fn db_i64_to_nanos(db_i64: i64) -> Result<u64, ApiError> {
     u64::try_from(db_i64).map_err(|_| ApiError {
         code: StatusCode::INTERNAL_SERVER_ERROR,

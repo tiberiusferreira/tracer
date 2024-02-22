@@ -1,20 +1,22 @@
-use api_structs::instance::update::{ProducerStats, SamplerLimits, SingleTraceStatus};
+use api_structs::instance::update::{
+    ProducerStats, SamplerLimits, Sampling, SamplingData, SingleTraceStatus,
+};
 use std::collections::HashMap;
 use std::time::Instant;
 
 /// Whenever it returns true, it assumes the new trace, span or event was recorded
 pub trait Sampler {
-    fn allow_new_trace(&mut self, trace_name: &'static str) -> bool;
-    fn allow_new_event(&mut self, trace_name: &'static str) -> bool;
+    fn allow_new_trace(&mut self, trace_name: &str) -> bool;
+    fn allow_new_event(&mut self, trace_name: &str) -> bool;
     fn allow_new_orphan_event(&mut self) -> bool;
-    fn allow_new_span(&mut self, trace_name: &'static str) -> bool;
+    fn allow_new_span(&mut self, trace_name: &str) -> bool;
     /// soe = span or event
     fn register_soe_dropped_due_to_full_export_buffer(&mut self);
     fn get_tracer_stats(&self) -> ProducerStats;
 }
 
 impl Sampler for TracerSampler {
-    fn allow_new_trace(&mut self, trace: &'static str) -> bool {
+    fn allow_new_trace(&mut self, trace: &str) -> bool {
         if self.is_over_usage_limit_for_new_trace(trace) {
             self.register_trace_dropped_by_sampling(trace);
             false
@@ -24,7 +26,7 @@ impl Sampler for TracerSampler {
         }
     }
 
-    fn allow_new_event(&mut self, trace: &'static str) -> bool {
+    fn allow_new_event(&mut self, trace: &str) -> bool {
         if self.is_over_usage_limit_for_existing_trace(trace) {
             false
         } else {
@@ -43,7 +45,7 @@ impl Sampler for TracerSampler {
         }
     }
 
-    fn allow_new_span(&mut self, trace: &'static str) -> bool {
+    fn allow_new_span(&mut self, trace: &str) -> bool {
         if self.is_over_usage_limit_for_existing_trace(trace) {
             false
         } else {
@@ -78,18 +80,23 @@ impl Sampler for TracerSampler {
 
 #[derive(Debug, Clone)]
 pub struct TracerSampler {
+    pub current_trace_sampling: Sampling,
     current_window_start: Instant,
     spe_dropped_due_to_full_export_buffer_per_min: u64,
     orphan_events_per_minute_usage: u64,
     orphan_events_per_minute_dropped_by_sampling: u64,
     // we never remove entries because spans should be static, they never get removed from the application
-    trace_stats: HashMap<&'static str, SingleTraceStatus>,
+    trace_stats: HashMap<String, SingleTraceStatus>,
     pub sampler_limits: SamplerLimits,
 }
 
 impl TracerSampler {
     pub(crate) fn new(sampler_limits: SamplerLimits) -> Self {
         Self {
+            current_trace_sampling: Sampling {
+                traces: HashMap::new(),
+                orphan_events: 0.,
+            },
             current_window_start: Instant::now(),
             sampler_limits,
             spe_dropped_due_to_full_export_buffer_per_min: 0,
@@ -122,11 +129,14 @@ impl TracerSampler {
             .saturating_add(1);
     }
 
-    pub fn register_trace_dropped_by_sampling(&mut self, trace: &'static str) {
-        let entry = self.trace_stats.entry(trace).or_insert(SingleTraceStatus {
-            spe_usage_per_minute: 0,
-            traces_dropped_by_sampling_per_minute: 0,
-        });
+    pub fn register_trace_dropped_by_sampling(&mut self, trace: &str) {
+        let entry = self
+            .trace_stats
+            .entry(trace.to_string())
+            .or_insert(SingleTraceStatus {
+                spe_usage_per_minute: 0,
+                traces_dropped_by_sampling_per_minute: 0,
+            });
         entry.traces_dropped_by_sampling_per_minute = entry
             .traces_dropped_by_sampling_per_minute
             .saturating_add(1);
@@ -137,39 +147,48 @@ impl TracerSampler {
         self.orphan_events_per_minute_usage >= self.sampler_limits.logs_per_minute_limit
     }
     #[allow(clippy::wrong_self_convention)]
-    pub fn is_over_usage_limit_for_new_trace(&mut self, trace: &'static str) -> bool {
+    pub fn is_over_usage_limit_for_new_trace(&mut self, trace: &str) -> bool {
         self.window_reset_check();
 
-        let trace_stats = self.trace_stats.entry(trace).or_insert(SingleTraceStatus {
-            spe_usage_per_minute: 0,
-            traces_dropped_by_sampling_per_minute: 0,
-        });
+        let trace_stats = self
+            .trace_stats
+            .entry(trace.to_string())
+            .or_insert(SingleTraceStatus {
+                spe_usage_per_minute: 0,
+                traces_dropped_by_sampling_per_minute: 0,
+            });
         return trace_stats.spe_usage_per_minute
             >= self.sampler_limits.trace_spe_per_minute_per_trace_limit;
     }
     #[allow(clippy::wrong_self_convention)]
-    pub fn is_over_usage_limit_for_existing_trace(&mut self, trace: &'static str) -> bool {
+    pub fn is_over_usage_limit_for_existing_trace(&mut self, trace: &str) -> bool {
         self.window_reset_check();
 
-        let trace_stats = self.trace_stats.entry(trace).or_insert(SingleTraceStatus {
-            spe_usage_per_minute: 0,
-            traces_dropped_by_sampling_per_minute: 0,
-        });
+        let trace_stats = self
+            .trace_stats
+            .entry(trace.to_string())
+            .or_insert(SingleTraceStatus {
+                spe_usage_per_minute: 0,
+                traces_dropped_by_sampling_per_minute: 0,
+            });
         return trace_stats.spe_usage_per_minute
             >= self.sampler_limits.trace_spe_per_minute_per_trace_limit
-                + self
-                    .sampler_limits
-                    .extra_spe_per_minute_limit_for_existing_traces;
+            + self
+            .sampler_limits
+            .extra_spe_per_minute_limit_for_existing_traces;
     }
 
     pub fn register_dropped_orphan_event(&mut self) {
         self.orphan_events_per_minute_dropped_by_sampling += 1;
     }
-    pub fn register_single_span_or_event(&mut self, trace: &'static str) {
-        let trace_stats = self.trace_stats.entry(trace).or_insert(SingleTraceStatus {
-            spe_usage_per_minute: 0,
-            traces_dropped_by_sampling_per_minute: 0,
-        });
+    pub fn register_single_span_or_event(&mut self, trace: &str) {
+        let trace_stats = self
+            .trace_stats
+            .entry(trace.to_string())
+            .or_insert(SingleTraceStatus {
+                spe_usage_per_minute: 0,
+                traces_dropped_by_sampling_per_minute: 0,
+            });
         trace_stats.spe_usage_per_minute = trace_stats.spe_usage_per_minute.saturating_add(1);
     }
     pub fn register_orphan_event(&mut self) {

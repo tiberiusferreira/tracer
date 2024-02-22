@@ -9,8 +9,10 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
+
 mod sampling;
 mod server_connection;
 mod subscriber;
@@ -169,7 +171,7 @@ pub enum SubscriberEvent {
     NewOrphanEvent(api_structs::instance::update::NewOrphanEvent),
     SpanEventCountUpdate {
         trace_id: u64,
-        trace_name: &'static str,
+        trace_name: String,
         trace_timestamp: u64,
         spe_count: SpanEventCount,
     },
@@ -178,7 +180,7 @@ pub enum SubscriberEvent {
 #[derive(Debug, Clone)]
 pub struct NewSpan {
     pub trace_id: u64,
-    pub trace_name: &'static str,
+    pub trace_name: String,
     pub spe_count: SpanEventCount,
     pub trace_timestamp: u64,
     pub id: u64,
@@ -187,10 +189,11 @@ pub struct NewSpan {
     pub name: String,
     pub key_vals: HashMap<String, String>,
 }
+
 #[derive(Debug, Clone)]
 pub struct NewSpanEvent {
     pub trace_id: u64,
-    pub trace_name: &'static str,
+    pub trace_name: String,
     pub spe_count: SpanEventCount,
     pub trace_timestamp: u64,
     pub span_id: u64,
@@ -322,6 +325,7 @@ impl ExportDataContainers {
 struct FlushRequest {
     respond_to: tokio::sync::oneshot::Sender<Result<(), String>>,
 }
+
 impl FlushRequest {
     fn new() -> (
         tokio::sync::oneshot::Receiver<Result<(), String>>,
@@ -380,17 +384,6 @@ impl FlushRequester {
     }
 }
 
-// #[derive(Clone)]
-// pub struct ReloadableFilters {
-//     tracing: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
-//     console: Option<tracing_subscriber::reload::Handle<EnvFilter, Registry>>,
-// }
-//
-// impl ReloadableFilters {
-//     pub fn reload(&self, new_value: EnvFilter) -> Result<(), Error> {
-//         self.tracing.reload(new_value)
-//     }
-// }
 async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
     let profiler_guard = pprof::ProfilerGuardBuilder::default()
         .frequency(100)
@@ -560,6 +553,8 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                         context,
                         format!("Sent events and got success response: {response:#?}"),
                     );
+                    let sampling_rate: Result<api_structs::instance::update::Sampling, _> =
+                        response.json().await;
                     Ok(())
                 }
                 Ok(response) => {

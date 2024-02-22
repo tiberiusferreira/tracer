@@ -6,13 +6,15 @@ use crate::{
     SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT,
 };
 use api_structs::instance::update::{
-    ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, TraceFragment,
+    ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, Sampling,
+    TraceFragment,
 };
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::service::{InstanceDataPoint, ProfileData, TraceHeader};
 use api_structs::{InstanceId, ServiceId};
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::Json;
 use sqlx::postgres::PgQueryResult;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -139,8 +141,8 @@ async fn get_db_trace(
         instance_id.instance_id as i64,
         trace_id as i64
     )
-    .fetch_optional(con)
-    .await?;
+        .fetch_optional(con)
+        .await?;
     return match raw {
         None => Ok(None),
         Some(raw) => Ok(Some(TraceDuration {
@@ -210,8 +212,8 @@ async fn check_span_ids_exist_in_db_returning_missing(
         instance_id.instance_id,
         as_vec.as_slice()
     )
-    .fetch_all(con)
-    .await?;
+        .fetch_all(con)
+        .await?;
     debug!("Got {} back", res.len());
     trace!("Span ids from DB {:?}", res);
     let existing_ids: HashSet<u64> = res.iter().map(|id| *id as u64).collect();
@@ -390,7 +392,7 @@ pub async fn update_trace_with_new_fragment(
         fragment.trace_id,
         &instance_id,
     )
-    .await?;
+        .await?;
     debug!("{} lost span ids", lost_span_ids.len());
     trace!("Lost span ids: {:?}", lost_span_ids);
     relocate_span_references_from_lost_spans_to_root(
@@ -419,7 +421,7 @@ pub async fn update_trace_with_new_fragment(
             &fragment.trace_name,
             fragment.trace_timestamp,
         )
-        .await?;
+            .await?;
     }
     insert_spans(
         &mut transaction,
@@ -428,7 +430,7 @@ pub async fn update_trace_with_new_fragment(
         &instance_id,
         &relocated_span_ids,
     )
-    .await?;
+        .await?;
     crate::api::database::insert_events(
         &mut transaction,
         &fragment.new_events,
@@ -436,7 +438,7 @@ pub async fn update_trace_with_new_fragment(
         &instance_id,
         &relocated_event_vec_indexes,
     )
-    .await?;
+        .await?;
     let original_span_count = fragment.spe_count.span_count as u64;
     let original_event_count = fragment.spe_count.event_count as u64;
     let stored_span_count_increase = fragment.new_spans.len() as u64;
@@ -480,7 +482,7 @@ has_errors={has_errors}",
         warnings_count_increase,
         has_errors,
     )
-    .await?;
+        .await?;
     transaction.commit().await?;
     Ok(())
 }
@@ -497,8 +499,8 @@ async fn update_closed_spans(con: &PgPool, instance_id: &InstanceId, closed_span
             span.trace_id as i64,
             span.span_id as i64,
         )
-        .execute(con)
-        .await;
+            .execute(con)
+            .await;
         match res {
             Ok(res) => {
                 debug!("Updated ({} rows)", res.rows_affected());
@@ -515,8 +517,8 @@ async fn update_closed_spans(con: &PgPool, instance_id: &InstanceId, closed_span
                 instance_id.instance_id,
                 span.trace_id as i64
             )
-            .execute(con)
-            .await;
+                .execute(con)
+                .await;
             match res {
                 Ok(res) => {
                     debug!("Updated ({} rows)", res.rows_affected());
@@ -563,12 +565,12 @@ pub async fn insert_orphan_events(
             severities.as_slice() as &[Severity],
             &message as &Vec<Option<String>>
         )
-        .fetch_all(con).await{
+        .fetch_all(con).await {
         Ok(res) => {
             debug!("Inserted and got {} ids back", res.len());
             let res: Vec<i64> = res;
             res
-        },
+        }
         Err(e) => {
             error!("Error inserting orphan events: {:#?}", e);
             error!("timestamp={:?}", timestamps);
@@ -605,10 +607,10 @@ pub async fn insert_orphan_events(
             &kv_orphan_key as &Vec<&str>,
             &kv_orphan_value as &Vec<&str>,
         )
-        .execute(con).await{
+        .execute(con).await {
         Ok(res) => {
             debug!("Inserted {}", res.rows_affected());
-        },
+        }
         Err(e) => {
             error!("Error inserting orphan events: {:#?}", e);
             error!("kv_orphan_event_id={:?}", kv_orphan_event_id);
@@ -693,7 +695,7 @@ fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<NewOrphanEvent>) {
 pub async fn instance_update_post(
     State(app_state): State<AppState>,
     compressed_json: axum::body::Bytes,
-) -> Result<(), ApiError> {
+) -> Result<Json<Sampling>, ApiError> {
     let compressed_json = compressed_json.to_vec();
     let mut reader = brotli::Decompressor::new(
         compressed_json.as_slice(),
@@ -747,7 +749,10 @@ pub async fn instance_update_post(
     truncate_orphan_events_and_kv_if_needed(&mut orphan_events);
     insert_orphan_events(&con, &instance_id, &orphan_events).await;
 
-    Ok(())
+    Ok(Json(Sampling {
+        traces: Default::default(),
+        orphan_events: 0.,
+    }))
 }
 
 #[instrument(skip_all)]
@@ -787,8 +792,8 @@ async fn update_trace_header(
         warnings_count_increase as i64 as _,
         has_errors,
     )
-    .execute(con.deref_mut())
-    .await?;
+        .execute(con.deref_mut())
+        .await?;
     Ok(())
 }
 
@@ -839,7 +844,7 @@ pub(crate) async fn insert_spans(
         .await {
         Ok(_) => {
             info!("Inserted spans");
-        },
+        }
         Err(e) => {
             error!("Error when inserting spans");
             error!("Span Ids: {:?}", span_ids);
@@ -850,7 +855,7 @@ pub(crate) async fn insert_spans(
             error!("parent_id: {:?}", parent_id);
             error!("duration: {:?}", duration);
             error!("name: {:?}", name);
-            return Err(e)
+            return Err(e);
         }
     };
     let mut kv_instance_id = vec![];
@@ -886,7 +891,7 @@ pub(crate) async fn insert_spans(
         .await {
         Ok(_) => {
             info!("Inserted span key-values");
-        },
+        }
         Err(e) => {
             error!("Error when inserting span key-values");
             error!("kv_instance_id: {:?}", kv_instance_id);
@@ -894,7 +899,7 @@ pub(crate) async fn insert_spans(
             error!("kv_span_id: {:?}", kv_span_id);
             error!("kv_key: {:?}", kv_key);
             error!("kv_value: {:?}", kv_value);
-            return Err(e)
+            return Err(e);
         }
     };
 

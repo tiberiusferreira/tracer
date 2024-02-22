@@ -1,10 +1,9 @@
 use crate::background_tasks::alerts::AlertingError;
-use axum::http::header::InvalidHeaderValue;
-use axum::http::{HeaderMap, HeaderValue};
 use backtraced_error::{
     error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter, ReqwestError,
 };
 use chrono::NaiveDateTime;
+use reqwest::header::InvalidHeaderValue;
 use reqwest::Response;
 use sqlx::PgPool;
 use std::fmt::Formatter;
@@ -62,10 +61,10 @@ async fn send_slack_msg(
     channel_id: &str,
     notification: &str,
 ) -> Result<(), SlackSendError> {
-    let mut default_header = HeaderMap::new();
+    let mut default_header = reqwest::header::HeaderMap::new();
     default_header.insert(
         "Authorization",
-        HeaderValue::from_str(&format!("Bearer {}", bot_token))
+        reqwest::header::HeaderValue::from_str(&format!("Bearer {}", bot_token))
             .map_err(|e| InvalidHeaderError::from_invalid_header_error(e, "creating header"))?,
     );
     let client = reqwest::ClientBuilder::new()
