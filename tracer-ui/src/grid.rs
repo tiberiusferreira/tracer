@@ -3,11 +3,13 @@ use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::{Event, MouseEvent};
 use leptos::*;
+
 #[derive(PartialEq, Clone, Debug, Default)]
 pub struct UiTraceGridResponse {
     pub rows: Vec<UiTraceGridRow>,
     pub count: u32,
 }
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct UiTraceGridRow {
     trace_id: TraceId,
@@ -49,11 +51,11 @@ impl Default for UserSearchInput {
                 from_date_unix: u64::try_from(
                     (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
                 )
-                .expect("timestamp to fit u64"),
+                    .expect("timestamp to fit u64"),
                 to_date_unix: u64::try_from(
                     (now + Duration::days(1)).timestamp_nanos_opt().unwrap(),
                 )
-                .expect("timestamp to fit u64"),
+                    .expect("timestamp to fit u64"),
                 only_errors: false,
             },
         }
@@ -134,10 +136,10 @@ fn debounced_api<S, T, Fu>(
     source: impl Fn() -> S + 'static,
     fetcher: impl Fn(S) -> Fu + 'static,
 ) -> ReadSignal<RequestState>
-where
-    S: PartialEq + Clone + 'static,
-    T: 'static,
-    Fu: std::future::Future<Output = T> + 'static,
+    where
+        S: PartialEq + Clone + 'static,
+        T: 'static,
+        Fu: std::future::Future<Output=T> + 'static,
 {
     let (request_state_r, request_state_w) = create_signal(RequestState::Idle);
     let task_ref: StoredValue<Option<Resource<S, ()>>> = store_value(None);
@@ -284,7 +286,7 @@ pub fn TraceBrowser() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                .unwrap(),
+                    .unwrap(),
                 offset,
             )
         })
@@ -298,7 +300,7 @@ pub fn TraceBrowser() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                .unwrap(),
+                    .unwrap(),
                 offset,
             )
         })
@@ -425,7 +427,10 @@ pub fn TraceBrowser() -> impl IntoView {
         </div>
     }
 }
-use crate::datetime::{local_date_to_utc, printable_local_date, secs_since, utc_to_local_date};
+
+use crate::datetime::{
+    local_date_to_utc, printable_local_date, secs_since, set_page_load_timestamp, utc_to_local_date,
+};
 use api_structs::ui::trace::chunk::TraceId;
 use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse};
 use leptos::logging::log;
@@ -495,6 +500,7 @@ fn highlight(original: String, term: String) -> Fragment {
         }
     };
 }
+
 #[component]
 pub fn TraceTable(rows: Signal<(UiTraceGridResponse, UserSearchInput)>) -> impl IntoView {
     let headers = [
@@ -552,14 +558,15 @@ pub fn TraceTable(rows: Signal<(UiTraceGridResponse, UserSearchInput)>) -> impl 
     let html_headers = headers.to_vec();
     let html_rows = {
         move |rows: (UiTraceGridResponse, UserSearchInput)| {
+            set_page_load_timestamp();
             let user_search = rows.1;
             rows.0
                 .rows
                 .into_iter()
                 .map(|row| {
-                    let row_container_class = if row.has_errors{
+                    let row_container_class = if row.has_errors {
                         "row-container row-container__error".to_string()
-                    }else{
+                    } else {
                         "row-container".to_string()
                     };
                     let node = view! {
