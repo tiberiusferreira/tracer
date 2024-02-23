@@ -13,16 +13,7 @@ pub fn active_traces_table_html(
 ) -> leptos::HtmlElement<Div> {
     let view = move || {
         let timestamp: Option<u64> = match active_trace_graph_click_event_on_timestamp_r.get() {
-            None => {
-                let mut timestamp = None;
-                for i in &service.instances {
-                    if let Some(data_point) = i.time_data_points.last() {
-                        timestamp = Some(data_point.timestamp);
-                        break;
-                    }
-                }
-                timestamp
-            }
+            None => service.service_data_over_time.last().map(|e| e.timestamp),
             Some(timestamp) => Some(timestamp),
         };
         let timestamp = timestamp.unwrap_or(now_nanos_u64());
@@ -35,50 +26,49 @@ pub fn active_traces_table_html(
         }
         let mut active_traces = vec![];
         let mut finished_traces = vec![];
-        for i in &service.instances {
-            for d in &i.time_data_points {
-                if (timestamp - window_nanos) < d.timestamp
-                    && d.timestamp < (timestamp + window_nanos)
-                {
-                    active_traces.extend_from_slice(
-                        &d.active_traces
-                            .iter()
-                            .map(|trace_header| TraceHeaderWithInstance {
-                                trace_header: TraceHeader {
-                                    trace_id: trace_header.trace_id,
-                                    trace_name: trace_header.trace_name.clone(),
-                                    trace_timestamp: trace_header.trace_timestamp,
-                                    new_warnings: trace_header.new_warnings,
-                                    new_errors: trace_header.new_errors,
-                                    duration: trace_header.duration,
-                                },
-                                instance_id: InstanceId {
-                                    service_id: service.service_id.clone(),
-                                    instance_id: i.id,
-                                },
-                            })
-                            .collect::<Vec<TraceHeaderWithInstance>>(),
-                    );
-                    finished_traces.extend_from_slice(
-                        &d.finished_traces
-                            .iter()
-                            .map(|trace_header| TraceHeaderWithInstance {
-                                trace_header: TraceHeader {
-                                    trace_id: trace_header.trace_id,
-                                    trace_name: trace_header.trace_name.clone(),
-                                    trace_timestamp: trace_header.trace_timestamp,
-                                    new_warnings: trace_header.new_warnings,
-                                    new_errors: trace_header.new_errors,
-                                    duration: trace_header.duration,
-                                },
-                                instance_id: InstanceId {
-                                    service_id: service.service_id.clone(),
-                                    instance_id: i.id,
-                                },
-                            })
-                            .collect::<Vec<TraceHeaderWithInstance>>(),
-                    );
-                }
+        for d in &service.service_data_over_time {
+            if (timestamp - window_nanos) < d.timestamp && d.timestamp < (timestamp + window_nanos)
+            {
+                active_traces.extend_from_slice(
+                    &d.active_traces
+                        .iter()
+                        .map(|trace_header| TraceHeaderWithInstance {
+                            trace_header: TraceHeader {
+                                trace_id: trace_header.trace_id,
+                                trace_name: trace_header.trace_name.clone(),
+                                trace_timestamp: trace_header.trace_timestamp,
+                                new_warnings: trace_header.new_warnings,
+                                new_errors: trace_header.new_errors,
+                                fragment_bytes: trace_header.fragment_bytes,
+                                duration: trace_header.duration,
+                            },
+                            instance_id: InstanceId {
+                                service_id: service.service_id.clone(),
+                                instance_id: d.instance_id,
+                            },
+                        })
+                        .collect::<Vec<TraceHeaderWithInstance>>(),
+                );
+                finished_traces.extend_from_slice(
+                    &d.finished_traces
+                        .iter()
+                        .map(|trace_header| TraceHeaderWithInstance {
+                            trace_header: TraceHeader {
+                                trace_id: trace_header.trace_id,
+                                trace_name: trace_header.trace_name.clone(),
+                                trace_timestamp: trace_header.trace_timestamp,
+                                new_warnings: trace_header.new_warnings,
+                                new_errors: trace_header.new_errors,
+                                fragment_bytes: trace_header.fragment_bytes,
+                                duration: trace_header.duration,
+                            },
+                            instance_id: InstanceId {
+                                service_id: service.service_id.clone(),
+                                instance_id: d.instance_id,
+                            },
+                        })
+                        .collect::<Vec<TraceHeaderWithInstance>>(),
+                );
             }
         }
         let mut active_trace_els = vec![];
@@ -95,6 +85,7 @@ pub fn active_traces_table_html(
                     <td class="trace-table__cell">{active.trace_header.trace_name}</td>
                     <td class="trace-table__cell">{active.instance_id.instance_id}</td>
                     <td class="trace-table__cell">{secs_since(active.trace_header.trace_timestamp)}</td>
+                    <td class="trace-table__cell">{format!("{:.2}", active.trace_header.fragment_bytes as f32/100.)}</td>
                     <td class="trace-table__cell">{active.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or(format!("{} seconds - Still Running", secs_since(active.trace_header.trace_timestamp)))}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, active.instance_id.service_id.env, active.instance_id.service_id.name, active.instance_id.instance_id, active.trace_header.trace_id, active.trace_header.trace_timestamp)}>{"➔"}</a>
@@ -117,6 +108,7 @@ pub fn active_traces_table_html(
                     <td class="trace-table__cell">{finished.trace_header.trace_name}</td>
                     <td class="trace-table__cell">{finished.instance_id.instance_id}</td>
                     <td class="trace-table__cell">{secs_since(finished.trace_header.trace_timestamp)}</td>
+                    <td class="trace-table__cell">{format!("{:.2}", finished.trace_header.fragment_bytes as f32/100.)}</td>
                     <td class="trace-table__cell">{finished.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or_default()}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, finished.instance_id.service_id.env, finished.instance_id.service_id.name, finished.instance_id.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>
@@ -131,7 +123,7 @@ pub fn active_traces_table_html(
              </p>
                     <table class="trace-table">
                         <tr class="row-container">
-                            <th style="text-align: center" colspan="5" class="trace-table__cell">
+                            <th style="text-align: center" colspan="6" class="trace-table__cell">
                                 <a>"Active"</a>
                             </th>
                         </tr>
@@ -146,6 +138,9 @@ pub fn active_traces_table_html(
                                 <a>"Secs Ago"</a>
                             </th>
                             <th class="trace-table__cell">
+                                <a>"KB"</a>
+                            </th>
+                            <th class="trace-table__cell">
                                 <a>{"Duration (ms)"}</a>
                             </th>
                             <th class="trace-table__cell">
@@ -154,7 +149,7 @@ pub fn active_traces_table_html(
                         </tr>
                         {active_trace_els}
                         <tr class="row-container">
-                            <th style="text-align: center" colspan="5" class="trace-table__cell">
+                            <th style="text-align: center" colspan="6" class="trace-table__cell">
                                 <a>"Finished"</a>
                             </th>
                         </tr>

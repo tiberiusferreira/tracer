@@ -100,20 +100,33 @@ pub(crate) async fn ui_service_overview_get(
                     &service_id,
                 ))
             })?;
-    /*
-     */
-    let mut api_service_data = api_structs::ui::service::ServiceOverview {
+    let api_service_data = api_structs::ui::service::ServiceOverview {
         service_id,
         alert_config: config.alert_config,
-        instances: vec![],
+        instances: service_data
+            .instances
+            .iter()
+            .map(|(id, data)| Instance {
+                id: *id,
+                rust_log: data.rust_log.clone(),
+                last_seen_secs_ago: data.last_seen.elapsed().as_secs(),
+                profile_data: data.profile_data.clone(),
+            })
+            .collect(),
+        service_data_over_time: service_data
+            .service_data_points
+            .iter()
+            .map(|d| api_structs::ui::service::ServiceDataOverTime {
+                timestamp: d.timestamp,
+                instance_id: d.instance_id,
+                export_buffer_stats: d.export_buffer_stats.clone(),
+                active_traces: d.active_traces.clone(),
+                finished_traces: d.finished_traces.clone(),
+                orphan_events: d.orphan_events.clone(),
+                traces_budget_usage: d.budget_usage.traces_usage.clone(),
+                orphan_events_budget_usage: d.budget_usage.orphan_events_usage,
+            })
+            .collect(),
     };
-    for (_instance_id, instance_state) in service_data.instances {
-        api_service_data.instances.push(Instance {
-            id: instance_state.id,
-            rust_log: instance_state.rust_log,
-            profile_data: instance_state.profile_data,
-            time_data_points: instance_state.time_data_points.into_iter().collect(),
-        });
-    }
     Ok(Json(api_service_data))
 }

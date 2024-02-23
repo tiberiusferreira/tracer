@@ -1,5 +1,5 @@
 use crate::api::handlers::Severity;
-use crate::api::state::{AppState, Shared};
+use crate::api::state::{AppState, BytesBudgetUsage, ServiceDataPoint, Shared};
 use crate::api::ApiError;
 use crate::{
     MAX_STATS_HISTORY_DATA_COUNT, SINGLE_KEY_VALUE_KEY_CHARS_LIMIT,
@@ -7,11 +7,11 @@ use crate::{
 };
 use api_structs::instance::update::{
     ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, Sampling,
-    TraceFragment,
+    SamplingData, TraceFragment,
 };
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::ui::service::{InstanceDataPoint, ProfileData, TraceHeader};
-use api_structs::{InstanceId, ServiceId};
+use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
+use api_structs::{InstanceId, ServiceId, TraceName};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -25,10 +25,10 @@ use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 pub struct ServiceNotRegisteredError;
 
 #[instrument(skip_all)]
-fn update_instance_data(
+fn update_service_and_instance_data(
     live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceRuntimeData>>,
     exported_service_trace_data: &ExportedServiceTraceData,
-) -> Result<(), ServiceNotRegisteredError> {
+) -> Result<Sampling, ServiceNotRegisteredError> {
     let mut w_lock = live_instances.write();
     let service_data = match w_lock.get_mut(&ServiceId {
         name: exported_service_trace_data
@@ -52,11 +52,9 @@ fn update_instance_data(
         None => return Err(ServiceNotRegisteredError),
         Some(instance) => instance,
     };
-
+    let mut received_bytes_per_trace: HashMap<TraceName, u64> = HashMap::new();
     let mut active_traces = vec![];
     let mut finished_traces = vec![];
-    let mut received_spe = 0;
-    let mut received_trace_bytes = 0;
     let mut received_orphan_event_bytes = 0;
     for e in &exported_service_trace_data.orphan_events {
         received_orphan_event_bytes += e.message.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -66,7 +64,7 @@ fn update_instance_data(
         }
     }
     for trace_frag in exported_service_trace_data.active_trace_fragments.values() {
-        received_spe += trace_frag.new_spans.len() + trace_frag.new_events.len();
+        let mut received_trace_bytes = 0;
         for s in &trace_frag.new_spans {
             received_trace_bytes += s.name.len();
             for (k, v) in &s.key_vals {
@@ -81,12 +79,17 @@ fn update_instance_data(
                 received_trace_bytes += v.len();
             }
         }
+        let entry = received_bytes_per_trace
+            .entry(trace_frag.trace_name.clone())
+            .or_default();
+        *entry += received_trace_bytes as u64;
         let header = TraceHeader {
             trace_id: trace_frag.trace_id,
             trace_name: trace_frag.trace_name.clone(),
             trace_timestamp: trace_frag.trace_timestamp,
             new_warnings: trace_frag.has_warnings(),
             new_errors: trace_frag.has_errors(),
+            fragment_bytes: received_trace_bytes as u64,
             duration: trace_frag.duration_if_closed(&exported_service_trace_data.closed_spans),
         };
         if header.duration.is_some() {
@@ -95,27 +98,88 @@ fn update_instance_data(
             active_traces.push(header);
         }
     }
-    instance.rust_log = exported_service_trace_data.rust_log.clone();
-    if let Some(profile_data) = &exported_service_trace_data.profile_data {
-        instance.profile_data = Some(ProfileData {
-            profile_data_timestamp: now_nanos_u64(),
-            profile_data: profile_data.clone(),
-        });
+    let now_nanos = now_nanos_u64();
+    // updating instance
+    {
+        instance.rust_log = exported_service_trace_data.rust_log.clone();
+        instance.last_seen = std::time::Instant::now();
+        if let Some(profile_data) = &exported_service_trace_data.profile_data {
+            instance.profile_data = Some(ProfileData {
+                profile_data_timestamp: now_nanos_u64(),
+                profile_data: profile_data.clone(),
+            });
+        }
     }
 
-    instance.time_data_points.push_back(InstanceDataPoint {
-        timestamp: now_nanos_u64(),
-        tracer_status: exported_service_trace_data.producer_stats.clone(),
+    let mut last_bytes_budget = service_data
+        .service_data_points
+        .back()
+        .map(|b| b.budget_usage.clone())
+        .unwrap_or_else(|| BytesBudgetUsage::new(60, 10_000));
+    debug!("Previous budget: {last_bytes_budget:?}");
+    last_bytes_budget.update();
+    debug!("Previous budget after update: {last_bytes_budget:?}");
+
+    debug!("Decreasing orphan events budget by {received_orphan_event_bytes}");
+    last_bytes_budget.increase_orphan_events_usage_by(received_orphan_event_bytes as u32);
+    for (trace_name, received_bytes) in &received_bytes_per_trace {
+        debug!("Decreasing {trace_name} budget by {received_bytes}");
+        last_bytes_budget.increase_trace_usage_by(trace_name, *received_bytes as u32);
+    }
+    let remaining_budget = last_bytes_budget;
+    debug!("remaining_budget = {remaining_budget:?}");
+    let new_sampling = Sampling {
+        traces: remaining_budget
+            .traces_usage
+            .iter()
+            .map(|(name, _usage)| {
+                let sampling = if remaining_budget.is_trace_over_budget(name) {
+                    SamplingData {
+                        new_traces_sampling_rate_0_to_1: 0.0,
+                        existing_traces_new_data_sampling_rate_0_to_1: 1.0,
+                    }
+                } else {
+                    SamplingData {
+                        new_traces_sampling_rate_0_to_1: 1.0,
+                        existing_traces_new_data_sampling_rate_0_to_1: 1.0,
+                    }
+                };
+                (name.to_string(), sampling)
+            })
+            .collect::<HashMap<TraceName, SamplingData>>(),
+        orphan_events_sampling_rate_0_to_1: {
+            if remaining_budget.is_orphan_events_over_budget() {
+                0.
+            } else {
+                1.
+            }
+        },
+    };
+    debug!("new_sampling = {new_sampling:?}");
+    let new = ServiceDataPoint {
+        timestamp: now_nanos,
+        instance_id: exported_service_trace_data.instance_id.instance_id,
+        export_buffer_stats: exported_service_trace_data.producer_stats.clone(),
         active_traces,
         finished_traces,
-        received_spe: received_spe as u64,
-        received_trace_bytes: received_trace_bytes as u64,
-        received_orphan_event_bytes: received_orphan_event_bytes as u64,
-    });
-    while instance.time_data_points.len() > MAX_STATS_HISTORY_DATA_COUNT {
-        instance.time_data_points.pop_front();
+        orphan_events: exported_service_trace_data
+            .orphan_events
+            .iter()
+            .map(|e| OrphanEvent {
+                timestamp: e.timestamp,
+                severity: e.severity,
+                message: e.message.clone(),
+                key_vals: e.key_vals.clone(),
+            })
+            .collect(),
+        budget_usage: remaining_budget,
+    };
+    service_data.service_data_points.push_back(new);
+    while service_data.service_data_points.len() > MAX_STATS_HISTORY_DATA_COUNT {
+        service_data.service_data_points.pop_front();
     }
-    Ok(())
+    trace!("{:?}", new_sampling);
+    Ok(new_sampling)
 }
 
 /// We should insert a new trace if it doesn't already exist
@@ -553,7 +617,7 @@ pub async fn insert_orphan_events(
         timestamps.push(event.timestamp as i64);
         envs.push(instance_id.service_id.env.to_string());
         service_names.push(instance_id.service_id.name.as_str());
-        severities.push(Severity::from(event.level));
+        severities.push(Severity::from(event.severity));
         message.push(event.message.clone());
     }
     let orphan_events_db_ids = match sqlx::query_scalar!(
@@ -721,13 +785,14 @@ pub async fn instance_update_post(
             }
         })?;
     let con = app_state.con;
-    update_instance_data(&app_state.services_runtime_stats, &trace_data).map_err(|_e| {
-        error!("Tried to connect, but was not registered!");
-        ApiError {
-            code: StatusCode::BAD_REQUEST,
-            message: "Instance not registered by SSE".to_string(),
-        }
-    })?;
+    let sampling = update_service_and_instance_data(&app_state.services_runtime_stats, &trace_data)
+        .map_err(|_e| {
+            error!("Tried to update instance, but was not registered!");
+            ApiError {
+                code: StatusCode::BAD_REQUEST,
+                message: "Instance not registered by SSE".to_string(),
+            }
+        })?;
     let instance_id = trace_data.instance_id;
     info!(
         "Got {} new fragments",
@@ -749,10 +814,7 @@ pub async fn instance_update_post(
     truncate_orphan_events_and_kv_if_needed(&mut orphan_events);
     insert_orphan_events(&con, &instance_id, &orphan_events).await;
 
-    Ok(Json(Sampling {
-        traces: Default::default(),
-        orphan_events: 0.,
-    }))
+    Ok(Json(sampling))
 }
 
 #[instrument(skip_all)]

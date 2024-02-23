@@ -1,6 +1,5 @@
 use crate::sampling::{Sampler, TracerSampler};
 use crate::{print_if_dbg, NewSpan, NewSpanEvent, SubscriberEvent, TracerTracingSubscriber};
-use api_structs::instance::update::SamplerLimits;
 use api_structs::instance::update::{ClosedSpan, NewOrphanEvent, Severity, SpanEventCount};
 use api_structs::time_conversion::now_nanos_u64;
 use std::collections::HashMap;
@@ -16,11 +15,8 @@ use tracing_subscriber::Layer;
 pub const TRACER_RENAME_SPAN_TO_KEY: &str = "tracer_span_rename_to";
 
 impl TracerTracingSubscriber {
-    pub fn new(
-        sampler_limits: SamplerLimits,
-        subscriber_event_sender: Sender<SubscriberEvent>,
-    ) -> Self {
-        let sampler = Arc::new(parking_lot::RwLock::new(TracerSampler::new(sampler_limits)));
+    pub fn new(subscriber_event_sender: Sender<SubscriberEvent>) -> Self {
+        let sampler = Arc::new(parking_lot::RwLock::new(TracerSampler::new()));
         let tracer = Self {
             sampler,
             subscriber_event_sender,
@@ -198,9 +194,9 @@ impl TracerTracingSubscriber {
                     context,
                     format!("Send failed for event {:#?}", subscriber_event),
                 );
-                self.sampler
-                    .write()
-                    .register_soe_dropped_due_to_full_export_buffer();
+                // self.sampler
+                //     .write()
+                //     .register_soe_dropped_due_to_full_export_buffer();
             }
         }
     }
@@ -313,7 +309,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                         NewOrphanEvent {
                             message: event_data.message,
                             timestamp: event_data.timestamp,
-                            level: event_data.level,
+                            severity: event_data.level,
                             key_vals: event_data.key_vals,
                         },
                     ));

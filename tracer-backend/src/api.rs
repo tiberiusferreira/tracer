@@ -1,6 +1,6 @@
 use crate::api::state::AppState;
 
-use api_structs::instance::update::ProducerStats;
+use api_structs::instance::update::ExportBufferStats;
 use api_structs::{InstanceId, ServiceId};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -21,7 +21,7 @@ pub struct LiveServiceInstance {
     pub id: InstanceId,
     pub last_seen_timestamp: u64,
     pub filters: String,
-    pub tracer_stats: ProducerStats,
+    pub tracer_stats: ExportBufferStats,
 }
 
 #[instrument(skip_all)]

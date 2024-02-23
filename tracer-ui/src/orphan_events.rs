@@ -38,14 +38,17 @@ impl Default for UserSearchInput {
         }
     }
 }
+
 #[component]
 pub fn OrphanEvents() -> impl IntoView {
     let (user_search_input_r, user_search_input_w) = create_signal(UserSearchInput::default());
-    let (service_name_list_r, service_name_list_w) =
-        create_signal(Option::<Vec<ServiceName>>::None);
+    let (service_name_list_r, service_name_list_w) = create_signal(Option::<Vec<ServiceId>>::None);
+    let (selected_service_r, selected_service_w) = create_signal(Option::<ServiceId>::None);
     let (logs_r, logs_w) = leptos::create_signal(Option::<Vec<OrphanEvent>>::None);
-    let _api_service_names_request =
-        create_local_resource(move || (), move |_| get_service_list(service_name_list_w));
+    let _api_service_names_request = create_local_resource(
+        move || (),
+        move |_| get_service_list(service_name_list_w, selected_service_w),
+    );
     let _api_service_logs_request = create_local_resource(
         move || user_search_input_r.get(),
         move |user_search_input| get_logs(logs_w, user_search_input),
@@ -62,14 +65,14 @@ pub fn OrphanEvents() -> impl IntoView {
                 }
             }
             Some(logs) => {
-                let logs_view = logs.iter().map(|l|{
+                let logs_view = logs.iter().map(|l| {
                     let date = printable_local_date_ms(l.timestamp);
                     let mut key_vals = format_kv(&l.key_vals);
-                    if !key_vals.is_empty(){
-                            key_vals.push('\n');
+                    if !key_vals.is_empty() {
+                        key_vals.push('\n');
                     }
                     let event_msg = format!("{date} - {key_vals}{} ", l.message.as_ref().unwrap_or(&"empty".to_string()));
-                    let color = match l.severity{
+                    let color = match l.severity {
                         Severity::Warn => {
                             "yellow"
                         }
@@ -80,7 +83,7 @@ pub fn OrphanEvents() -> impl IntoView {
                             "white"
                         }
                     };
-                    view!{
+                    view! {
                         <>
                             <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
                                 <p class="trace-details__event" style={format!("white-space: pre-wrap; color: {color}")}>{event_msg}</p>
@@ -208,6 +211,7 @@ pub fn OrphanEvents() -> impl IntoView {
                         move || {
                             let service_name_list = service_name_list_r.get().unwrap_or_default();
                             let spans: Vec<_> = service_name_list.iter().map(|s|{
+                             let s = s.name.clone();
                                 view!{
                                     <option value={s}></option>
                                 }
@@ -224,47 +228,40 @@ pub fn OrphanEvents() -> impl IntoView {
     }
 }
 
-async fn get_service_list(w: WriteSignal<Option<Vec<ServiceName>>>) {
-    log!("Sending get_service_list request");
-    let service_list: Vec<ServiceName> = gloo_net::http::Request::get(&format!(
-        "{}/api/logs/service_names",
+async fn get_service_list(
+    service_list_w: WriteSignal<Option<Vec<ServiceId>>>,
+    selected_service_w: WriteSignal<Option<ServiceId>>,
+) {
+    crate::services::get_services_list(service_list_w, selected_service_w).await;
+}
+
+async fn get_logs(w: WriteSignal<Option<Vec<OrphanEvent>>>, user_search_input: UserSearchInput) {
+    log!("Log search: {:#?}", user_search_input);
+    let logs: Vec<OrphanEvent> = gloo_net::http::Request::get(&format!(
+        "{}/api/ui/orphan_events",
         API_SERVER_URL_NO_TRAILING_SLASH
     ))
+    .query([
+        ("name", user_search_input.search_for.service_id.name),
+        (
+            "env",
+            user_search_input.search_for.service_id.env.to_string(),
+        ),
+        (
+            "from_date_unix",
+            user_search_input.search_for.from_date_unix.to_string(),
+        ),
+        (
+            "to_date_unix",
+            user_search_input.search_for.to_date_unix.to_string(),
+        ),
+    ])
     .send()
     .await
     .unwrap()
     .json()
     .await
     .unwrap();
-    log!("Got logs service list back: {:?}", service_list);
-    w.set(Some(service_list));
-}
-
-async fn get_logs(w: WriteSignal<Option<Vec<OrphanEvent>>>, user_search_input: UserSearchInput) {
-    log!("Log search: {:#?}", user_search_input);
-    let logs: Vec<OrphanEvent> =
-        gloo_net::http::Request::get(&format!("{}/api/logs", API_SERVER_URL_NO_TRAILING_SLASH))
-            .query([
-                (
-                    "env",
-                    user_search_input.search_for.service_id.env.to_string(),
-                ),
-                ("service_name", user_search_input.search_for.service_id.name),
-                (
-                    "from_date_unix",
-                    user_search_input.search_for.from_date_unix.to_string(),
-                ),
-                (
-                    "to_date_unix",
-                    user_search_input.search_for.to_date_unix.to_string(),
-                ),
-            ])
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
     log!("Got logs back: {logs:#?}");
     w.set(Some(logs));
 }

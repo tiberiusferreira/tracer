@@ -1,4 +1,4 @@
-use crate::api::state::AppState;
+use crate::api::state::{AppState, ServiceRuntimeData};
 use crate::api::{state, ApiError, LiveServiceInstance};
 use api_structs::{InstanceId, ServiceId};
 use axum::extract::State;
@@ -7,10 +7,12 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use tokio::sync::mpsc::Receiver;
 use tracing::{info, instrument, trace};
+
 #[derive(Debug, Clone)]
 pub struct ChangeFilterInternalRequest {
     pub filters: String,
 }
+
 #[derive(Clone)]
 pub struct LiveInstances {
     pub trace_data:
@@ -92,8 +94,9 @@ pub(crate) async fn instance_connect_get(
         let mut w_lock = app_state.services_runtime_stats.write();
         w_lock.insert(
             instance_id.service_id.clone(),
-            state::ServiceRuntimeData {
+            ServiceRuntimeData {
                 last_time_checked_for_alerts: chrono::Utc::now().naive_utc(),
+                service_data_points: VecDeque::new(),
                 instances: HashMap::new(),
             },
         );
@@ -109,9 +112,9 @@ pub(crate) async fn instance_connect_get(
         state::InstanceState {
             id: instance_id.instance_id,
             created_at: Instant::now(),
+            last_seen: Instant::now(),
             rust_log: "unknown".to_string(),
             profile_data: None,
-            time_data_points: VecDeque::new(),
             see_handle,
         },
     );

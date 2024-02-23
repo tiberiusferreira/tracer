@@ -3,7 +3,9 @@
 //! but also exports traces to a collector
 //!
 
-use api_structs::instance::update::{ExportedServiceTraceData, SpanEventCount, TraceFragment};
+use api_structs::instance::update::{
+    ExportedServiceTraceData, Sampling, SpanEventCount, TraceFragment,
+};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::io::Read;
@@ -56,11 +58,11 @@ pub struct TracerTracingSubscriber {
     subscriber_event_sender: Sender<SubscriberEvent>,
 }
 
-use crate::sampling::{Sampler, TracerSampler};
+use crate::sampling::TracerSampler;
 
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use api_structs::instance::update::{ProducerStats, SamplerLimits};
+use api_structs::instance::update::{ExportBufferStats, SamplerLimits};
 pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 use rand::random;
 use serde::{Deserialize, Serialize};
@@ -212,7 +214,7 @@ impl ExportDataContainers {
     pub fn new(
         instance_id: InstanceId,
         filters: String,
-        tracer_stats: ProducerStats,
+        tracer_stats: ExportBufferStats,
         active_trace_fragments: HashMap<u64, TraceFragment>,
         profile_data: Option<Vec<u8>>,
     ) -> Self {
@@ -400,8 +402,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
 
     let (subscriber_event_sender, mut subscriber_event_receiver) =
         tokio::sync::mpsc::channel::<SubscriberEvent>(spe_buffer_len);
-    let tracer =
-        TracerTracingSubscriber::new(config.sampler_limits.clone(), subscriber_event_sender);
+    let tracer = TracerTracingSubscriber::new(subscriber_event_sender);
     let tracer_sampler = Arc::clone(&tracer.sampler);
 
     let registry = Registry::default()
@@ -462,13 +463,11 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                 .expect("subscriber to exist");
             print_if_dbg(context, "Checking for new events");
             // we need this because events come in reverse order
-            let mut events = VecDeque::new();
+            let mut subscriber_events = VecDeque::new();
             while let Ok(event) = subscriber_event_receiver.try_recv() {
-                events.push_back(event);
+                subscriber_events.push_back(event);
             }
-            let mut tracer_stats = tracer_sampler.read().get_tracer_stats();
-            tracer_stats.spe_buffer_capacity = spe_buffer_capacity;
-            tracer_stats.spe_buffer_usage = events.len() as u64;
+
             let should_export_profile = (time_last_profile_export.elapsed()
                 > min_wait_duration_between_profile_exports)
                 || flush_request.is_some();
@@ -488,14 +487,20 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
             let mut export_data = ExportDataContainers::new(
                 instance_id.clone(),
                 current_filters,
-                tracer_stats,
+                ExportBufferStats {
+                    export_buffer_capacity: spe_buffer_capacity,
+                    export_buffer_usage: subscriber_events.len() as u64,
+                },
                 active_traces.clone(),
                 profile_data,
             );
 
-            print_if_dbg(context, format!("New events count: {}", events.len()));
-            print_if_dbg(context, format!("Event List: {:#?}", events));
-            for e in events {
+            print_if_dbg(
+                context,
+                format!("New events count: {}", subscriber_events.len()),
+            );
+            print_if_dbg(context, format!("Event List: {:#?}", subscriber_events));
+            for e in subscriber_events {
                 export_data.add_event(e);
             }
             print_if_dbg(context, format!("Export data: {:#?}", export_data));
@@ -553,8 +558,17 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
                         context,
                         format!("Sent events and got success response: {response:#?}"),
                     );
-                    let sampling_rate: Result<api_structs::instance::update::Sampling, _> =
-                        response.json().await;
+                    match response.json::<Sampling>().await {
+                        Ok(new_sampling) => {
+                            tracer_sampler.write().current_trace_sampling = new_sampling;
+                        }
+                        Err(error) => {
+                            let err = format!(
+                                "Sent events, but got success code, but not json response expected: {:?}", error
+                            );
+                            println!("{} - {}", context, err);
+                        }
+                    }
                     Ok(())
                 }
                 Ok(response) => {
