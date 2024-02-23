@@ -1,4 +1,5 @@
 use crate::datetime::secs_since;
+use crate::orphan_events::orphan_events_to_html;
 use crate::{PAGE_ROOT_URL, TRACE_CHUNK_PATH};
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::service::{ServiceOverview, TraceHeader};
@@ -7,7 +8,7 @@ use leptos::html::Div;
 use leptos::ReadSignal;
 use leptos::{view, SignalGet};
 
-pub fn active_traces_table_html(
+pub fn get_html(
     active_trace_graph_click_event_on_timestamp_r: ReadSignal<Option<u64>>,
     service: ServiceOverview,
 ) -> leptos::HtmlElement<Div> {
@@ -26,9 +27,11 @@ pub fn active_traces_table_html(
         }
         let mut active_traces = vec![];
         let mut finished_traces = vec![];
+        let mut orphan_events = vec![];
         for d in &service.service_data_over_time {
             if (timestamp - window_nanos) < d.timestamp && d.timestamp < (timestamp + window_nanos)
             {
+                orphan_events.extend_from_slice(&d.orphan_events);
                 active_traces.extend_from_slice(
                     &d.active_traces
                         .iter()
@@ -116,11 +119,12 @@ pub fn active_traces_table_html(
                 </tr>
             });
         }
+        let orphan_events_html = orphan_events_to_html(&orphan_events, true);
 
         view! {
             <>
-             <p style="text-align: center">{format!("Active Traces {:?} sec ago (+- 3s)   ", secs_since(timestamp))}
-             </p>
+                <div style="max-height: 450px; overflow: auto; padding: 20px; color: white">
+                    <p style="text-align: center">{format!("Active Traces {:?} sec ago (+- 3s)   ", secs_since(timestamp))}</p>
                     <table class="trace-table">
                         <tr class="row-container">
                             <th style="text-align: center" colspan="6" class="trace-table__cell">
@@ -155,6 +159,9 @@ pub fn active_traces_table_html(
                         </tr>
                         {finished_trace_els}
                     </table>
+                </div>
+                {orphan_events_html}
+
             </>
         }
     };

@@ -1,13 +1,17 @@
 use leptos::*;
 use tracing::Level;
+
 mod datetime;
 mod grid;
 mod orphan_events;
 mod services;
 mod trace;
+
+use crate::datetime::set_page_load_timestamp;
 use leptos_router::*;
 use tracing_subscriber::fmt;
 use tracing_subscriber_wasm::MakeConsoleWriter;
+
 const API_SERVER_URL_NO_TRAILING_SLASH: &str = env!("API_SERVER_URL_NO_TRAILING_SLASH");
 pub const PAGE_ROOT_URL: &str = "/";
 pub const TRACE_BROWSER_PATH: &str = "trace/browser";
@@ -44,23 +48,30 @@ pub fn App() -> impl IntoView {
                         <Route
                             path=PAGE_ROOT_URL
                               view={
-                                move || view! {
-                                    <services::Services/>
+                                move || {
+                                    set_page_load_timestamp();
+                                    view! {
+                                        <services::Services/>
+                                    }
                                 }
                               }
                             />
                         <Route
                               path=format!("{PAGE_ROOT_URL}{TRACE_CHUNK_PATH}")
                               view={
-                                    move || view! {
+                                move || {
+                                    set_page_load_timestamp();
+                                    view! {
                                         <trace::TraceChunk/>
                                     }
-                                }
+                                 }
+                              }
                             />
                         <Route
                               path=format!("{PAGE_ROOT_URL}{TRACE_BROWSER_PATH}")
                               view={
                                     move ||{
+                                        set_page_load_timestamp();
                                         view! {
                                               <grid::TraceBrowser/>
                                         }
@@ -70,8 +81,11 @@ pub fn App() -> impl IntoView {
                         <Route
                               path=format!("{PAGE_ROOT_URL}{ORPHAN_EVENTS_PATH}", )
                               view={
-                                move || view! {
-                                    <orphan_events::OrphanEvents/>
+                                move || {
+                                    set_page_load_timestamp();
+                                    view! {
+                                        <orphan_events::OrphanEvents/>
+                                    }
                                 }
                               }
                             />

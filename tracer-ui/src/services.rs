@@ -11,12 +11,13 @@ use leptos::{
 };
 use std::collections::HashSet;
 
-mod active_traces_table;
 mod alerts;
 mod graph_creation;
 mod graphs;
+mod service_snapshot;
 
 use crate::datetime::secs_since;
+use crate::orphan_events::orphan_events_to_html;
 use crate::services::graphs::service_graphs::budget_usage::create_budget_usage_kbytes_graph;
 use api_structs::ui::service::alerts::AlertConfig;
 use tracing::{info, instrument};
@@ -346,13 +347,14 @@ fn single_service_view(service: ServiceOverview) -> leptos::HtmlElement<Div> {
 
     let alerts_html = alerts::alerts_html(service.alert_config.clone());
 
-    let active_services_html =
-        active_traces_table::active_traces_table_html(timestamp_to_show_details_for_r, service);
+    let service_snapshot_html =
+        service_snapshot::get_html(timestamp_to_show_details_for_r, service.clone());
+
     view! {
         <div>
             <h2 style="text-align: center">{format!("Service: {service_name} at {env}")}</h2>
                 {instance_specific_data_els}
-                {active_services_html}
+                {service_snapshot_html}
                 {trace_details_els}
                 <p style="text-align: center">{"Service Data:"}</p>
                 <div style="display: flex; flex-wrap: wrap; justify-content: center; margin: 5px 0 5px 0">

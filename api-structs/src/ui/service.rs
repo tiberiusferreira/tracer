@@ -27,7 +27,7 @@ pub struct ServiceDataOverTime {
 }
 
 impl ServiceDataOverTime {
-    pub fn active_and_finished_iter(&self) -> impl Iterator<Item=&TraceHeader> {
+    pub fn active_and_finished_iter(&self) -> impl Iterator<Item = &TraceHeader> {
         self.active_traces.iter().chain(self.finished_traces.iter())
     }
 }

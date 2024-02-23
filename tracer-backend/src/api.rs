@@ -9,6 +9,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
 
@@ -34,7 +35,16 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     let serve_ui = tower_http::services::ServeDir::new("./tracer-ui/dist").fallback(
         tower_http::services::ServeFile::new("./tracer-ui/dist/index.html"),
     );
-
+    tokio::spawn(async move {
+        loop {
+            tracing::debug!(all_good = true, "Sample info log");
+            info!(all_good = true, "Sample info log");
+            info!("Sample info log 2");
+            tracing::warn!(all_good = true, "Sample info log");
+            error!(all_good = true, "Sample info log");
+            tokio::time::sleep(Duration::from_secs_f32(0.3)).await;
+        }
+    });
     // List, Overview and Manage Services
     let service_routes = axum::Router::new()
         .route(

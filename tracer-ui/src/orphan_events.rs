@@ -8,6 +8,7 @@ use api_structs::{Env, ServiceId, Severity};
 use chrono::{Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::Event;
+use leptos::html::Div;
 use leptos::logging::log;
 use leptos::*;
 use leptos::{component, SignalGet, SignalSet, WriteSignal};
@@ -29,13 +30,56 @@ impl Default for UserSearchInput {
                 from_date_unix: u64::try_from(
                     (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
                 )
-                .expect("timestamp to fit u64"),
+                    .expect("timestamp to fit u64"),
                 to_date_unix: u64::try_from(
                     (now + Duration::days(1)).timestamp_nanos_opt().unwrap(),
                 )
-                .expect("timestamp to fit u64"),
+                    .expect("timestamp to fit u64"),
             },
         }
+    }
+}
+
+pub fn orphan_events_to_html(
+    orphan_events: &[OrphanEvent],
+    limit_height: bool,
+) -> HtmlElement<Div> {
+    let logs_view = orphan_events
+        .iter()
+        .map(|l| {
+            let date = printable_local_date_ms(l.timestamp);
+            let mut key_vals = format_kv(&l.key_vals);
+            if !key_vals.is_empty() {
+                key_vals.push('\n');
+            }
+            let event_msg = format!(
+                "{date} {} {key_vals}",
+                l.message.as_ref().unwrap_or(&"empty".to_string())
+            );
+            let color = match l.severity {
+                Severity::Warn => "yellow",
+                Severity::Error => "red",
+                _ => "white",
+            };
+            view! {
+                <>
+                    <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
+                        <p style={format!("white-space: pre-wrap; margin: 3px 0px 3px 0px; color: {color}")}>{event_msg}</p>
+                    </div>
+                </>
+            }
+        })
+        .collect_view();
+    let limit_height_style = if limit_height {
+        "max-height: 300px; overflow: auto;"
+    } else {
+        ""
+    };
+    view! {
+        <div style=format!("{limit_height_style} padding: 20px; color: white")>
+            <p style="text-align: center">Orphan Events:</p>
+           {logs_view}
+        </div>
     }
 }
 
@@ -64,39 +108,7 @@ pub fn OrphanEvents() -> impl IntoView {
                     </div>
                 }
             }
-            Some(logs) => {
-                let logs_view = logs.iter().map(|l| {
-                    let date = printable_local_date_ms(l.timestamp);
-                    let mut key_vals = format_kv(&l.key_vals);
-                    if !key_vals.is_empty() {
-                        key_vals.push('\n');
-                    }
-                    let event_msg = format!("{date} - {key_vals}{} ", l.message.as_ref().unwrap_or(&"empty".to_string()));
-                    let color = match l.severity {
-                        Severity::Warn => {
-                            "yellow"
-                        }
-                        Severity::Error => {
-                            "red"
-                        }
-                        _ => {
-                            "white"
-                        }
-                    };
-                    view! {
-                        <>
-                            <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
-                                <p class="trace-details__event" style={format!("white-space: pre-wrap; color: {color}")}>{event_msg}</p>
-                            </div>
-                        </>
-                    }
-                }).collect_view();
-                view! {
-                    <div style="padding: 20px; color: white">
-                       {logs_view}
-                    </div>
-                }
-            }
+            Some(orphan_events) => orphan_events_to_html(&orphan_events, false),
         }
     };
 
@@ -111,7 +123,7 @@ pub fn OrphanEvents() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                .unwrap(),
+                    .unwrap(),
                 offset,
             )
         })
@@ -132,7 +144,7 @@ pub fn OrphanEvents() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                .unwrap(),
+                    .unwrap(),
                 offset,
             )
         })
@@ -241,27 +253,27 @@ async fn get_logs(w: WriteSignal<Option<Vec<OrphanEvent>>>, user_search_input: U
         "{}/api/ui/orphan_events",
         API_SERVER_URL_NO_TRAILING_SLASH
     ))
-    .query([
-        ("name", user_search_input.search_for.service_id.name),
-        (
-            "env",
-            user_search_input.search_for.service_id.env.to_string(),
-        ),
-        (
-            "from_date_unix",
-            user_search_input.search_for.from_date_unix.to_string(),
-        ),
-        (
-            "to_date_unix",
-            user_search_input.search_for.to_date_unix.to_string(),
-        ),
-    ])
-    .send()
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
+        .query([
+            ("name", user_search_input.search_for.service_id.name),
+            (
+                "env",
+                user_search_input.search_for.service_id.env.to_string(),
+            ),
+            (
+                "from_date_unix",
+                user_search_input.search_for.from_date_unix.to_string(),
+            ),
+            (
+                "to_date_unix",
+                user_search_input.search_for.to_date_unix.to_string(),
+            ),
+        ])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     log!("Got logs back: {logs:#?}");
     w.set(Some(logs));
 }

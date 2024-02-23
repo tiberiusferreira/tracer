@@ -138,6 +138,7 @@ struct ApiTraceData {
     chunk_id: TraceChunkId,
     spans: Vec<Span>,
 }
+
 #[component]
 pub fn TraceChunk() -> impl IntoView {
     let query_parameters = leptos_router::use_query_map().get();
@@ -231,14 +232,14 @@ pub fn TraceChunk() -> impl IntoView {
                     .zip(chunks.iter().skip(1))
                     .enumerate()
                     .map(|(idx, (start, end))| {
-                        let is_current = current_chunk_id.as_ref().map(|ct| ct.start_timestamp==*start && ct.end_timestamp==*end).unwrap_or(false);
+                        let is_current = current_chunk_id.as_ref().map(|ct| ct.start_timestamp == *start && ct.end_timestamp == *end).unwrap_or(false);
                         let style = if is_current {
                             "margin: 5px; color: white".to_string()
-                        }else{
+                        } else {
                             "margin: 5px".to_string()
                         };
                         let dates = format!("{} - {}", printable_local_date(*start), printable_local_date(*end));
-                        view!{
+                        view! {
                             <>
                                 <a style={style} target="_self" href={format!("{PAGE_ROOT_URL}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}&end_timestamp={}", trace_id.instance_id.service_id.env, trace_id.instance_id.service_id.name, trace_id.instance_id.instance_id, trace_id.trace_id, start, end)}>{format!("{} - {dates}", idx+1)}</a>
                             <>
@@ -299,14 +300,13 @@ async fn get_single_trace_chunk_list(
         instance_id.service_id.name,
         instance_id.instance_id,
         trace_id,
-
     ))
-    .send()
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     log!("Got back");
     if current_chunk_r.get().is_none() {
         if chunks.len() == 1 {
@@ -326,6 +326,7 @@ async fn get_single_trace_chunk_list(
     }
     w.set(Some(chunks));
 }
+
 async fn get_single_trace(
     SingleChunkTraceQuery {
         trace_id: TraceId {
@@ -346,7 +347,7 @@ async fn get_single_trace(
         instance_id.service_id.name,
         instance_id.instance_id,
         trace_id,
-    ))   .send()
+    )).send()
         .await
         .unwrap()
         .json()
@@ -433,7 +434,7 @@ fn create_html_span(
     let events: Vec<_> = ordered_events
         .iter()
         .map(|e| {
-            let color = match e.severity{
+            let color = match e.severity {
                 Severity::Warn => {
                     "yellow"
                 }
@@ -451,7 +452,7 @@ fn create_html_span(
             let event_nanos_after_trace_start = e.timestamp
                 .checked_sub(start_timestamp_nanos).unwrap();
             let event_percentage_into_trace_duration =
-                100.* event_nanos_after_trace_start as f64/ max_duration as f64;
+                100. * event_nanos_after_trace_start as f64 / max_duration as f64;
             // don't got over 99.6 because we need to display the character itself too
             let event_percentage_into_trace_duration = event_percentage_into_trace_duration.min(99.6);
             view! {
@@ -484,14 +485,8 @@ fn create_html_span(
 pub fn format_kv(kv: &HashMap<String, String>) -> String {
     let span_key_vals = kv
         .iter()
-        .map(|(k, v)| format!("{k}=>{v}"))
+        .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<String>>()
-        .join("\n");
-
-    let span_key_vals = if !span_key_vals.is_empty() {
-        format!("\n{}", span_key_vals)
-    } else {
-        "".to_string()
-    };
+        .join(" ");
     span_key_vals
 }
