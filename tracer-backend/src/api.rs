@@ -42,7 +42,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             info!("Sample info log 2");
             tracing::warn!(all_good = true, "Sample info log");
             error!(all_good = true, "Sample info log");
-            tokio::time::sleep(Duration::from_secs_f32(0.3)).await;
+            tokio::time::sleep(Duration::from_secs_f32(2.)).await;
         }
     });
     // List, Overview and Manage Services

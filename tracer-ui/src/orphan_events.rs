@@ -30,11 +30,11 @@ impl Default for UserSearchInput {
                 from_date_unix: u64::try_from(
                     (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
                 )
-                    .expect("timestamp to fit u64"),
+                .expect("timestamp to fit u64"),
                 to_date_unix: u64::try_from(
                     (now + Duration::days(1)).timestamp_nanos_opt().unwrap(),
                 )
-                    .expect("timestamp to fit u64"),
+                .expect("timestamp to fit u64"),
             },
         }
     }
@@ -123,7 +123,7 @@ pub fn OrphanEvents() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                    .unwrap(),
+                .unwrap(),
                 offset,
             )
         })
@@ -144,7 +144,7 @@ pub fn OrphanEvents() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                    .unwrap(),
+                .unwrap(),
                 offset,
             )
         })
@@ -253,27 +253,27 @@ async fn get_logs(w: WriteSignal<Option<Vec<OrphanEvent>>>, user_search_input: U
         "{}/api/ui/orphan_events",
         API_SERVER_URL_NO_TRAILING_SLASH
     ))
-        .query([
-            ("name", user_search_input.search_for.service_id.name),
-            (
-                "env",
-                user_search_input.search_for.service_id.env.to_string(),
-            ),
-            (
-                "from_date_unix",
-                user_search_input.search_for.from_date_unix.to_string(),
-            ),
-            (
-                "to_date_unix",
-                user_search_input.search_for.to_date_unix.to_string(),
-            ),
-        ])
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    .query([
+        ("name", user_search_input.search_for.service_id.name),
+        (
+            "env",
+            user_search_input.search_for.service_id.env.to_string(),
+        ),
+        (
+            "from_date_unix",
+            user_search_input.search_for.from_date_unix.to_string(),
+        ),
+        (
+            "to_date_unix",
+            user_search_input.search_for.to_date_unix.to_string(),
+        ),
+    ])
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
     log!("Got logs back: {logs:#?}");
     w.set(Some(logs));
 }

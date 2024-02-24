@@ -2,7 +2,8 @@ use crate::datetime::secs_since;
 use charming::component::{Axis, DataZoom, DataZoomType, Legend, LegendType};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
-    AxisPointer, AxisPointerAxis, AxisType, NameLocation, TextStyle, Tooltip, Trigger, TriggerOn,
+    AxisPointer, AxisPointerAxis, AxisType, Color, ItemStyle, NameLocation, TextStyle, Tooltip,
+    Trigger, TriggerOn,
 };
 use charming::series::Scatter;
 use charming::{Chart, WasmRenderer};
@@ -87,6 +88,12 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                         .start_value(0.)
                         .end_value(5.),
                 )
+                .color(vec![
+                    Color::Value("rgb(255,255, 255)".to_string()),
+                    Color::Value("rgb(255, 20, 20)".to_string()),
+                    Color::Value("rgb(20, 255, 20)".to_string()),
+                    Color::Value("rgb(20, 20, 255)".to_string()),
+                ])
                 .legend(
                     Legend::new()
                         .data(
@@ -108,6 +115,7 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 chart = chart.series(
                     Scatter::new()
                         .symbol_size(5.)
+                        .item_style(ItemStyle::new().opacity(0.9))
                         .data(
                             series
                                 .x_values

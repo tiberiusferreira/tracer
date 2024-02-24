@@ -51,11 +51,11 @@ impl Default for UserSearchInput {
                 from_date_unix: u64::try_from(
                     (now - Duration::hours(1)).timestamp_nanos_opt().unwrap(),
                 )
-                    .expect("timestamp to fit u64"),
+                .expect("timestamp to fit u64"),
                 to_date_unix: u64::try_from(
                     (now + Duration::days(1)).timestamp_nanos_opt().unwrap(),
                 )
-                    .expect("timestamp to fit u64"),
+                .expect("timestamp to fit u64"),
                 only_errors: false,
             },
         }
@@ -136,10 +136,10 @@ fn debounced_api<S, T, Fu>(
     source: impl Fn() -> S + 'static,
     fetcher: impl Fn(S) -> Fu + 'static,
 ) -> ReadSignal<RequestState>
-    where
-        S: PartialEq + Clone + 'static,
-        T: 'static,
-        Fu: std::future::Future<Output=T> + 'static,
+where
+    S: PartialEq + Clone + 'static,
+    T: 'static,
+    Fu: std::future::Future<Output = T> + 'static,
 {
     let (request_state_r, request_state_w) = create_signal(RequestState::Idle);
     let task_ref: StoredValue<Option<Resource<S, ()>>> = store_value(None);
@@ -286,7 +286,7 @@ pub fn TraceBrowser() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                    .unwrap(),
+                .unwrap(),
                 offset,
             )
         })
@@ -300,7 +300,7 @@ pub fn TraceBrowser() -> impl IntoView {
                     timestamp / 1_000_000_000,
                     (timestamp % 1_000_000_000) as u32,
                 )
-                    .unwrap(),
+                .unwrap(),
                 offset,
             )
         })

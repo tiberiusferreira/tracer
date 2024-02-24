@@ -205,8 +205,8 @@ async fn get_db_trace(
         instance_id.instance_id as i64,
         trace_id as i64
     )
-        .fetch_optional(con)
-        .await?;
+    .fetch_optional(con)
+    .await?;
     return match raw {
         None => Ok(None),
         Some(raw) => Ok(Some(TraceDuration {
@@ -276,8 +276,8 @@ async fn check_span_ids_exist_in_db_returning_missing(
         instance_id.instance_id,
         as_vec.as_slice()
     )
-        .fetch_all(con)
-        .await?;
+    .fetch_all(con)
+    .await?;
     debug!("Got {} back", res.len());
     trace!("Span ids from DB {:?}", res);
     let existing_ids: HashSet<u64> = res.iter().map(|id| *id as u64).collect();
@@ -456,7 +456,7 @@ pub async fn update_trace_with_new_fragment(
         fragment.trace_id,
         &instance_id,
     )
-        .await?;
+    .await?;
     debug!("{} lost span ids", lost_span_ids.len());
     trace!("Lost span ids: {:?}", lost_span_ids);
     relocate_span_references_from_lost_spans_to_root(
@@ -485,7 +485,7 @@ pub async fn update_trace_with_new_fragment(
             &fragment.trace_name,
             fragment.trace_timestamp,
         )
-            .await?;
+        .await?;
     }
     insert_spans(
         &mut transaction,
@@ -494,7 +494,7 @@ pub async fn update_trace_with_new_fragment(
         &instance_id,
         &relocated_span_ids,
     )
-        .await?;
+    .await?;
     crate::api::database::insert_events(
         &mut transaction,
         &fragment.new_events,
@@ -502,7 +502,7 @@ pub async fn update_trace_with_new_fragment(
         &instance_id,
         &relocated_event_vec_indexes,
     )
-        .await?;
+    .await?;
     let original_span_count = fragment.spe_count.span_count as u64;
     let original_event_count = fragment.spe_count.event_count as u64;
     let stored_span_count_increase = fragment.new_spans.len() as u64;
@@ -546,7 +546,7 @@ has_errors={has_errors}",
         warnings_count_increase,
         has_errors,
     )
-        .await?;
+    .await?;
     transaction.commit().await?;
     Ok(())
 }
@@ -563,8 +563,8 @@ async fn update_closed_spans(con: &PgPool, instance_id: &InstanceId, closed_span
             span.trace_id as i64,
             span.span_id as i64,
         )
-            .execute(con)
-            .await;
+        .execute(con)
+        .await;
         match res {
             Ok(res) => {
                 debug!("Updated ({} rows)", res.rows_affected());
@@ -581,8 +581,8 @@ async fn update_closed_spans(con: &PgPool, instance_id: &InstanceId, closed_span
                 instance_id.instance_id,
                 span.trace_id as i64
             )
-                .execute(con)
-                .await;
+            .execute(con)
+            .await;
             match res {
                 Ok(res) => {
                     debug!("Updated ({} rows)", res.rows_affected());
@@ -854,8 +854,8 @@ async fn update_trace_header(
         warnings_count_increase as i64 as _,
         has_errors,
     )
-        .execute(con.deref_mut())
-        .await?;
+    .execute(con.deref_mut())
+    .await?;
     Ok(())
 }
 
