@@ -89,10 +89,10 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                         .end_value(5.),
                 )
                 .color(vec![
-                    Color::Value("rgb(255,255, 255)".to_string()),
+                    Color::Value("rgb(20, 255, 255)".to_string()),
                     Color::Value("rgb(255, 20, 20)".to_string()),
                     Color::Value("rgb(20, 255, 20)".to_string()),
-                    Color::Value("rgb(20, 20, 255)".to_string()),
+                    Color::Value("rgb(255, 255, 20)".to_string()),
                 ])
                 .legend(
                     Legend::new()
@@ -114,8 +114,8 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
             for series in &graph_data.series {
                 chart = chart.series(
                     Scatter::new()
-                        .symbol_size(5.)
-                        .item_style(ItemStyle::new().opacity(0.9))
+                        .symbol_size(6.5)
+                        .item_style(ItemStyle::new().opacity(1.0))
                         .data(
                             series
                                 .x_values

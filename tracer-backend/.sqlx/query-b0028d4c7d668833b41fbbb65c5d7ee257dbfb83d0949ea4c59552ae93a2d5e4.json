@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            max_trace_duration_ms,\n            max_traces_with_warning_percentage,\n            max_traces_dropped_by_sampling_per_min,\n            percentage_check_time_window_secs,\n            percentage_check_min_number_samples\n       from\n        trace_wide_alert_config\n         where env=$1 and service_name=$2;",
+  "query": "select\n            max_trace_duration_ms,\n            max_traces_with_warning_percentage,\n            percentage_check_time_window_secs,\n            percentage_check_min_number_samples\n       from\n        trace_wide_alert_config\n         where env=$1 and service_name=$2;",
   "describe": {
     "columns": [
       {
@@ -15,16 +15,11 @@
       },
       {
         "ordinal": 2,
-        "name": "max_traces_dropped_by_sampling_per_min",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 3,
         "name": "percentage_check_time_window_secs",
         "type_info": "Int8"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "percentage_check_min_number_samples",
         "type_info": "Int8"
       }
@@ -39,9 +34,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "6ced41b877a49eb6fa9f40a76159d0dc1d9e24e8d2c1903ed39c81e97726524f"
+  "hash": "b0028d4c7d668833b41fbbb65c5d7ee257dbfb83d0949ea4c59552ae93a2d5e4"
 }

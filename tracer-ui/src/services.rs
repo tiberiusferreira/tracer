@@ -285,62 +285,12 @@ fn single_service_view(service: ServiceOverview) -> leptos::HtmlElement<Div> {
         create_chart_action,
     );
 
-    // let (trace_spe_usage, trace_spe_usage_graph_id): (NodeRef<Div>, String) =
-    //     create_trace_spe_usage_traces_graph(
-    //         &service.instances,
-    //         timestamp_to_show_details_for_w,
-    //         create_chart_action,
-    //     );
-
-    // let (received_spe_graph, received_spe_graph_id): (NodeRef<Div>, String) =
-    //     graphs::service_graphs::received_spe::create_graph(
-    //         &service.service_data_over_time,
-    //         timestamp_to_show_details_for_w,
-    //         create_chart_action,
-    //     );
-
     let (received_kbytes_graph, received_kbytes_graph_id): (NodeRef<Div>, String) =
         create_budget_usage_kbytes_graph(
             &service.service_data_over_time,
             timestamp_to_show_details_for_w,
             create_chart_action,
         );
-
-    // let (received_orphan_event_bytes_graph, received_orphan_event_bytes_graph_id): (
-    //     NodeRef<Div>,
-    //     String,
-    // ) = create_received_orphan_event_bytes_graph(
-    //     &service.service_data_over_time,
-    //     timestamp_to_show_details_for_w,
-    //     create_chart_action,
-    // );
-    //
-    // let (orphan_events_per_minute_usage_graph, orphan_events_per_minute_usage_graph_id): (
-    //     NodeRef<Div>,
-    //     String,
-    // ) = create_orphan_events_per_minute_usage_graph(
-    //     &service.service_data_over_time,
-    //     timestamp_to_show_details_for_w,
-    //     create_chart_action,
-    // );
-
-    // let (
-    //     spe_dropped_due_to_full_export_buffer_graph,
-    //     spe_dropped_due_to_full_export_buffer_graph_id,
-    // ): (NodeRef<Div>, String) = create_spe_dropped_due_to_full_export_buffer_graph(
-    //     &service.instances,
-    //     timestamp_to_show_details_for_w,
-    //     create_chart_action,
-    // );
-    //
-    // let (
-    //     orphan_events_dropped_by_sampling_per_minute_graph,
-    //     orphan_events_dropped_by_sampling_per_minute_graph_id,
-    // ): (NodeRef<Div>, String) = create_orphan_events_dropped_by_sampling_per_minute_graph(
-    //     &service.instances,
-    //     timestamp_to_show_details_for_w,
-    //     create_chart_action,
-    // );
 
     let service_name = service.service_id.name.clone();
     let env = service.service_id.env.clone();
@@ -361,13 +311,7 @@ fn single_service_view(service: ServiceOverview) -> leptos::HtmlElement<Div> {
                     <div _ref=active_finished_warning_error_count_graph id=active_finished_warning_error_count_graph_id.clone()></div>
                     <div _ref=max_received_trace_duration_graph id=max_received_trace_duration_graph_id.clone()></div>
                     <div _ref=received_kbytes_graph id=received_kbytes_graph_id.clone()></div>
-                    // <div _ref=trace_spe_usage id=trace_spe_usage_graph_id.clone()></div>
-                    // <div _ref=orphan_events_per_minute_usage_graph id=orphan_events_per_minute_usage_graph_id.clone()></div>
-                    // <div _ref=received_orphan_event_bytes_graph id=received_orphan_event_bytes_graph_id.clone()></div>
-                    // <div _ref=received_spe_graph id=received_spe_graph_id.clone()></div>
                     <div _ref=spe_buffer_usage id=spe_buffer_usage_graph_id.clone()></div>
-                    // <div _ref=spe_dropped_due_to_full_export_buffer_graph id=spe_dropped_due_to_full_export_buffer_graph_id.clone()></div>
-                    // <div _ref=orphan_events_dropped_by_sampling_per_minute_graph id=orphan_events_dropped_by_sampling_per_minute_graph_id.clone()></div>
                 </div>
                 {alerts_html}
         </div>

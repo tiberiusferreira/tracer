@@ -40,17 +40,11 @@ pub async fn send_to_slack_and_update_database(
         } else {
             info!("Sending first notification ever!");
         }
-        let error_str = send_slack_msg_logging_error(&s.bot_token, &s.channel_id, &notification)
-            .await
-            .err();
-        database::insert_notification_in_db(
-            con,
-            &s.bot_token,
-            &s.channel_id,
-            &notification,
-            error_str,
-        )
-        .await?;
+        let error_str =
+            send_slack_msg_logging_error(&s.bot_user_oauth_token, &s.channel_id, &notification)
+                .await
+                .err();
+        database::insert_notification_in_db(con, s.id, &notification, error_str).await?;
     }
     Ok(())
 }
@@ -131,7 +125,8 @@ async fn send_slack_msg_logging_error(
 
 #[derive(Clone)]
 pub struct SlackConfig {
-    pub bot_token: String,
+    pub id: i32,
+    pub bot_user_oauth_token: String,
     pub channel_id: String,
     pub min_alert_period_seconds: u64,
     pub last_alert_send_attempt: Option<NaiveDateTime>,
@@ -142,7 +137,11 @@ impl std::fmt::Debug for SlackConfig {
         f.debug_struct("SlackConfig")
             .field(
                 "bot_token",
-                &self.bot_token.chars().take(5).collect::<String>(),
+                &self
+                    .bot_user_oauth_token
+                    .chars()
+                    .take(5)
+                    .collect::<String>(),
             )
             .field(
                 "channel_id",

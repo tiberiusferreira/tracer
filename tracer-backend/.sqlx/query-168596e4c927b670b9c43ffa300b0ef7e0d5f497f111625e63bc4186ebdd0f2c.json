@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into slack_alert (slack_alert_config_id, notification, send_error) values ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "168596e4c927b670b9c43ffa300b0ef7e0d5f497f111625e63bc4186ebdd0f2c"
+}

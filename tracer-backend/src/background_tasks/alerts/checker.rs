@@ -2,8 +2,7 @@ use crate::api::state::InstanceState;
 use crate::background_tasks::alerts::ServiceRuntimeDataWithAlert;
 use crate::MAX_NOTIFICATION_SIZE_CHARS;
 use api_structs::ui::service::alerts::{
-    AlertConfig, InstanceWideAlertConfig, ServiceWideAlertConfig, TraceWideAlertConfig,
-    TraceWideAlertOverwriteConfig,
+    AlertConfig, ServiceWideAlertConfig, TraceWideAlertConfig, TraceWideAlertOverwriteConfig,
 };
 use api_structs::ui::service::ExportBufferOverTime;
 use api_structs::{ServiceId, TraceName};
@@ -54,113 +53,6 @@ impl ServiceWideAlertChecker {
         if max_active_traces < active_trace_count_hit {
             self.max_active_traces_count_alert = Some(format!("Hit active traces count of {active_trace_count_hit}, above maximum of {max_active_traces}"));
         }
-    }
-}
-
-pub struct InstanceWideAlertChecker {
-    max_received_spe_alert: Option<String>,
-    max_received_trace_kb_alert: Option<String>,
-    max_received_orphan_event_kb_alert: Option<String>,
-    max_export_buffer_usage_alert: Option<String>,
-    orphan_events_per_minute_usage_alert: Option<String>,
-    max_orphan_events_dropped_by_sampling_per_min_alert: Option<String>,
-    max_spe_dropped_due_to_full_export_buffer_per_min_alert: Option<String>,
-}
-
-impl InstanceWideAlertChecker {
-    pub fn alerts(self) -> Vec<String> {
-        let mut alerts = vec![];
-        if let Some(max_received_spe_alert) = self.max_received_spe_alert {
-            alerts.push(max_received_spe_alert);
-        }
-        if let Some(max_received_trace_kb_alert) = self.max_received_trace_kb_alert {
-            alerts.push(max_received_trace_kb_alert);
-        }
-        if let Some(max_received_orphan_event_kb_alert) = self.max_received_orphan_event_kb_alert {
-            alerts.push(max_received_orphan_event_kb_alert);
-        }
-        if let Some(max_export_buffer_usage_alert) = self.max_export_buffer_usage_alert {
-            alerts.push(max_export_buffer_usage_alert);
-        }
-        if let Some(orphan_events_per_minute_usage_alert) =
-            self.orphan_events_per_minute_usage_alert
-        {
-            alerts.push(orphan_events_per_minute_usage_alert);
-        }
-        if let Some(max_orphan_events_dropped_by_sampling_per_min_alert) =
-            self.max_orphan_events_dropped_by_sampling_per_min_alert
-        {
-            alerts.push(max_orphan_events_dropped_by_sampling_per_min_alert);
-        }
-        if let Some(max_spe_dropped_due_to_full_export_buffer_per_min_alert) =
-            self.max_spe_dropped_due_to_full_export_buffer_per_min_alert
-        {
-            alerts.push(max_spe_dropped_due_to_full_export_buffer_per_min_alert);
-        }
-        alerts
-    }
-    pub fn new() -> Self {
-        Self {
-            max_received_spe_alert: None,
-            max_received_trace_kb_alert: None,
-            max_received_orphan_event_kb_alert: None,
-            max_export_buffer_usage_alert: None,
-            orphan_events_per_minute_usage_alert: None,
-            max_orphan_events_dropped_by_sampling_per_min_alert: None,
-            max_spe_dropped_due_to_full_export_buffer_per_min_alert: None,
-        }
-    }
-    pub fn update_using_data_point(
-        &mut self,
-        alert_config: &InstanceWideAlertConfig,
-        data_point: &ExportBufferOverTime,
-    ) {
-        // let received_trace_kb_hit = data_point.received_trace_bytes / 1000;
-        // let max_received_trace_kb = alert_config.max_received_trace_kb;
-        // if max_received_trace_kb < received_trace_kb_hit {
-        //     self.max_received_trace_kb_alert = Some(format!("Received trace with {received_trace_kb_hit}kb, above limit of {max_received_trace_kb}"));
-        // }
-        //
-        // let received_orphan_event_kbytes_hit = data_point.received_orphan_event_bytes / 1000;
-        // let max_received_orphan_event_kb = alert_config.max_received_orphan_event_kb;
-        // if max_received_orphan_event_kb < received_orphan_event_kbytes_hit {
-        //     self.max_received_orphan_event_kb_alert = Some(format!("Received orphan event with {received_orphan_event_kbytes_hit}kb, above limit of {max_received_orphan_event_kb}"));
-        // }
-        //
-        // let export_buffer_usage_hit = data_point.tracer_status.export_buffer_usage;
-        // let max_export_buffer_usage = alert_config.max_export_buffer_usage;
-        // if max_export_buffer_usage < export_buffer_usage_hit {
-        //     self.max_export_buffer_usage_alert = Some(format!("Export buffer usage hit {export_buffer_usage_hit}, above limit of {max_export_buffer_usage}"));
-        // }
-
-        // let orphan_events_per_minute_usage_hit =
-        //     data_point.tracer_status.orphan_events_per_minute_usage;
-        // let orphan_events_per_minute_usage = alert_config.orphan_events_per_minute_usage;
-        // if orphan_events_per_minute_usage < orphan_events_per_minute_usage_hit {
-        //     self.orphan_events_per_minute_usage_alert = Some(format!("Orphan events per minute usage hit {orphan_events_per_minute_usage_hit}, above limit of {orphan_events_per_minute_usage}"));
-        // }
-        //
-        // let orphan_events_dropped_by_sampling_per_minute_hit = data_point
-        //     .tracer_status
-        //     .orphan_events_dropped_by_sampling_per_minute;
-        // let max_orphan_events_dropped_by_sampling_per_min =
-        //     alert_config.max_orphan_events_dropped_by_sampling_per_min;
-        // if max_orphan_events_dropped_by_sampling_per_min
-        //     < orphan_events_dropped_by_sampling_per_minute_hit
-        // {
-        //     self.max_orphan_events_dropped_by_sampling_per_min_alert = Some(format!("Orphan events dropped by sampling per minute hit {orphan_events_dropped_by_sampling_per_minute_hit}, above limit of {max_orphan_events_dropped_by_sampling_per_min}"));
-        // }
-        //
-        // let spe_dropped_due_to_full_export_buffer_per_min_hit = data_point
-        //     .tracer_status
-        //     .spe_dropped_due_to_full_export_buffer_per_min;
-        // let max_spe_dropped_due_to_full_export_buffer_per_min =
-        //     alert_config.max_spe_dropped_due_to_full_export_buffer_per_min;
-        // if max_spe_dropped_due_to_full_export_buffer_per_min
-        //     < spe_dropped_due_to_full_export_buffer_per_min_hit
-        // {
-        //     self.max_spe_dropped_due_to_full_export_buffer_per_min_alert = Some(format!("SpE dropped due to full export buffer hit {spe_dropped_due_to_full_export_buffer_per_min_hit}, above limit of {max_spe_dropped_due_to_full_export_buffer_per_min}"));
-        // }
     }
 }
 
@@ -242,7 +134,6 @@ pub fn update_checker_with_instance_data(
 
 pub struct AlertCheckers {
     pub service_wide: ServiceWideAlertChecker,
-    pub instance_wide: InstanceWideAlertChecker,
     pub trace_wide: TraceWideAlertChecker,
 }
 
@@ -250,7 +141,6 @@ impl AlertCheckers {
     fn new() -> AlertCheckers {
         Self {
             service_wide: ServiceWideAlertChecker::new(),
-            instance_wide: InstanceWideAlertChecker::new(),
             trace_wide: TraceWideAlertChecker::new(),
         }
     }
@@ -277,7 +167,6 @@ pub fn check_service_for_new_alert(
         );
     }
     let mut alerts = alert_checkers.service_wide.alerts();
-    alerts.extend(alert_checkers.instance_wide.alerts());
     alerts.extend(alert_checkers.trace_wide.alerts());
     if !alerts.is_empty() {
         let alerts = alerts.join("\n");

@@ -148,61 +148,27 @@ create table event_key_value
 create index on event_key_value (key, value, instance_id, trace_id);
 
 
-create table slack_alert_config
-(
-    bot_user_oauth_token     varchar(150) not null,
-    channel_id               varchar(150) not null,
-    min_alert_period_seconds u32          not null default 3600,
-    enabled                  boolean      not null,
-    primary key (bot_user_oauth_token, channel_id)
-);
-
-create table slack_alert
-(
-    bot_user_oauth_token varchar(150)  not null,
-    channel_id           varchar(150)  not null,
-    notification         varchar(2048) not null,
-    send_error           varchar(4096),
-    created_at           timestamp     not null default NOW(),
-    primary key (bot_user_oauth_token, channel_id, created_at),
-    foreign key (bot_user_oauth_token, channel_id) references slack_alert_config (bot_token, channel_id) on update cascade
-);
-
 
 create table service_wide_alert_config
 (
-    env                identifier not null,
-    service_name       identifier not null,
-    min_instance_count ubigint    not null default 0,
-    max_active_traces  ubigint    not null default 100000,
+    env                     identifier not null,
+    service_name            identifier not null,
+    min_instance_count      ubigint    not null default 0,
+    max_active_traces       ubigint    not null default 100000,
+    max_export_buffer_usage ubigint    not null default 1000000,
     primary key (env, service_name),
     foreign key (env, service_name) references service (env, name) deferrable initially deferred
 );
 
-create table instance_wide_alert_config
-(
-    env                                               identifier not null,
-    service_name                                      identifier not null,
-    max_received_spe                                  ubigint    not null default 100000,
-    max_received_trace_kb                             ubigint    not null default 1000000,
-    max_received_orphan_event_kb                      ubigint    not null default 1000000,
-    max_export_buffer_usage                           ubigint    not null default 1000000,
-    max_orphan_events_per_min                         ubigint    not null default 1000000,
-    max_orphan_events_dropped_by_sampling_per_min     ubigint    not null default 1000000,
-    max_spe_dropped_due_to_full_export_buffer_per_min ubigint    not null default 1000000,
-    primary key (env, service_name),
-    foreign key (env, service_name) references service (env, name) deferrable initially deferred
-);
 
 create table trace_wide_alert_config
 (
-    env                                    identifier not null,
-    service_name                           identifier not null,
-    max_trace_duration_ms                  ubigint    not null default 1000000,
-    max_traces_with_warning_percentage     ubigint    not null default 100,
-    max_traces_dropped_by_sampling_per_min ubigint    not null default 100000,
-    percentage_check_time_window_secs      ubigint    not null default 60,
-    percentage_check_min_number_samples    ubigint    not null default 5,
+    env                                 identifier not null,
+    service_name                        identifier not null,
+    max_trace_duration_ms               ubigint    not null default 1000000,
+    max_traces_with_warning_percentage  ubigint    not null default 100,
+    percentage_check_time_window_secs   ubigint    not null default 60,
+    percentage_check_min_number_samples ubigint    not null default 5,
     primary key (env, service_name),
     foreign key (env, service_name) references service (env, name) deferrable initially deferred
 );
@@ -223,8 +189,24 @@ ALTER TABLE service
     ADD CONSTRAINT fk_service_wide_alert_config FOREIGN KEY (env, name) REFERENCES service_wide_alert_config (env, service_name) initially deferred;
 
 ALTER TABLE service
-    ADD CONSTRAINT fk_instance_wide_alert_config FOREIGN KEY (env, name) REFERENCES instance_wide_alert_config (env, service_name) initially deferred;
-
-ALTER TABLE service
     ADD CONSTRAINT fk_trace_wide_alert_config FOREIGN KEY (env, name) REFERENCES trace_wide_alert_config (env, service_name) initially deferred;
 
+
+create table slack_alert_config
+(
+    id                       serial primary key,
+    bot_user_oauth_token     varchar(150) not null,
+    channel_id               varchar(150) not null,
+    min_alert_period_seconds u32          not null default 3600,
+    enabled                  boolean      not null,
+    unique (bot_user_oauth_token, channel_id)
+);
+
+create table slack_alert
+(
+    slack_alert_config_id int           not null references slack_alert_config (id),
+    notification          varchar(2048) not null,
+    send_error            varchar(4096),
+    created_at            timestamp     not null default NOW(),
+    primary key (slack_alert_config_id, created_at)
+);

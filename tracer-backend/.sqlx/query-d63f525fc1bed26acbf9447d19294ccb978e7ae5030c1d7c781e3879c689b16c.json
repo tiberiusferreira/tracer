@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select slack_alert_config.id,\n        slack_alert_config.bot_user_oauth_token,\n       slack_alert_config.channel_id,\n       slack_alert_config.min_alert_period_seconds,\n       Alert.last_alert_send_attempt\nfrom slack_alert_config\n         left join (select slack_alert.slack_alert_config_id,\n                           max(slack_alert.created_at) as last_alert_send_attempt\n                    from slack_alert\n                    group by slack_alert_config_id) Alert\n                   on Alert.slack_alert_config_id = slack_alert_config.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "bot_user_oauth_token",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "channel_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "min_alert_period_seconds",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_alert_send_attempt",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d63f525fc1bed26acbf9447d19294ccb978e7ae5030c1d7c781e3879c689b16c"
+}

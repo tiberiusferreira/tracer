@@ -1,6 +1,5 @@
 use api_structs::ui::service::alerts::{
-    AlertConfig, InstanceWideAlertConfig, ServiceWideAlertConfig, TraceWideAlertConfig,
-    TraceWideAlertOverwriteConfig,
+    AlertConfig, ServiceWideAlertConfig, TraceWideAlertConfig, TraceWideAlertOverwriteConfig,
 };
 use api_structs::{ServiceId, TraceName};
 use backtraced_error::SqlxError;
@@ -43,19 +42,6 @@ pub async fn insert_service_config(con: &PgPool, service_id: &ServiceId) -> Resu
         )
     })?;
     sqlx::query!(
-        "insert into instance_wide_alert_config (env, service_name) values ($1::TEXT, $2::TEXT)",
-        service_id.env.to_string(),
-        service_id.name
-    )
-    .execute(transaction.deref_mut())
-    .await
-    .map_err(|e| {
-        SqlxError::from_sqlx_error(
-            e,
-            format!("inserting instance_wide_alert_config {service_id:?}"),
-        )
-    })?;
-    sqlx::query!(
         "insert into trace_wide_alert_config (env, service_name) values ($1::TEXT, $2::TEXT)",
         service_id.env.to_string(),
         service_id.name
@@ -81,9 +67,8 @@ pub async fn get_service_config(
     con: &PgPool,
     service_id: &ServiceId,
 ) -> Result<Option<ServiceConfig>, SqlxError> {
-    let (service, instance, trace, trace_overwrites) = tokio::try_join!(
+    let (service, trace, trace_overwrites) = tokio::try_join!(
         get_service_wide_alert_config(con, &service_id),
-        get_instance_wide_alert_config(con, &service_id),
         get_trace_wide_alert_config(con, &service_id),
         get_trace_wide_alert_config_overwrite(con, &service_id)
     )?;
@@ -95,7 +80,6 @@ pub async fn get_service_config(
         service_id: service_id.clone(),
         alert_config: AlertConfig {
             service_wide: service,
-            instance_wide: instance.expect("instance to exist if service does"),
             trace_wide: trace.expect("trace to exist if service does"),
             service_alert_config_trace_overwrite: trace_overwrites,
         },
@@ -151,59 +135,7 @@ pub async fn get_service_wide_alert_config(
     Ok(raw_service_config.map(|e| ServiceWideAlertConfig {
         min_instance_count: e.min_instance_count as u64,
         max_active_traces: e.max_active_traces as u64,
-    }))
-}
-
-#[instrument(skip_all)]
-pub async fn get_instance_wide_alert_config(
-    con: &PgPool,
-    service_id: &ServiceId,
-) -> Result<Option<InstanceWideAlertConfig>, SqlxError> {
-    struct RawInstanceWideAlertConfig {
-        max_received_spe: i64,
-        max_received_trace_kb: i64,
-        max_received_orphan_event_kb: i64,
-        max_export_buffer_usage: i64,
-        max_orphan_events_per_min: i64,
-        max_orphan_events_dropped_by_sampling_per_min: i64,
-        max_spe_dropped_due_to_full_export_buffer_per_min: i64,
-    }
-    let raw_service_config: Option<RawInstanceWideAlertConfig> = sqlx::query_as!(
-        RawInstanceWideAlertConfig,
-        "select
-            max_received_spe,
-            max_received_trace_kb,
-            max_received_orphan_event_kb,
-            max_export_buffer_usage,
-            max_orphan_events_per_min,
-            max_orphan_events_dropped_by_sampling_per_min,
-            max_spe_dropped_due_to_full_export_buffer_per_min
-       from
-        instance_wide_alert_config
-         where env=$1 and service_name=$2;",
-        service_id.env.to_string(),
-        service_id.name
-    )
-    .fetch_optional(con)
-    .await
-    .map_err(|e| {
-        SqlxError::from_sqlx_error(
-            e,
-            format!("getting instance_wide_alert_config using {service_id:?}",),
-        )
-    })?;
-    Ok(raw_service_config.map(|e| InstanceWideAlertConfig {
-        max_received_spe: e.max_received_spe as u64,
-        max_received_trace_kb: e.max_received_trace_kb as u64,
-        max_received_orphan_event_kb: e.max_received_orphan_event_kb as u64,
-        max_export_buffer_usage: e.max_export_buffer_usage as u64,
-        orphan_events_per_minute_usage: e.max_orphan_events_per_min as u64,
-        max_orphan_events_dropped_by_sampling_per_min: e
-            .max_orphan_events_dropped_by_sampling_per_min
-            as u64,
-        max_spe_dropped_due_to_full_export_buffer_per_min: e
-            .max_spe_dropped_due_to_full_export_buffer_per_min
-            as u64,
+        max_export_buffer_usage_percentage: 100,
     }))
 }
 
@@ -215,7 +147,6 @@ pub async fn get_trace_wide_alert_config(
     struct RawTraceWideAlertConfig {
         max_trace_duration_ms: i64,
         max_traces_with_warning_percentage: i64,
-        max_traces_dropped_by_sampling_per_min: i64,
         percentage_check_time_window_secs: i64,
         percentage_check_min_number_samples: i64,
     }
@@ -224,7 +155,6 @@ pub async fn get_trace_wide_alert_config(
         "select
             max_trace_duration_ms,
             max_traces_with_warning_percentage,
-            max_traces_dropped_by_sampling_per_min,
             percentage_check_time_window_secs,
             percentage_check_min_number_samples
        from
@@ -244,7 +174,6 @@ pub async fn get_trace_wide_alert_config(
     Ok(raw_service_config.map(|e| TraceWideAlertConfig {
         max_trace_duration_ms: e.max_trace_duration_ms as u64,
         max_traces_with_warning_percentage: e.max_traces_with_warning_percentage as u64,
-        max_traces_dropped_by_sampling_per_min: e.max_traces_dropped_by_sampling_per_min as u64,
         percentage_check_time_window_secs: e.percentage_check_time_window_secs as u64,
         percentage_check_min_number_samples: e.percentage_check_min_number_samples as u64,
     }))
