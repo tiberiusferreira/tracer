@@ -132,6 +132,12 @@ pub struct ExportBufferStats {
     pub export_buffer_usage: u64,
 }
 
+impl ExportBufferStats {
+    pub fn usage_percentage_0_to_100(&self) -> f64 {
+        (self.export_buffer_usage as f64 / self.export_buffer_capacity as f64) * 100.
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SingleTraceStatus {
     pub spe_usage_per_minute: u64,

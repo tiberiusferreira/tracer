@@ -1,13 +1,14 @@
 use crate::api::handlers::instance::connect::ChangeFilterInternalRequest;
 use crate::CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS;
 use api_structs::instance::update::ExportBufferStats;
+use api_structs::time_conversion::time_from_nanos;
 use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
 use api_structs::{ServiceId, TraceName};
 use chrono::NaiveDateTime;
 use sqlx::PgPool;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::debug;
 
 pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 
@@ -38,10 +39,8 @@ impl InstanceState {
         let seconds_last_seen = self.seconds_since_last_seen();
         debug!("Instance {} last seen {}s ago", self.id, seconds_last_seen);
         if (CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS as u64) < seconds_last_seen {
-            info!("Instance is dead");
             true
         } else {
-            info!("Instance is alive");
             false
         }
     }
@@ -105,10 +104,26 @@ pub struct ServiceDataPoint {
     pub orphan_events: Vec<OrphanEvent>,
     pub budget_usage: BytesBudgetUsage,
 }
+impl ServiceDataPoint {
+    pub fn active_and_finished_iter(&self) -> impl Iterator<Item = &TraceHeader> {
+        self.active_traces.iter().chain(self.finished_traces.iter())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ServiceRuntimeData {
     pub last_time_checked_for_alerts: NaiveDateTime,
     pub service_data_points: VecDeque<ServiceDataPoint>,
     pub instances: HashMap<i64, InstanceState>,
+}
+
+impl ServiceRuntimeData {
+    pub fn data_points_since_last_alert_check_reversed(
+        &self,
+    ) -> impl Iterator<Item = &ServiceDataPoint> {
+        self.service_data_points
+            .iter()
+            .rev()
+            .take_while(|e| self.last_time_checked_for_alerts <= time_from_nanos(e.timestamp))
+    }
 }

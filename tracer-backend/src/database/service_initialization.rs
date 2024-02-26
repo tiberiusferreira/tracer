@@ -134,7 +134,7 @@ pub async fn get_service_wide_alert_config(
     })?;
     Ok(raw_service_config.map(|e| ServiceWideAlertConfig {
         min_instance_count: e.min_instance_count as u64,
-        max_active_traces: e.max_active_traces as u64,
+        max_active_traces_count: e.max_active_traces as u64,
         max_export_buffer_usage_percentage: 100,
     }))
 }

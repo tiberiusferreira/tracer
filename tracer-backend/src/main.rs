@@ -68,7 +68,7 @@ async fn start_api_and_background_tasks(
     let con = connect_to_db(&config).await?;
     let app_state = AppState {
         con,
-        services_runtime_stats: std::sync::Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        services_runtime_stats: Arc::new(parking_lot::RwLock::new(HashMap::new())),
     };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
@@ -89,7 +89,7 @@ async fn start_api_and_background_tasks(
             }
             .instrument(info_span!("background_task"))
             .await;
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
 

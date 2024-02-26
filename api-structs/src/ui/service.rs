@@ -1,4 +1,5 @@
 use crate::instance::update::ExportBufferStats;
+use crate::time_conversion::now_nanos_u64;
 pub use crate::ui::orphan_events::OrphanEvent;
 use crate::{ServiceId, TraceName};
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,16 @@ pub struct TraceHeader {
     pub new_errors: bool,
     pub fragment_bytes: u64,
     pub duration: Option<u64>,
+}
+
+impl TraceHeader {
+    pub fn duration_so_far_nanos(&self) -> u64 {
+        if let Some(duration) = self.duration {
+            duration
+        } else {
+            now_nanos_u64().saturating_sub(self.trace_timestamp)
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

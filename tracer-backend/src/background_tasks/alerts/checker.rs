@@ -1,173 +1,45 @@
-use crate::api::state::InstanceState;
 use crate::background_tasks::alerts::ServiceRuntimeDataWithAlert;
 use crate::MAX_NOTIFICATION_SIZE_CHARS;
-use api_structs::ui::service::alerts::{
-    AlertConfig, ServiceWideAlertConfig, TraceWideAlertConfig, TraceWideAlertOverwriteConfig,
-};
-use api_structs::ui::service::ExportBufferOverTime;
-use api_structs::{ServiceId, TraceName};
-use chrono::NaiveDateTime;
+use api_structs::ServiceId;
 use std::collections::HashMap;
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
-pub struct ServiceWideAlertChecker {
-    min_instance_count_alert: Option<String>,
-    max_active_traces_count_alert: Option<String>,
-}
+mod checks;
 
-impl ServiceWideAlertChecker {
-    pub fn alerts(self) -> Vec<String> {
-        let mut alerts = vec![];
-        if let Some(min_instance_count_alert) = self.min_instance_count_alert {
-            alerts.push(min_instance_count_alert);
-        }
-        if let Some(max_active_traces_count_alert) = self.max_active_traces_count_alert {
-            alerts.push(max_active_traces_count_alert);
-        }
-        alerts
-    }
-    pub fn new() -> Self {
-        Self {
-            min_instance_count_alert: None,
-            max_active_traces_count_alert: None,
-        }
-    }
-    pub fn check_instance_count(
-        &mut self,
-        alert_config: &ServiceWideAlertConfig,
-        instance_count_hit: u64,
-    ) {
-        let min_instance_count = alert_config.min_instance_count;
-        if instance_count_hit < min_instance_count {
-            self.min_instance_count_alert = Some(format!(
-                "Hit instance count of {instance_count_hit}, below minimum of {min_instance_count}"
-            ));
-        }
-    }
-    pub fn update_active_trace_count(
-        &mut self,
-        alert_config: &ServiceWideAlertConfig,
-        active_trace_count_hit: u64,
-    ) {
-        let max_active_traces = alert_config.max_active_traces;
-        if max_active_traces < active_trace_count_hit {
-            self.max_active_traces_count_alert = Some(format!("Hit active traces count of {active_trace_count_hit}, above maximum of {max_active_traces}"));
-        }
-    }
-}
-
-pub struct TraceWideAlertChecker {
-    alerts: Vec<String>,
-}
-
-impl TraceWideAlertChecker {
-    pub fn alerts(self) -> Vec<String> {
-        self.alerts
-    }
-    pub fn new() -> Self {
-        Self { alerts: vec![] }
-    }
-    fn add_alert_if_not_full(&mut self, alert: String) {
-        if self.alerts.len() < 3 {
-            self.alerts.push(alert);
-        }
-    }
-    pub fn update(
-        &mut self,
-        data_point: &ExportBufferOverTime,
-        trace_wide_alert_config: &TraceWideAlertConfig,
-        trace_wide_alert_overwrite_config: &HashMap<TraceName, TraceWideAlertOverwriteConfig>,
-    ) {
-        // for (trace_name, status) in &data_point.tracer_status.per_minute_trace_stats {
-        //     let hit = status.spe_usage_per_minute;
-        //     let max = trace_wide_alert_config.max_traces_dropped_by_sampling_per_min;
-        //     if max < hit {
-        //         self.add_alert_if_not_full(format!(
-        //             "Trace {trace_name} was dropped {hit} times per minute, above limit of {max}"
-        //         ))
-        //     }
-        // }
-        // for t in data_point.active_and_finished_iter() {
-        //     let trace_name = &t.trace_name;
-        //     if let Some(duration) = t.duration {
-        //         let duration_hit_ms = nanos_to_millis(duration);
-        //         let max_duration_ms = trace_wide_alert_overwrite_config
-        //             .get(&t.trace_name)
-        //             .map(|d| d.max_trace_duration_ms)
-        //             .unwrap_or_else(|| trace_wide_alert_config.max_trace_duration_ms);
-        //         if max_duration_ms < duration_hit_ms {
-        //             self.add_alert_if_not_full(format!("Trace {trace_name} hit duration of {duration_hit_ms}ms, above limit of {max_duration_ms}"));
-        //         }
-        //     }
-        //     if t.new_errors {
-        //         self.add_alert_if_not_full(format!("Trace {trace_name} had errors"));
-        //     }
-        // }
-    }
-}
-
-pub fn update_checker_with_instance_data(
-    alert_checkers: &mut AlertCheckers,
-    alert_config: &AlertConfig,
-    instance_data: &InstanceState,
-    last_time_checked_for_alerts: NaiveDateTime,
-) {
-    // for data_point in &instance_data.time_data_points {
-    //     // skip data already checked
-    //     if time_from_nanos(data_point.timestamp) < last_time_checked_for_alerts {
-    //         continue;
-    //     }
-    //     alert_checkers.service_wide.update_active_trace_count(
-    //         &alert_config.service_wide,
-    //         data_point.active_traces.len() as u64,
-    //     );
-    //     alert_checkers
-    //         .instance_wide
-    //         .update_using_data_point(&alert_config.instance_wide, data_point);
-    //     alert_checkers.trace_wide.update(
-    //         data_point,
-    //         &alert_config.trace_wide,
-    //         &alert_config.service_alert_config_trace_overwrite,
-    //     );
-    // }
-}
-
-pub struct AlertCheckers {
-    pub service_wide: ServiceWideAlertChecker,
-    pub trace_wide: TraceWideAlertChecker,
-}
-
-impl AlertCheckers {
-    fn new() -> AlertCheckers {
-        Self {
-            service_wide: ServiceWideAlertChecker::new(),
-            trace_wide: TraceWideAlertChecker::new(),
-        }
-    }
-}
-
+#[instrument(skip_all)]
 pub fn check_service_for_new_alert(
     service_id: ServiceId,
     service_data: ServiceRuntimeDataWithAlert,
 ) -> Option<String> {
     let alert_config = service_data.alert;
-    let mut alert_checkers = AlertCheckers::new();
-    alert_checkers.service_wide.check_instance_count(
+    let mut alerts = vec![];
+    if let Some(alert) = checks::instance_count(
         &alert_config.service_wide,
-        service_data.service_runtime_data.instances.len() as u64,
-    );
-    for instance_data in service_data.service_runtime_data.instances.values() {
-        update_checker_with_instance_data(
-            &mut alert_checkers,
-            &alert_config,
-            instance_data,
-            service_data
-                .service_runtime_data
-                .last_time_checked_for_alerts,
-        );
+        &service_data.service_runtime_data,
+    ) {
+        alerts.push(alert);
     }
-    let mut alerts = alert_checkers.service_wide.alerts();
-    alerts.extend(alert_checkers.trace_wide.alerts());
+    if let Some(alert) = checks::max_active_traces(
+        &alert_config.service_wide,
+        &service_data.service_runtime_data,
+    ) {
+        alerts.push(alert);
+    }
+    if let Some(alert) = checks::export_buffer_usage_percentage(
+        &alert_config.service_wide,
+        &service_data.service_runtime_data,
+    ) {
+        alerts.push(alert);
+    }
+    if let Some(alert) = checks::trace_alerts(&alert_config, &service_data.service_runtime_data) {
+        alerts.push(alert);
+    }
+    if let Some(alert) =
+        checks::orphan_events_alerts(&alert_config, &service_data.service_runtime_data)
+    {
+        alerts.push(alert);
+    }
+
     if !alerts.is_empty() {
         let alerts = alerts.join("\n");
         let service_alert = format!("{} at {}:\n{alerts}", service_id.name, service_id.env);
@@ -188,8 +60,7 @@ pub fn check_for_new_notification(
                 info!("{service_id:?} had no alerts");
             }
             Some(alert) => {
-                info!("{service_id:?} had new alerts");
-                debug!("{alert}");
+                info!("{service_id:?} had new alerts {alert}");
                 service_alerts.push(alert);
             }
         }

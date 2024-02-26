@@ -37,12 +37,12 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     );
     tokio::spawn(async move {
         loop {
-            tracing::debug!(all_good = true, "Sample info log");
+            tracing::debug!(all_good = true, "Sample debug log");
             info!(all_good = true, "Sample info log");
             info!("Sample info log 2");
-            tracing::warn!(all_good = true, "Sample info log");
-            error!(all_good = true, "Sample info log");
-            tokio::time::sleep(Duration::from_secs_f32(2.)).await;
+            tracing::warn!(all_good = true, "Sample warn log");
+            error!(all_good = true, "Sample error log");
+            tokio::time::sleep(Duration::from_secs_f32(2.5)).await;
         }
     });
     // List, Overview and Manage Services
