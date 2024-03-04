@@ -474,7 +474,7 @@ fn create_html_span(
 
     let span_html = view! {
         <>
-        <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string}{span_key_vals}", span_with_code_namespace)}</p>
+        <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string} {span_key_vals}", span_with_code_namespace)}</p>
         <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}></div>
             {events}
         </>

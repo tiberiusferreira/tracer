@@ -68,5 +68,6 @@ pub async fn check_for_alerts_and_send(app_state: &AppState) -> Result<(), Alert
     };
     debug!("notification={notification}");
     senders::slack::send_to_slack_and_update_database(&app_state.con, &notification).await?;
+    senders::telegram::send_to_telegram_and_update_database(&app_state.con, &notification).await?;
     Ok(())
 }

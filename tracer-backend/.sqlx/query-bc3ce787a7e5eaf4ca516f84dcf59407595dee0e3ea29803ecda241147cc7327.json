@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into telegram_alert (telegram_alert_config, notification, send_error) values ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bc3ce787a7e5eaf4ca516f84dcf59407595dee0e3ea29803ecda241147cc7327"
+}

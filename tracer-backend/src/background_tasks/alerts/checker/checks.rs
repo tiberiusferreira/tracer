@@ -114,7 +114,7 @@ fn create_over_duration_message(
         event_datetime_utc,
         seconds_ago,
     } = trace_datetime;
-    format!("Trace {trace_name} (id={trace_id}) hit duration of {current_duration_ms}ms, over maximum of {max_duration_ms} {seconds_ago} seconds ago ({event_datetime_utc})")
+    format!("Trace {trace_name} (id={trace_id}) hit duration of {current_duration_ms}ms, over maximum of {max_duration_ms}ms {seconds_ago} seconds ago ({event_datetime_utc})")
 }
 
 fn create_had_errors_message(trace_name: &str, trace_timestamp: u64, trace_id: u64) -> String {
@@ -172,8 +172,10 @@ pub fn orphan_events_alerts(
         }
     }
     if !alerts.is_empty() {
+        info!("alerts={alerts:#?}");
         Some(alerts.join("\n"))
     } else {
+        info!("No Alerts");
         None
     }
 }
@@ -233,8 +235,10 @@ pub fn trace_alerts(
         }
     }
     if !alerts.is_empty() {
+        info!("alerts={alerts:#?}");
         Some(alerts.join("\n"))
     } else {
+        info!("No Alerts");
         None
     }
 }

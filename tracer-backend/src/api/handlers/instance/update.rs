@@ -115,7 +115,7 @@ fn update_service_and_instance_data(
         .service_data_points
         .back()
         .map(|b| b.budget_usage.clone())
-        .unwrap_or_else(|| BytesBudgetUsage::new(60, 10_000));
+        .unwrap_or_else(|| BytesBudgetUsage::new(60, 50_000));
     debug!("Previous budget: {last_bytes_budget:?}");
     last_bytes_budget.update();
     debug!("Previous budget after update: {last_bytes_budget:?}");

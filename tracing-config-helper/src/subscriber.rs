@@ -1,7 +1,7 @@
-use crate::sampling::{Sampler, TracerSampler};
 use crate::{print_if_dbg, NewSpan, NewSpanEvent, SubscriberEvent, TracerTracingSubscriber};
 use api_structs::instance::update::{ClosedSpan, NewOrphanEvent, Severity, SpanEventCount};
 use api_structs::time_conversion::now_nanos_u64;
+use sampler::{Sampler, TracerSampler};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -11,7 +11,7 @@ use tracing::{Event, Id, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 use tracing_subscriber::Layer;
-
+pub mod sampler;
 pub const TRACER_RENAME_SPAN_TO_KEY: &str = "tracer_span_rename_to";
 
 impl TracerTracingSubscriber {
@@ -194,9 +194,6 @@ impl TracerTracingSubscriber {
                     context,
                     format!("Send failed for event {:#?}", subscriber_event),
                 );
-                // self.sampler
-                //     .write()
-                //     .register_soe_dropped_due_to_full_export_buffer();
             }
         }
     }
@@ -351,10 +348,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 key_vals: event_data.key_vals,
             }));
         } else {
-            print_if_dbg(
-                context,
-                format!("Not allowed by sampler, discarding event SpE.",),
-            );
+            print_if_dbg(context, "Not allowed by sampler, discarding event SpE.");
             self.send_subscriber_event_to_export(SubscriberEvent::SpanEventCountUpdate {
                 trace_id: root.id().into_non_zero_u64().get(),
                 trace_name: root_name,
@@ -460,7 +454,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                         trace_timestamp: Self::trace_timestamp(id.clone(), &ctx),
                     }));
                 } else {
-                    print_if_dbg(context, format!("Span Not Allowed by sampler"));
+                    print_if_dbg(context, "Span Not Allowed by sampler".to_string());
                     self.send_subscriber_event_to_export(SubscriberEvent::SpanEventCountUpdate {
                         trace_id: root_span.id().into_non_zero_u64().get(),
                         trace_name: root_span_name,

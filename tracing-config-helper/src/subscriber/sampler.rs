@@ -52,16 +52,12 @@ impl Sampler for TracerSampler {
 #[derive(Debug, Clone)]
 pub struct TracerSampler {
     pub current_trace_sampling: Sampling,
-    pub export_buffer_capacity: u64,
-    pub export_buffer_usage: u64,
 }
 
 impl TracerSampler {
     pub(crate) fn new() -> Self {
         Self {
             current_trace_sampling: Sampling::new_allow_everything(),
-            export_buffer_capacity: 0,
-            export_buffer_usage: 0,
         }
     }
 }

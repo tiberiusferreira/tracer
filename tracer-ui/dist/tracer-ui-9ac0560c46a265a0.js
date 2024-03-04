@@ -1196,7 +1196,7 @@ async function __wbg_init(input) {
     if (wasm !== undefined) return wasm;
 
     if (typeof input === 'undefined') {
-        input = new URL('tracer-ui-d5581757a8db98be_bg.wasm', import.meta.url);
+        input = new URL('tracer-ui-9ac0560c46a265a0_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 

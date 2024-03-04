@@ -47,7 +47,7 @@ pub async fn get_trace_timestamp_chunks(
         Some(start) => start,
     };
     let end: i64 = sqlx::query_scalar!(
-        "select timestamp as \"timestamp!\" from ((select timestamp 
+        "select timestamp as \"timestamp!\" from ((select coalesce(timestamp+span.duration, timestamp) as timestamp
     from span
     where span.instance_id = $1
       and span.trace_id = $2 and span.timestamp >= $3)

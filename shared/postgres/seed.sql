@@ -151,11 +151,11 @@ create index on event_key_value (key, value, instance_id, trace_id);
 
 create table service_wide_alert_config
 (
-    env                     identifier not null,
-    service_name            identifier not null,
-    min_instance_count      ubigint    not null default 0,
-    max_active_traces       ubigint    not null default 100000,
-    max_export_buffer_usage ubigint    not null default 1000000,
+    env                                identifier not null,
+    service_name                       identifier not null,
+    min_instance_count                 ubigint    not null default 0,
+    max_active_traces                  ubigint    not null default 100000,
+    max_export_buffer_usage_percentage ubigint    not null default 80,
     primary key (env, service_name),
     foreign key (env, service_name) references service (env, name) deferrable initially deferred
 );
@@ -209,4 +209,24 @@ create table slack_alert
     send_error            varchar(4096),
     created_at            timestamp     not null default NOW(),
     primary key (slack_alert_config_id, created_at)
+);
+
+
+create table telegram_alert_config
+(
+    id                       serial primary key,
+    api_key                  varchar(150) not null,
+    chat_id                  varchar(150) not null,
+    min_alert_period_seconds u32          not null default 3600,
+    enabled                  boolean      not null,
+    unique (api_key, chat_id)
+);
+
+create table telegram_alert
+(
+    telegram_alert_config int           not null references telegram_alert_config (id),
+    notification          varchar(2048) not null,
+    send_error            varchar(4096),
+    created_at            timestamp     not null default NOW(),
+    primary key (telegram_alert_config, created_at)
 );

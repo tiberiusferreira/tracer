@@ -111,7 +111,7 @@ pub fn get_html(
                     <td class="trace-table__cell">{finished.trace_header.trace_name}</td>
                     <td class="trace-table__cell">{finished.instance_id.instance_id}</td>
                     <td class="trace-table__cell">{secs_since(finished.trace_header.trace_timestamp)}</td>
-                    <td class="trace-table__cell">{format!("{:.2}", finished.trace_header.fragment_bytes as f32/100.)}</td>
+                    <td class="trace-table__cell">{format!("{:.2}", finished.trace_header.fragment_bytes as f32/1_000.)}</td>
                     <td class="trace-table__cell">{finished.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or_default()}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, finished.instance_id.service_id.env, finished.instance_id.service_id.name, finished.instance_id.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>

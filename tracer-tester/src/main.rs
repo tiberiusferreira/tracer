@@ -2,7 +2,7 @@ use rand::random;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::join;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn};
 use tracing_config_helper::{Env, ServiceId, TracerConfig};
 
 #[derive(Debug, Error)]
@@ -200,6 +200,14 @@ fn trace_60_percent_warning() {
     }
 }
 
+fn root_dropped_before_children() {
+    let root = info_span!("root_span").entered();
+    let first_child = info_span!("child_span").entered();
+    drop(root);
+    info!("Root dropped!");
+    drop(first_child);
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     println!("Hello, world from Tracer Test");
@@ -211,6 +219,7 @@ async fn main() {
         "http://127.0.0.1:4200".to_string(),
     );
     let flush_requester = tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
+    root_dropped_before_children();
     only_warning();
     only_error();
     simple_orphan_logs_test();

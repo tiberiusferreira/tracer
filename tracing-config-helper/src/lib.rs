@@ -1,4 +1,4 @@
-//! This serves as an unified config for projects  
+//! This serves as a unified config for projects
 //! It outputs pretty logs to the console stdout and stderr,
 //! but also exports traces to a collector
 //!
@@ -15,7 +15,6 @@ pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
-mod sampling;
 mod server_connection;
 mod subscriber;
 
@@ -58,11 +57,10 @@ pub struct TracerTracingSubscriber {
     subscriber_event_sender: Sender<SubscriberEvent>,
 }
 
-use crate::sampling::TracerSampler;
-
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use api_structs::instance::update::{ExportBufferStats, SamplerLimits};
+use crate::subscriber::sampler::TracerSampler;
+use api_structs::instance::update::ExportBufferStats;
 pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 use rand::random;
 use serde::{Deserialize, Serialize};
@@ -70,7 +68,7 @@ use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
 pub struct TracerConfig {
-    /// Where to send data to, should not contains a trailing /
+    /// Where to send data to, should not contain a trailing /
     pub collector_url: String,
     pub service_id: ServiceId,
     /// The initial filters. Initial because these can be changed during runtime and this field does not reflect that
@@ -82,9 +80,8 @@ pub struct TracerConfig {
     /// export buffers to fill up. Stats are also exported on this schedule.
     pub wait_duration_between_exports: Duration,
     pub min_wait_duration_between_profile_exports: Duration,
-    pub sampler_limits: SamplerLimits,
     /// Maximum number of span plus events to keep in memory at a given time
-    pub spe_buffer_capacity: u64,
+    pub export_buffer_capacity: u64,
     pub log_stdout: bool,
     pub log_stdout_json: bool,
 }
@@ -100,12 +97,7 @@ impl TracerConfig {
             export_timeout: Duration::from_secs(10),
             wait_duration_between_exports: Duration::from_secs(5),
             min_wait_duration_between_profile_exports: Duration::from_secs(60),
-            sampler_limits: SamplerLimits {
-                trace_spe_per_minute_per_trace_limit: 1000,
-                extra_spe_per_minute_limit_for_existing_traces: 5000,
-                logs_per_minute_limit: 1000,
-            },
-            spe_buffer_capacity: 10_000,
+            export_buffer_capacity: 2_000,
             log_stdout: false,
             service_id,
             log_stdout_json: false,
@@ -120,9 +112,6 @@ impl TracerConfig {
             "Sleep between exports needs to be at least 2s to not flood collector"
         );
         self.wait_duration_between_exports = duration
-    }
-    pub fn with_limits(mut self, sampler_limits: SamplerLimits) {
-        self.sampler_limits = sampler_limits
     }
 }
 
@@ -393,7 +382,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         .build()
         .expect("to be able to start profiler");
     let (mut flush_request_receiver, flush_request_sender) = FlushRequester::new();
-    let spe_buffer_len = usize::try_from(config.spe_buffer_capacity).expect("u32 to fit usize");
+    let spe_buffer_len = usize::try_from(config.export_buffer_capacity).expect("u32 to fit usize");
     let tracer_filter = EnvFilter::builder()
         .parse(&config.initial_filters)
         .expect("initial filters to be valid");
@@ -422,7 +411,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         ));
 
     let trace_export_task = tokio::task::spawn_local(async move {
-        let spe_buffer_capacity = config.spe_buffer_capacity;
+        let spe_buffer_capacity = config.export_buffer_capacity;
         let min_wait_duration_between_profile_exports =
             config.min_wait_duration_between_profile_exports;
         let client = reqwest::Client::new();
