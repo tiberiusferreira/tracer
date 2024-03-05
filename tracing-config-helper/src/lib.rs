@@ -160,20 +160,13 @@ pub enum SubscriberEvent {
     NewSpanEvent(NewSpanEvent),
     ClosedSpan(api_structs::instance::update::ClosedSpan),
     NewOrphanEvent(api_structs::instance::update::NewOrphanEvent),
-    SpanEventCountUpdate {
-        trace_id: u64,
-        trace_name: String,
-        trace_timestamp: u64,
-        spe_count: SpanEventCount,
-    },
+    DroppedBySamplingSpan { trace_id: u64 },
+    DroppedBySamplingEvent { trace_id: u64 },
 }
 
 #[derive(Debug, Clone)]
 pub struct NewSpan {
     pub trace_id: u64,
-    pub trace_name: String,
-    pub spe_count: SpanEventCount,
-    pub trace_timestamp: u64,
     pub id: u64,
     pub timestamp: u64,
     pub parent_id: Option<u64>,
@@ -184,9 +177,6 @@ pub struct NewSpan {
 #[derive(Debug, Clone)]
 pub struct NewSpanEvent {
     pub trace_id: u64,
-    pub trace_name: String,
-    pub spe_count: SpanEventCount,
-    pub trace_timestamp: u64,
     pub span_id: u64,
     pub message: Option<String>,
     pub timestamp: u64,
@@ -221,95 +211,95 @@ impl ExportDataContainers {
     }
 
     pub fn add_event(&mut self, event: SubscriberEvent) {
-        match event {
-            SubscriberEvent::NewSpan(span) => {
-                let trace = self
-                    .data
-                    .active_trace_fragments
-                    .entry(span.trace_id)
-                    .or_insert(TraceFragment {
-                        trace_id: span.trace_id,
-                        trace_name: span.trace_name.to_string(),
-                        trace_timestamp: span.trace_timestamp,
-                        spe_count: span.spe_count.clone(),
-                        new_spans: vec![],
-                        new_events: vec![],
-                    });
-                trace
-                    .new_spans
-                    .push(api_structs::instance::update::NewSpan {
-                        id: span.id,
-                        timestamp: span.timestamp,
-                        duration: None,
-                        parent_id: span.parent_id,
-                        name: span.name,
-                        key_vals: span.key_vals,
-                    });
-                trace.spe_count = span.spe_count;
-            }
-            SubscriberEvent::NewSpanEvent(span_event) => {
-                let trace = self
-                    .data
-                    .active_trace_fragments
-                    .entry(span_event.trace_id)
-                    .or_insert(TraceFragment {
-                        trace_id: span_event.trace_id,
-                        trace_name: span_event.trace_name.to_string(),
-                        trace_timestamp: span_event.trace_timestamp,
-                        spe_count: span_event.spe_count.clone(),
-                        new_spans: vec![],
-                        new_events: vec![],
-                    });
-                trace
-                    .new_events
-                    .push(api_structs::instance::update::NewSpanEvent {
-                        span_id: span_event.span_id,
-                        timestamp: span_event.timestamp,
-                        message: span_event.message,
-                        key_vals: span_event.key_vals,
-                        level: span_event.level,
-                    });
-                trace.spe_count = span_event.spe_count;
-            }
-            SubscriberEvent::ClosedSpan(closed) => {
-                match self.data.active_trace_fragments.get_mut(&closed.trace_id) {
-                    None => {
-                        self.data.closed_spans.push(closed);
-                    }
-                    Some(trace) => {
-                        match trace.new_spans.iter_mut().find(|s| s.id == closed.span_id) {
-                            None => {
-                                self.data.closed_spans.push(closed);
-                            }
-                            Some(span) => span.duration = Some(closed.duration),
-                        }
-                    }
-                }
-            }
-            SubscriberEvent::NewOrphanEvent(orphan) => {
-                self.data.orphan_events.push(orphan);
-            }
-            SubscriberEvent::SpanEventCountUpdate {
-                trace_id,
-                trace_name,
-                trace_timestamp,
-                spe_count,
-            } => {
-                let trace =
-                    self.data
-                        .active_trace_fragments
-                        .entry(trace_id)
-                        .or_insert(TraceFragment {
-                            trace_id,
-                            trace_name: trace_name.to_string(),
-                            trace_timestamp,
-                            spe_count: spe_count.clone(),
-                            new_spans: vec![],
-                            new_events: vec![],
-                        });
-                trace.spe_count = spe_count;
-            }
-        }
+        // match event {
+        //     SubscriberEvent::NewSpan(span) => {
+        //         let trace = self
+        //             .data
+        //             .active_trace_fragments
+        //             .entry(span.trace_id)
+        //             .or_insert(TraceFragment {
+        //                 trace_id: span.trace_id,
+        //                 trace_name: span.trace_name.to_string(),
+        //                 trace_timestamp: span.trace_timestamp,
+        //                 spe_count: span.spe_count.clone(),
+        //                 new_spans: vec![],
+        //                 new_events: vec![],
+        //             });
+        //         trace
+        //             .new_spans
+        //             .push(api_structs::instance::update::NewSpan {
+        //                 id: span.id,
+        //                 timestamp: span.timestamp,
+        //                 duration: None,
+        //                 parent_id: span.parent_id,
+        //                 name: span.name,
+        //                 key_vals: span.key_vals,
+        //             });
+        //         trace.spe_count = span.spe_count;
+        //     }
+        //     SubscriberEvent::NewSpanEvent(span_event) => {
+        //         let trace = self
+        //             .data
+        //             .active_trace_fragments
+        //             .entry(span_event.trace_id)
+        //             .or_insert(TraceFragment {
+        //                 trace_id: span_event.trace_id,
+        //                 trace_name: span_event.trace_name.to_string(),
+        //                 trace_timestamp: span_event.trace_timestamp,
+        //                 spe_count: span_event.spe_count.clone(),
+        //                 new_spans: vec![],
+        //                 new_events: vec![],
+        //             });
+        //         trace
+        //             .new_events
+        //             .push(api_structs::instance::update::NewSpanEvent {
+        //                 span_id: span_event.span_id,
+        //                 timestamp: span_event.timestamp,
+        //                 message: span_event.message,
+        //                 key_vals: span_event.key_vals,
+        //                 level: span_event.level,
+        //             });
+        //         trace.spe_count = span_event.spe_count;
+        //     }
+        //     SubscriberEvent::ClosedSpan(closed) => {
+        //         match self.data.active_trace_fragments.get_mut(&closed.trace_id) {
+        //             None => {
+        //                 self.data.closed_spans.push(closed);
+        //             }
+        //             Some(trace) => {
+        //                 match trace.new_spans.iter_mut().find(|s| s.id == closed.span_id) {
+        //                     None => {
+        //                         self.data.closed_spans.push(closed);
+        //                     }
+        //                     Some(span) => span.duration = Some(closed.duration),
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     SubscriberEvent::NewOrphanEvent(orphan) => {
+        //         self.data.orphan_events.push(orphan);
+        //     }
+        //     SubscriberEvent::DroppedBySamplingEvent {
+        //         trace_id,
+        //         trace_name,
+        //         trace_timestamp,
+        //         spe_count,
+        //     } => {
+        //         let trace =
+        //             self.data
+        //                 .active_trace_fragments
+        //                 .entry(trace_id)
+        //                 .or_insert(TraceFragment {
+        //                     trace_id,
+        //                     trace_name: trace_name.to_string(),
+        //                     trace_timestamp,
+        //                     spe_count: spe_count.clone(),
+        //                     new_spans: vec![],
+        //                     new_events: vec![],
+        //                 });
+        //         trace.spe_count = spe_count;
+        //     }
+        // }
     }
 }
 
