@@ -1,6 +1,5 @@
 use crate::api::handlers::instance::connect::ChangeFilterInternalRequest;
 use crate::CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS;
-use api_structs::instance::update::ExportBufferStats;
 use api_structs::time_conversion::time_from_nanos;
 use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
 use api_structs::{ServiceId, TraceName};
@@ -27,7 +26,6 @@ pub struct InstanceState {
     pub rust_log: String,
     pub profile_data: Option<ProfileData>,
     // time data
-    // pub time_data_points: VecDeque<ExportBufferOverTime>,
     pub see_handle: tokio::sync::mpsc::Sender<ChangeFilterInternalRequest>,
 }
 
@@ -50,18 +48,18 @@ impl InstanceState {
 pub struct BytesBudgetUsage {
     pub current_window_start: Instant,
     pub window_size_sec: u32,
-    pub budget_per_window: u32,
-    pub traces_usage: HashMap<TraceName, u32>,
+    pub budget_per_window_bytes: u32,
+    pub traces_usage_bytes: HashMap<TraceName, u32>,
     pub orphan_events_usage: u32,
 }
 
 impl BytesBudgetUsage {
-    pub fn new(window_size_sec: u32, increase_amount_per_window: u32) -> Self {
+    pub fn new(window_size_sec: u32, increase_amount_per_window_bytes: u32) -> Self {
         BytesBudgetUsage {
             current_window_start: Instant::now(),
             window_size_sec,
-            budget_per_window: increase_amount_per_window,
-            traces_usage: HashMap::new(),
+            budget_per_window_bytes: increase_amount_per_window_bytes,
+            traces_usage_bytes: HashMap::new(),
             orphan_events_usage: 0,
         }
     }
@@ -70,9 +68,9 @@ impl BytesBudgetUsage {
             self.current_window_start = Instant::now();
             self.orphan_events_usage = self
                 .orphan_events_usage
-                .saturating_sub(self.budget_per_window);
-            for v in self.traces_usage.values_mut() {
-                *v = v.saturating_sub(self.budget_per_window);
+                .saturating_sub(self.budget_per_window_bytes);
+            for v in self.traces_usage_bytes.values_mut() {
+                *v = v.saturating_sub(self.budget_per_window_bytes);
             }
         }
     }
@@ -80,17 +78,20 @@ impl BytesBudgetUsage {
         self.orphan_events_usage += amount;
     }
     pub fn increase_trace_usage_by(&mut self, trace_name: &str, amount: u32) {
-        let usage = self.traces_usage.entry(trace_name.to_string()).or_insert(0);
+        let usage = self
+            .traces_usage_bytes
+            .entry(trace_name.to_string())
+            .or_insert(0);
         *usage += amount;
     }
     pub fn is_trace_over_budget(&self, trace_name: &str) -> bool {
-        let Some(usage) = self.traces_usage.get(trace_name) else {
+        let Some(usage) = self.traces_usage_bytes.get(trace_name) else {
             return false;
         };
-        return self.budget_per_window < *usage;
+        return self.budget_per_window_bytes < *usage;
     }
     pub fn is_orphan_events_over_budget(&self) -> bool {
-        return self.budget_per_window < self.orphan_events_usage;
+        return self.budget_per_window_bytes < self.orphan_events_usage;
     }
 }
 
@@ -98,16 +99,9 @@ impl BytesBudgetUsage {
 pub struct ServiceDataPoint {
     pub timestamp: u64,
     pub instance_id: i64,
-    pub export_buffer_stats: ExportBufferStats,
-    pub active_traces: Vec<TraceHeader>,
-    pub finished_traces: Vec<TraceHeader>,
+    pub traces: Vec<TraceHeader>,
     pub orphan_events: Vec<OrphanEvent>,
     pub budget_usage: BytesBudgetUsage,
-}
-impl ServiceDataPoint {
-    pub fn active_and_finished_iter(&self) -> impl Iterator<Item = &TraceHeader> {
-        self.active_traces.iter().chain(self.finished_traces.iter())
-    }
 }
 
 #[derive(Debug, Clone)]

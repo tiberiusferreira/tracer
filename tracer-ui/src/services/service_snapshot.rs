@@ -33,8 +33,7 @@ pub fn get_html(
             {
                 orphan_events.extend_from_slice(&d.orphan_events);
                 active_traces.extend_from_slice(
-                    &d.active_traces
-                        .iter()
+                    &d.active_traces()
                         .map(|trace_header| TraceHeaderWithInstance {
                             trace_header: TraceHeader {
                                 trace_id: trace_header.trace_id,
@@ -53,8 +52,7 @@ pub fn get_html(
                         .collect::<Vec<TraceHeaderWithInstance>>(),
                 );
                 finished_traces.extend_from_slice(
-                    &d.finished_traces
-                        .iter()
+                    &d.finished_traces()
                         .map(|trace_header| TraceHeaderWithInstance {
                             trace_header: TraceHeader {
                                 trace_id: trace_header.trace_id,

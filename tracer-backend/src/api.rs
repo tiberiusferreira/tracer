@@ -1,17 +1,17 @@
-use crate::api::state::AppState;
-
-use api_structs::instance::update::ExportBufferStats;
-use api_structs::{InstanceId, ServiceId};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use backtraced_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter};
-use chrono::NaiveDateTime;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Duration;
+
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
+
+use api_structs::{InstanceId, ServiceId};
+use backtraced_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter};
+
+use crate::api::state::AppState;
 
 pub mod database;
 pub mod handlers;
@@ -22,7 +22,6 @@ pub struct LiveServiceInstance {
     pub id: InstanceId,
     pub last_seen_timestamp: u64,
     pub filters: String,
-    pub tracer_stats: ExportBufferStats,
 }
 
 #[instrument(skip_all)]
@@ -35,16 +34,6 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     let serve_ui = tower_http::services::ServeDir::new("./tracer-ui/dist").fallback(
         tower_http::services::ServeFile::new("./tracer-ui/dist/index.html"),
     );
-    tokio::spawn(async move {
-        loop {
-            tracing::debug!(all_good = true, "Sample debug log");
-            info!(all_good = true, "Sample info log");
-            info!("Sample info log 2");
-            tracing::warn!(all_good = true, "Sample warn log");
-            error!(all_good = true, "Sample error log");
-            tokio::time::sleep(Duration::from_secs_f32(2.5)).await;
-        }
-    });
     // List, Overview and Manage Services
     let service_routes = axum::Router::new()
         .route(
@@ -98,6 +87,8 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         .fallback_service(serve_ui)
         .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
         .layer(tower_http::cors::CorsLayer::very_permissive())
+        .layer(tower_http::compression::CompressionLayer::new())
+        .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .layer(
             tower_http::trace::TraceLayer::new_for_http().make_span_with(
                 |request: &axum::http::Request<_>| {
@@ -116,6 +107,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                 },
             ),
         );
+
     tokio::spawn(async move {
         let listener = tokio::net::TcpListener::bind(
             &format!("0.0.0.0:{}", api_port)

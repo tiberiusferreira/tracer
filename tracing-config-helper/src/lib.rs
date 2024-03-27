@@ -3,68 +3,33 @@
 //! but also exports traces to a collector
 //!
 
-use api_structs::instance::update::{
-    ExportedServiceTraceData, Sampling, SpanEventCount, TraceFragment,
-};
-use std::collections::{HashMap, VecDeque};
+use pprof::ProfilerGuard;
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::Read;
-use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
+
+use rand::random;
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::task::JoinHandle;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
+use api_structs::instance::update::{ExportedServiceTraceData, NewOrphanEvent, TraceState};
+pub use api_structs::{Env, InstanceId, ServiceId, Severity};
+pub use print_debugging::print_if_dbg;
+pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
+use tracing::Level;
+
+use crate::server_connection::instance_update_sender::export_instance_update;
+use crate::subscriber::{ExporterStateHandle, SamplerHandle, TracerTracingSubscriber};
+
+mod print_debugging;
 mod server_connection;
 mod subscriber;
 
-pub fn print_if_dbg<StmType: AsRef<str>>(context: &'static str, debug_statement: StmType) {
-    if debugging() {
-        println!("{} - {}", context, debug_statement.as_ref());
-    }
-}
-
-fn debugging() -> bool {
-    static DEBUG: OnceLock<bool> = OnceLock::new();
-    *DEBUG.get_or_init(|| {
-        let debug = std::env::var("TRACER_DEBUG")
-            .unwrap_or("0".to_string())
-            .parse::<bool>()
-            .unwrap_or(false);
-        debug
-    })
-}
-
-/// Why a custom non-otel subscriber/exporter?
-/// 1. Grouping of spans into a trace at service level
-///  -  Dropped as a goal because:
-///     - We wanted to be able to stream span and events to the collector to get an experience
-///    closer to the console log, of immediate feedback.
-///     - We also want to be able to see "in progress" traces to debug "endless" traces
-/// 2. Alerting or sending "standalone" events
-/// 3. Tail sampling, possible due to 1
-///  - Postponed, needs thought about really needing it.
-///   With Span+Event per Trace rate limiting we should get good representative data for all trace, most of the
-///   time
-/// 4. Send service health data
-/// 4.1 Health check, heart beat
-/// 5. Limit on Span+Event count per trace
-/// 5.1 When hit stop recording new events or spans for that trace
-/// 6. Limit on total Span+Events per minute per TopLevelSpan
-/// Change log level for full trace
-pub struct TracerTracingSubscriber {
-    sampler: Arc<parking_lot::RwLock<TracerSampler>>,
-    subscriber_event_sender: Sender<SubscriberEvent>,
-}
-
-use tokio::sync::mpsc::{Receiver, Sender};
-
-use crate::subscriber::sampler::TracerSampler;
-use api_structs::instance::update::ExportBufferStats;
-pub use api_structs::{Env, InstanceId, ServiceId, Severity};
-use rand::random;
-use serde::{Deserialize, Serialize};
-use tokio::task::JoinHandle;
+pub const UPDATE_ENDPOINT: &str = "/api/instance/update";
+pub const SSE_CONNECT_ENDPOINT: &str = "/api/instance/connect";
 
 #[derive(Debug, Clone)]
 pub struct TracerConfig {
@@ -80,8 +45,6 @@ pub struct TracerConfig {
     /// export buffers to fill up. Stats are also exported on this schedule.
     pub wait_duration_between_exports: Duration,
     pub min_wait_duration_between_profile_exports: Duration,
-    /// Maximum number of span plus events to keep in memory at a given time
-    pub export_buffer_capacity: u64,
     pub log_stdout: bool,
     pub log_stdout_json: bool,
 }
@@ -97,7 +60,6 @@ impl TracerConfig {
             export_timeout: Duration::from_secs(10),
             wait_duration_between_exports: Duration::from_secs(5),
             min_wait_duration_between_profile_exports: Duration::from_secs(60),
-            export_buffer_capacity: 2_000,
             log_stdout: false,
             service_id,
             log_stdout_json: false,
@@ -115,7 +77,7 @@ impl TracerConfig {
     }
 }
 
-pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> FlushRequester {
+pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> ExportNowRequester {
     println!("Starting up using: {config:#?}");
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
     // runtime starved from CPU time
@@ -132,7 +94,7 @@ pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> FlushRequeste
             tokio::task::LocalSet::new()
                 .run_until(async {
                     let export_flusher_handle = setup_tracer_client_or_panic_impl(config).await;
-                    s.send(export_flusher_handle.flush_request_sender.clone())
+                    s.send(export_flusher_handle.export_now_request_sender.clone())
                         .unwrap();
                     export_flusher_handle.wait_or_panic().await;
                 })
@@ -145,43 +107,13 @@ pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> FlushRequeste
 struct TracerTasks {
     sse_task: JoinHandle<()>,
     trace_export_task: JoinHandle<()>,
-    flush_request_sender: FlushRequester,
+    export_now_request_sender: ExportNowRequester,
 }
 
 impl TracerTasks {
     pub async fn wait_or_panic(self) {
         let _res = futures::try_join!(self.sse_task, self.trace_export_task).unwrap();
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum SubscriberEvent {
-    NewSpan(NewSpan),
-    NewSpanEvent(NewSpanEvent),
-    ClosedSpan(api_structs::instance::update::ClosedSpan),
-    NewOrphanEvent(api_structs::instance::update::NewOrphanEvent),
-    DroppedBySamplingSpan { trace_id: u64 },
-    DroppedBySamplingEvent { trace_id: u64 },
-}
-
-#[derive(Debug, Clone)]
-pub struct NewSpan {
-    pub trace_id: u64,
-    pub id: u64,
-    pub timestamp: u64,
-    pub parent_id: Option<u64>,
-    pub name: String,
-    pub key_vals: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NewSpanEvent {
-    pub trace_id: u64,
-    pub span_id: u64,
-    pub message: Option<String>,
-    pub timestamp: u64,
-    pub level: Severity,
-    pub key_vals: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,114 +124,20 @@ struct ExportDataContainers {
 impl ExportDataContainers {
     pub fn new(
         instance_id: InstanceId,
-        filters: String,
-        tracer_stats: ExportBufferStats,
-        active_trace_fragments: HashMap<u64, TraceFragment>,
+        rust_log: String,
+        orphan_events: Vec<NewOrphanEvent>,
+        traces_state: HashMap<u64, TraceState>,
         profile_data: Option<Vec<u8>>,
     ) -> Self {
         Self {
             data: ExportedServiceTraceData {
                 instance_id,
-                active_trace_fragments,
-                closed_spans: vec![],
-                orphan_events: vec![],
-                rust_log: filters,
-                producer_stats: tracer_stats,
+                orphan_events,
+                traces_state,
+                rust_log,
                 profile_data,
             },
         }
-    }
-
-    pub fn add_event(&mut self, event: SubscriberEvent) {
-        // match event {
-        //     SubscriberEvent::NewSpan(span) => {
-        //         let trace = self
-        //             .data
-        //             .active_trace_fragments
-        //             .entry(span.trace_id)
-        //             .or_insert(TraceFragment {
-        //                 trace_id: span.trace_id,
-        //                 trace_name: span.trace_name.to_string(),
-        //                 trace_timestamp: span.trace_timestamp,
-        //                 spe_count: span.spe_count.clone(),
-        //                 new_spans: vec![],
-        //                 new_events: vec![],
-        //             });
-        //         trace
-        //             .new_spans
-        //             .push(api_structs::instance::update::NewSpan {
-        //                 id: span.id,
-        //                 timestamp: span.timestamp,
-        //                 duration: None,
-        //                 parent_id: span.parent_id,
-        //                 name: span.name,
-        //                 key_vals: span.key_vals,
-        //             });
-        //         trace.spe_count = span.spe_count;
-        //     }
-        //     SubscriberEvent::NewSpanEvent(span_event) => {
-        //         let trace = self
-        //             .data
-        //             .active_trace_fragments
-        //             .entry(span_event.trace_id)
-        //             .or_insert(TraceFragment {
-        //                 trace_id: span_event.trace_id,
-        //                 trace_name: span_event.trace_name.to_string(),
-        //                 trace_timestamp: span_event.trace_timestamp,
-        //                 spe_count: span_event.spe_count.clone(),
-        //                 new_spans: vec![],
-        //                 new_events: vec![],
-        //             });
-        //         trace
-        //             .new_events
-        //             .push(api_structs::instance::update::NewSpanEvent {
-        //                 span_id: span_event.span_id,
-        //                 timestamp: span_event.timestamp,
-        //                 message: span_event.message,
-        //                 key_vals: span_event.key_vals,
-        //                 level: span_event.level,
-        //             });
-        //         trace.spe_count = span_event.spe_count;
-        //     }
-        //     SubscriberEvent::ClosedSpan(closed) => {
-        //         match self.data.active_trace_fragments.get_mut(&closed.trace_id) {
-        //             None => {
-        //                 self.data.closed_spans.push(closed);
-        //             }
-        //             Some(trace) => {
-        //                 match trace.new_spans.iter_mut().find(|s| s.id == closed.span_id) {
-        //                     None => {
-        //                         self.data.closed_spans.push(closed);
-        //                     }
-        //                     Some(span) => span.duration = Some(closed.duration),
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     SubscriberEvent::NewOrphanEvent(orphan) => {
-        //         self.data.orphan_events.push(orphan);
-        //     }
-        //     SubscriberEvent::DroppedBySamplingEvent {
-        //         trace_id,
-        //         trace_name,
-        //         trace_timestamp,
-        //         spe_count,
-        //     } => {
-        //         let trace =
-        //             self.data
-        //                 .active_trace_fragments
-        //                 .entry(trace_id)
-        //                 .or_insert(TraceFragment {
-        //                     trace_id,
-        //                     trace_name: trace_name.to_string(),
-        //                     trace_timestamp,
-        //                     spe_count: spe_count.clone(),
-        //                     new_spans: vec![],
-        //                     new_events: vec![],
-        //                 });
-        //         trace.spe_count = spe_count;
-        //     }
-        // }
     }
 }
 
@@ -317,8 +155,10 @@ impl FlushRequest {
     }
 }
 
+/// Used for request immediate exporting of current data. This is useful for when the
+/// program is about to exit or during tests
 #[derive(Debug, Clone)]
-pub struct FlushRequester {
+pub struct ExportNowRequester {
     sender_channel: Sender<FlushRequest>,
 }
 
@@ -334,8 +174,8 @@ pub enum FlushError {
     TracerBackend(String),
 }
 
-impl FlushRequester {
-    fn new() -> (Receiver<FlushRequest>, FlushRequester) {
+impl ExportNowRequester {
+    fn new() -> (Receiver<FlushRequest>, ExportNowRequester) {
         let (sender, receiver) = tokio::sync::mpsc::channel::<FlushRequest>(1);
         (
             receiver,
@@ -344,14 +184,14 @@ impl FlushRequester {
             },
         )
     }
-    pub fn try_flush_dont_wait_result(&self) -> Result<(), FlushError> {
+    pub fn try_export_dont_wait_result(&self) -> Result<(), FlushError> {
         let (_receiver, request) = FlushRequest::new();
         self.sender_channel
             .try_send(request)
             .map_err(|_e| FlushError::ChannelClosedBeforeSend)?;
         Ok(())
     }
-    pub async fn flush(&self, timeout: Duration) -> Result<(), FlushError> {
+    pub async fn export(&self, timeout: Duration) -> Result<(), FlushError> {
         let (receiver, request) = FlushRequest::new();
         self.sender_channel
             .try_send(request)
@@ -365,223 +205,206 @@ impl FlushRequester {
     }
 }
 
-async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
-    let profiler_guard = pprof::ProfilerGuardBuilder::default()
-        .frequency(100)
+fn start_cpu_profiler() -> ProfilerGuard<'static> {
+    pprof::ProfilerGuardBuilder::default()
+        // how many times per second to profile
+        .frequency(10)
         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
         .build()
-        .expect("to be able to start profiler");
-    let (mut flush_request_receiver, flush_request_sender) = FlushRequester::new();
-    let spe_buffer_len = usize::try_from(config.export_buffer_capacity).expect("u32 to fit usize");
+        .expect("to be able to start profiler")
+}
+
+async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
+    let (export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
+    let cpu_profiler_guard = start_cpu_profiler();
+
     let tracer_filter = EnvFilter::builder()
         .parse(&config.initial_filters)
         .expect("initial filters to be valid");
     let (reloadable_tracer_filter, reload_tracer_handle) =
         tracing_subscriber::reload::Layer::new(tracer_filter);
 
-    let (subscriber_event_sender, mut subscriber_event_receiver) =
-        tokio::sync::mpsc::channel::<SubscriberEvent>(spe_buffer_len);
-    let tracer = TracerTracingSubscriber::new(subscriber_event_sender);
-    let tracer_sampler = Arc::clone(&tracer.sampler);
+    let tracer_tracing_subscriber = TracerTracingSubscriber::new();
+    let tracer_sampler = tracer_tracing_subscriber.get_sampler_handle();
+    let tracer_export_state = tracer_tracing_subscriber.get_sampler_state_handle();
 
     let registry = Registry::default()
         .with(reloadable_tracer_filter)
-        .with(tracer)
+        .with(tracer_tracing_subscriber)
         .with(tracing_subscriber::fmt::layer());
     tracing::subscriber::set_global_default(registry).expect("no other global subscriber to exist");
     let instance_id = InstanceId {
-        service_id: config.service_id,
+        service_id: config.service_id.clone(),
         instance_id: random::<i64>(),
     };
-    let sse_task =
-        tokio::task::spawn_local(server_connection::continuously_handle_server_sent_events(
+    let sse_task = tokio::task::spawn_local(
+        server_connection::server_sent_events::continuously_handle_server_sent_events(
             instance_id.clone(),
             config.collector_url.clone(),
             reload_tracer_handle.clone(),
-        ));
+        ),
+    );
 
-    let trace_export_task = tokio::task::spawn_local(async move {
-        let spe_buffer_capacity = config.export_buffer_capacity;
-        let min_wait_duration_between_profile_exports =
-            config.min_wait_duration_between_profile_exports;
-        let client = reqwest::Client::new();
-        let context = "trace_export_task";
-        let profiler_guard = profiler_guard;
-        let mut time_last_profile_export = std::time::Instant::now();
-        let mut active_traces = HashMap::new();
-        loop {
-            let period_time_secs = config.wait_duration_between_exports;
-            print_if_dbg(
-                context,
-                format!(
-                    "Sleeping {}s or until flush request",
-                    period_time_secs.as_secs()
-                ),
-            );
-            let flush_request = tokio::select! {
-                _ = tokio::time::sleep(period_time_secs) => {
-                    print_if_dbg(context, "Slept");
-                    None
-                },
-                received_val = flush_request_receiver.recv() => {
-                    match received_val{
-                        Some(flush_request) => {
-                            print_if_dbg(context, "Got flush request");
-                            Some(flush_request)
-                        }
-                        None => {
-                            print_if_dbg(context, "Flush request channel is closed, sleeping");
-                            tokio::time::sleep(period_time_secs).await;
-                            None
-                        }
-                    }
-                },
-            };
-            let current_filters = reload_tracer_handle
-                .with_current(|c| c.to_string())
-                .expect("subscriber to exist");
-            print_if_dbg(context, "Checking for new events");
-            // we need this because events come in reverse order
-            let mut subscriber_events = VecDeque::new();
-            while let Ok(event) = subscriber_event_receiver.try_recv() {
-                subscriber_events.push_back(event);
-            }
-
-            let should_export_profile = (time_last_profile_export.elapsed()
-                > min_wait_duration_between_profile_exports)
-                || flush_request.is_some();
-            let profile_data = if should_export_profile {
-                time_last_profile_export = std::time::Instant::now();
-                let mut profile_data = Vec::new();
-                profiler_guard
-                    .report()
-                    .build()
-                    .expect("profile creation to work")
-                    .flamegraph(&mut profile_data)
-                    .expect("profile writing to work");
-                Some(profile_data)
-            } else {
-                None
-            };
-            let mut export_data = ExportDataContainers::new(
-                instance_id.clone(),
-                current_filters,
-                ExportBufferStats {
-                    export_buffer_capacity: spe_buffer_capacity,
-                    export_buffer_usage: subscriber_events.len() as u64,
-                },
-                active_traces.clone(),
-                profile_data,
-            );
-
-            print_if_dbg(
-                context,
-                format!("New events count: {}", subscriber_events.len()),
-            );
-            print_if_dbg(context, format!("Event List: {:#?}", subscriber_events));
-            for e in subscriber_events {
-                export_data.add_event(e);
-            }
-            print_if_dbg(context, format!("Export data: {:#?}", export_data));
-            let export_data_json =
-                serde_json::to_string(&export_data.data).expect("export data to be serializable");
-            active_traces = export_data
-                .data
-                .active_trace_fragments
-                .into_iter()
-                .filter_map(|(id, mut frag)| {
-                    if frag.is_closed(&export_data.data.closed_spans) {
-                        None
-                    } else {
-                        frag.new_spans.clear();
-                        frag.new_events.clear();
-                        Some((id, frag))
-                    }
-                })
-                .collect();
-            print_if_dbg(
-                context,
-                format!(
-                    "Response before compression: {} bytes",
-                    export_data_json.len()
-                ),
-            );
-
-            let lg_window_size = 21;
-            let quality = 4;
-            let mut input = brotli::CompressorReader::new(
-                export_data_json.as_bytes(),
-                4096,
-                quality as u32,
-                lg_window_size as u32,
-            );
-            let mut export_data_json: Vec<u8> = Vec::with_capacity(100 * 1000);
-            input.read_to_end(&mut export_data_json).unwrap();
-            print_if_dbg(
-                context,
-                format!(
-                    "Response after compression: {} bytes",
-                    export_data_json.len()
-                ),
-            );
-            let send_result = match client
-                .post(format!("{}/api/instance/update", config.collector_url))
-                .body(export_data_json)
-                .header("Content-Type", "application/json")
-                .timeout(config.export_timeout)
-                .send()
-                .await
-            {
-                Ok(response) if response.status().is_success() => {
-                    print_if_dbg(
-                        context,
-                        format!("Sent events and got success response: {response:#?}"),
-                    );
-                    match response.json::<Sampling>().await {
-                        Ok(new_sampling) => {
-                            tracer_sampler.write().current_trace_sampling = new_sampling;
-                        }
-                        Err(error) => {
-                            let err = format!(
-                                "Sent events, but got success code, but not json response expected: {:?}", error
-                            );
-                            println!("{} - {}", context, err);
-                        }
-                    }
-                    Ok(())
-                }
-                Ok(response) => {
-                    let status = response.status();
-                    let err = format!(
-                        "Sent events, but got fail response: {status}.\nResponse:{response:#?}"
-                    );
-                    println!("{} - {}", context, err);
-                    Err(err)
-                }
-                Err(e) => {
-                    let err = format!("Error sending events: {e:#?}");
-                    println!("{} - {}", context, err);
-                    Err(err)
-                }
-            };
-            if let Some(flush_request) = flush_request {
-                match flush_request.respond_to.send(send_result) {
-                    Ok(_) => {
-                        println!("Responded to flush request");
-                    }
-                    Err(e) => {
-                        println!(
-                            "Error responding to flush request. Had flush request output: {:#?}",
-                            e
-                        );
-                    }
-                }
-            }
-        }
-    });
+    let trace_export_task = tokio::task::spawn_local(trace_export_loop(
+        config,
+        cpu_profiler_guard,
+        export_now_request_receiver,
+        reload_tracer_handle,
+        tracer_sampler,
+        tracer_export_state,
+        instance_id,
+    ));
+    install_global_export_traces_on_panic_hook(export_now_request_sender.clone());
     TracerTasks {
         sse_task,
         trace_export_task,
-        flush_request_sender,
+        export_now_request_sender,
     }
+}
+
+async fn trace_export_loop(
+    config: TracerConfig,
+    profiler_guard: ProfilerGuard<'static>,
+    mut flush_request_receiver: Receiver<FlushRequest>,
+    reload_tracer_handle: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
+    tracer_sampler: SamplerHandle,
+    tracer_export_state: ExporterStateHandle,
+    instance_id: InstanceId,
+) {
+    let min_wait_duration_between_profile_exports =
+        config.min_wait_duration_between_profile_exports;
+    let client = reqwest::ClientBuilder::new()
+        .build()
+        .expect("reqwest client to be able to be created");
+    let context = "trace_export_task";
+    let profiler_guard = profiler_guard;
+    let mut time_last_profile_export = std::time::Instant::now();
+    loop {
+        let period_time_secs = config.wait_duration_between_exports;
+        print_if_dbg(
+            context,
+            format!(
+                "Sleeping {}s or until flush request",
+                period_time_secs.as_secs()
+            ),
+        );
+        let flush_request = tokio::select! {
+            _ = tokio::time::sleep(period_time_secs) => {
+                print_if_dbg(context, "Slept");
+                None
+            },
+            received_val = flush_request_receiver.recv() => {
+                match received_val{
+                    Some(flush_request) => {
+                        print_if_dbg(context, "Got flush request");
+                        Some(flush_request)
+                    }
+                    None => {
+                        print_if_dbg(context, "Flush request channel is closed, sleeping");
+                        tokio::time::sleep(period_time_secs).await;
+                        None
+                    }
+                }
+            },
+        };
+        let current_filters = reload_tracer_handle
+            .with_current(|c| c.to_string())
+            .expect("subscriber to exist");
+        print_if_dbg(context, "Checking for new events");
+
+        let should_export_profile = (time_last_profile_export.elapsed()
+            > min_wait_duration_between_profile_exports)
+            || flush_request.is_some();
+        let profile_data = if should_export_profile {
+            time_last_profile_export = std::time::Instant::now();
+            let mut profile_data = Vec::new();
+            profiler_guard
+                .report()
+                .build()
+                .expect("profile creation to work")
+                .flamegraph(&mut profile_data)
+                .expect("profile writing to work");
+            Some(profile_data)
+        } else {
+            None
+        };
+        let traces_and_orphan_events = tracer_export_state.get_export_data();
+        let export_data = ExportDataContainers::new(
+            instance_id.clone(),
+            current_filters,
+            traces_and_orphan_events.orphan_events,
+            traces_and_orphan_events.traces,
+            profile_data,
+        );
+        print_if_dbg(context, format!("Export data: {:#?}", export_data));
+        let export_data_json =
+            serde_json::to_string(&export_data.data).expect("export data to be serializable");
+        let export_update_result = match export_instance_update(
+            &client,
+            &config.collector_url,
+            &export_data_json,
+            config.export_timeout,
+        )
+        .await
+        {
+            Ok(new_sampling) => {
+                tracer_sampler.set_new(new_sampling);
+                Ok(())
+            }
+            Err(err) => {
+                let err = backtraced_error::error_chain_to_pretty_formatted(err);
+                println!("{context} - {}", err);
+                Err(err)
+            }
+        };
+        flush_request.map(|f| match f.respond_to.send(export_update_result) {
+            Ok(_) => {
+                println!("Responded to flush request");
+            }
+            Err(e) => {
+                println!(
+                    "Error responding to flush request. Had flush request output: {:#?}",
+                    e
+                );
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod test {
+    pub fn enable_logging_for_tests() {
+        tracing_subscriber::fmt::try_init().ok();
+        std::env::set_var("TRACER_DEBUG", "true");
+    }
+}
+
+fn install_global_export_traces_on_panic_hook(export_now_handle: ExportNowRequester) {
+    let current = std::panic::take_hook();
+    println!("Installing panic hook");
+    std::panic::set_hook(Box::new(move |panic_info| {
+        println!("Running panic hook, trying to export creating and exporting panic span.");
+        // Make sure we signal that we panic
+        let panic_span = tracing::info_span!("program panicked", is_panic = true);
+        panic_span.in_scope(|| {
+            let bt = std::backtrace::Backtrace::force_capture();
+            let panic_info: String = panic_info.to_string().chars().take(30_000).collect();
+            let bt: String = bt.to_string().chars().take(30_000).collect();
+            tracing::error!("Code panicked: Panic info: {}.", panic_info);
+            tracing::error!("Backtrace:\n{bt}.");
+        });
+        if let Err(e) = export_now_handle.try_export_dont_wait_result() {
+            println!("{:?}", e);
+        }
+        let wait_secs = 3;
+        println!("Waiting {wait_secs} seconds so export hopefully finishes");
+        std::thread::sleep(Duration::from_secs(wait_secs));
+        current(panic_info)
+    }));
+}
+
+// convenience helper so consumers don't need to import tracing_subscriber
+pub fn init_stdout_tracing_for_tests(rust_log: &str) {
+    std::env::set_var("RUST_LOG", rust_log);
+    tracing_subscriber::fmt::try_init().ok();
 }

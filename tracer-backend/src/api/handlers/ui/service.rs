@@ -119,11 +119,9 @@ pub(crate) async fn ui_service_overview_get(
             .map(|d| api_structs::ui::service::ServiceDataOverTime {
                 timestamp: d.timestamp,
                 instance_id: d.instance_id,
-                export_buffer_stats: d.export_buffer_stats.clone(),
-                active_traces: d.active_traces.clone(),
-                finished_traces: d.finished_traces.clone(),
+                traces_state: d.traces.clone(),
                 orphan_events: d.orphan_events.clone(),
-                traces_budget_usage: d.budget_usage.traces_usage.clone(),
+                traces_budget_usage: d.budget_usage.traces_usage_bytes.clone(),
                 orphan_events_budget_usage: d.budget_usage.orphan_events_usage,
             })
             .collect(),

@@ -29,8 +29,12 @@ pub fn max_active_traces(
     let max_active_traces_count = alert_config.max_active_traces_count;
     debug!("max_active_traces_count={}", max_active_traces_count);
     for data_point in service_runtime_data.data_points_since_last_alert_check_reversed() {
-        trace!("checking {:?}", data_point.active_traces);
-        let current_active_traces_count = data_point.active_traces.len();
+        trace!("checking {:?}", data_point.traces);
+        let current_active_traces_count = data_point
+            .traces
+            .iter()
+            .filter(|t| t.duration.is_none())
+            .count();
         debug!("active_traces_count={}", current_active_traces_count);
         if max_active_traces_count < current_active_traces_count as u64 {
             let event_datetime = time_from_nanos(data_point.timestamp);
@@ -39,41 +43,6 @@ pub fn max_active_traces(
             debug!("reporting with event_datetime={event_datetime} now={now} seconds_ago={seconds_ago}");
             return Some(format!(
                 "Too many active traces ({current_active_traces_count}), above maximum of {max_active_traces_count} {seconds_ago} seconds ago ({event_datetime})",
-            ));
-        }
-    }
-    None
-}
-
-#[instrument(skip_all)]
-pub fn export_buffer_usage_percentage(
-    alert_config: &ServiceWideAlertConfig,
-    service_runtime_data: &ServiceRuntimeData,
-) -> Option<String> {
-    let max_export_buffer_usage_percentage = alert_config.max_export_buffer_usage_percentage;
-    debug!(
-        "max_export_buffer_usage_percentage={}",
-        max_export_buffer_usage_percentage
-    );
-    for data_point in service_runtime_data.data_points_since_last_alert_check_reversed() {
-        trace!("checking {:?}", data_point.export_buffer_stats);
-        let export_buffer_usage = data_point.export_buffer_stats.export_buffer_usage;
-        let export_buffer_capacity = data_point.export_buffer_stats.export_buffer_capacity;
-        let current_export_buffer_usage_percentage_0_to_100 =
-            data_point.export_buffer_stats.usage_percentage_0_to_100();
-        debug!(
-            "current_export_buffer_usage_percentage_0_to_100 {:.2}",
-            current_export_buffer_usage_percentage_0_to_100
-        );
-        if max_export_buffer_usage_percentage
-            < current_export_buffer_usage_percentage_0_to_100 as u64
-        {
-            let event_datetime = time_from_nanos(data_point.timestamp);
-            let now = Utc::now().naive_utc();
-            let seconds_ago = (now - event_datetime).num_seconds();
-            debug!("reporting with event_datetime={event_datetime} now={now} seconds_ago={seconds_ago} export_buffer_usage={export_buffer_usage} export_buffer_capacity={export_buffer_capacity}");
-            return Some(format!(
-                "Export buffer usage hit {current_export_buffer_usage_percentage_0_to_100}% ({export_buffer_usage}/{export_buffer_capacity}), above maximum of {max_export_buffer_usage_percentage}% {seconds_ago} seconds ago ({event_datetime})",
             ));
         }
     }
@@ -187,7 +156,7 @@ pub fn trace_alerts(
     trace!("alert_config={alert_config:?}");
     let mut alerts = vec![];
     for data_point in service_runtime_data.data_points_since_last_alert_check_reversed() {
-        for trace in data_point.active_and_finished_iter() {
+        for trace in &data_point.traces {
             if alerts.len() > 5 {
                 info!("Got 5 alerts, skipping rest");
                 break;

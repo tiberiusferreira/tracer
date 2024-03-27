@@ -12,16 +12,20 @@ serde.workspace = true
 pprof = { version = "0.13", features = ["flamegraph", "frame-pointer", "prost-codec"] }
 reqwest.workspace = true
 async-trait = "0.1"
-api-structs = {path="../api-structs"}
-brotli.workspace=true
-chrono = {version = "0.4", features = ['serde']}
+api-structs = { path = "../api-structs" }
+brotli.workspace = true
+chrono = { version = "0.4", features = ['serde'] }
 parking_lot = "0.12"
-tokio = "1"
-uuid = {version="1", features=['v4']}
+tokio.workspace = true
+uuid = { version = "1", features = ['v4'] }
 futures-util = "0.3"
 thiserror = "1"
 reqwest-eventsource = "0.5"
 futures = "0.3"
 serde_json = "1"
+backtraced_error = { path = "../backtraced_error" }
 rand.workspace = true
+
+[dev-dependencies]
+wiremock = "0.6.0"
 

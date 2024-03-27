@@ -37,7 +37,7 @@ where trace.updated_at >= $1::BIGINT
   and (trace.duration >= $5::BIGINT or trace.duration is null)
   and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)
   and ($7::BOOL is null or trace.has_errors = $7::BOOL)
-  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
+  and ($8::BIGINT is null or trace.warnings >= $8::BIGINT);",
         query_params.from,
         query_params.to,
         query_params.service_name,
@@ -60,12 +60,13 @@ where trace.updated_at >= $1::BIGINT
        trace.timestamp,
        trace.top_level_span_name,
        trace.duration,
-       trace.original_span_count,
-       trace.original_event_count,
-       trace.stored_span_count,
-       trace.stored_event_count,
-       trace.estimated_size_bytes,
-       trace.warning_count,
+       trace.spans_produced,
+       trace.spans_stored,
+       trace.events_produced,
+       trace.events_dropped_by_sampling,
+       trace.events_stored,
+       trace.size_bytes,
+       trace.warnings,
        trace.has_errors,
        trace.updated_at
 from trace
@@ -76,7 +77,7 @@ where trace.updated_at >= $1::BIGINT
   and (trace.duration >= $5::BIGINT or trace.duration is null)
   and ($6::BIGINT is null or trace.duration is null or trace.duration <= $6::BIGINT)
   and ($7::BOOL is null or trace.has_errors = $7::BOOL)
-  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT)
+  and ($8::BIGINT is null or trace.warnings >= $8::BIGINT)
 order by trace.updated_at desc
 limit 100;",
         query_params.from,
@@ -109,12 +110,13 @@ limit 100;",
             duration_ns: e
                 .duration
                 .map(|dur| handlers::db_i64_to_nanos(dur).expect("db duration to fit i64")),
-            original_span_count: e.original_span_count as u64,
-            original_event_count: e.original_event_count as u64,
-            stored_span_count: e.stored_span_count as u64,
-            stored_event_count: e.stored_event_count as u64,
-            estimated_size_bytes: e.estimated_size_bytes as u64,
-            warning_count: u32::try_from(e.warning_count).expect("warning count to fit u32"),
+            spans_produced: e.spans_produced as u64,
+            events_produced: e.events_produced as u64,
+            spans_stored: e.spans_stored as u64,
+            events_dropped_by_sampling: e.events_dropped_by_sampling as u64,
+            events_stored: e.events_stored as u64,
+            size_bytes: e.size_bytes as u64,
+            warnings: u32::try_from(e.warnings).expect("warning count to fit u32"),
             has_errors: e.has_errors,
             updated_at: e.updated_at as u64,
         })
@@ -193,12 +195,13 @@ pub struct RawDbTraceGrid {
     timestamp: i64,
     top_level_span_name: String,
     duration: Option<i64>,
-    original_span_count: i64,
-    original_event_count: i64,
-    stored_span_count: i64,
-    stored_event_count: i64,
-    estimated_size_bytes: i64,
-    warning_count: i64,
+    spans_produced: i64,
+    spans_stored: i64,
+    events_produced: i64,
+    events_dropped_by_sampling: i64,
+    events_stored: i64,
+    size_bytes: i64,
+    warnings: i64,
     has_errors: bool,
     updated_at: i64,
 }
@@ -219,7 +222,7 @@ async fn get_top_level_span_autocomplete_data(
   and trace.duration >= $5::BIGINT
   and ($6::BIGINT is null or trace.duration <= $6::BIGINT)
   and ($7::BOOL is null or trace.has_errors = $7::BOOL)
-  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
+  and ($8::BIGINT is null or trace.warnings >= $8::BIGINT);",
             query_params.from,
             query_params.to,
             service_name,
@@ -292,10 +295,10 @@ async fn get_service_names_autocomplete_data(
   and trace.timestamp <= $2::BIGINT
   and ($3::TEXT is null or trace.service_name = $3::TEXT)
   and ($4::TEXT is null or trace.top_level_span_name = $4::TEXT)
-  and trace.duration >= $5::BIGINT
+  and (trace.duration is null or trace.duration >= $5::BIGINT)
   and ($6::BIGINT is null or trace.duration <= $6::BIGINT)
   and ($7::BOOL is null or trace.has_errors = $7::BOOL)
-  and ($8::BIGINT is null or trace.warning_count >= $8::BIGINT);",
+  and ($8::BIGINT is null or trace.warnings >= $8::BIGINT);",
         query_params.from,
         query_params.to,
         query_params.service_name,

@@ -13,7 +13,6 @@ pub struct AlertConfig {
 pub struct ServiceWideAlertConfig {
     pub min_instance_count: u64,
     pub max_active_traces_count: u64,
-    pub max_export_buffer_usage_percentage: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -1,10 +1,13 @@
-use crate::api::handlers::Severity;
+use std::ops::DerefMut;
+
+use sqlx::{Postgres, Transaction};
+use tracing::{error, info, instrument, trace};
+
 use api_structs::instance::update::NewSpanEvent;
 use api_structs::InstanceId;
-use sqlx::{Postgres, Transaction};
-use std::collections::HashSet;
-use std::ops::DerefMut;
-use tracing::{error, info, instrument, trace};
+use backtraced_error::SqlxError;
+
+use crate::api::handlers::Severity;
 
 #[instrument(skip_all)]
 pub(crate) async fn insert_events(
@@ -12,8 +15,7 @@ pub(crate) async fn insert_events(
     new_events: &[NewSpanEvent],
     trace_id: u64,
     instance_id: &InstanceId,
-    relocated_event_vec_indexes: &HashSet<usize>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), SqlxError> {
     if new_events.is_empty() {
         info!("No new trace events to insert");
         return Ok(());
@@ -29,24 +31,33 @@ pub(crate) async fn insert_events(
         .collect();
     let trace_ids: Vec<i64> = new_events.iter().map(|_s| trace_id as i64).collect();
     let timestamps: Vec<i64> = new_events.iter().map(|s| s.timestamp as i64).collect();
-    let relocateds: Vec<bool> = new_events
-        .iter()
-        .enumerate()
-        .map(|(idx, _e)| relocated_event_vec_indexes.contains(&idx))
-        .collect();
     let span_ids: Vec<i64> = new_events.iter().map(|s| s.span_id as i64).collect();
     let names: Vec<Option<String>> = new_events.iter().map(|s| s.message.clone()).collect();
+    let modules: Vec<Option<String>> = new_events
+        .iter()
+        .map(|s| s.location.module.clone())
+        .collect();
+    let filenames: Vec<Option<String>> = new_events
+        .iter()
+        .map(|s| s.location.filename.clone())
+        .collect();
+    let lines: Vec<Option<i32>> = new_events
+        .iter()
+        .map(|s| s.location.line.map(|e| e as i32))
+        .collect();
     let severities: Vec<Severity> = new_events.iter().map(|s| Severity::from(s.level)).collect();
     let db_event_ids: Vec<i64> = match sqlx::query_scalar!(
-            "insert into event (instance_id, trace_id, span_id, timestamp, message, severity, relocated)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]) returning id;",
+            "insert into event (instance_id, trace_id, span_id, timestamp, message, severity, module, filename, line)
+            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::TEXT[], $8::TEXT[], $9::INT[]) returning id;",
             &instance_ids,
             &trace_ids,
             &span_ids,
             &timestamps,
             &names as &Vec<Option<String>>,
             severities.as_slice() as &[Severity],
-            &relocateds,
+            &modules as &Vec<Option<String>>,
+            &filenames as &Vec<Option<String>>,
+            &lines as &Vec<Option<i32>>,
         )
         .fetch_all(con.deref_mut())
         .await{
@@ -64,8 +75,8 @@ pub(crate) async fn insert_events(
                 error!("name={:?}", name);
             }
             error!("severities={:?}", severities);
-            error!("relocateds={:?}", relocateds);
-            return Err(e);
+            return Err(SqlxError::from_sqlx_error(e, "inserting events"));
+
         }
     };
 
@@ -113,7 +124,7 @@ pub(crate) async fn insert_events(
             error!("kv_span_id: {:?}", kv_span_id);
             error!("kv_key: {:?}", kv_key);
             error!("kv_value: {:?}", kv_value);
-            return Err(e)
+            return Err(SqlxError::from_sqlx_error(e, "inserting events kv"));
         }
     };
 

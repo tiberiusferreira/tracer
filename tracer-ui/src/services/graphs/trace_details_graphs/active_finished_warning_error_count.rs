@@ -17,25 +17,25 @@ fn create_graph_data(
     let mut errors_series = GraphSeries::new("errors".to_string());
     for d in instances {
         let active_count = d
-            .active_traces
-            .iter()
+            .active_traces()
             .filter(|d| d.trace_name == trace_name)
             .count();
         active_series.push_data(d.timestamp, active_count as f64);
         let finished_count = d
-            .finished_traces
-            .iter()
+            .finished_traces()
             .filter(|d| d.trace_name == trace_name)
             .count();
         finished_series.push_data(d.timestamp, finished_count as f64);
         active_and_finished_series.push_data(d.timestamp, (active_count + finished_count) as f64);
         let with_error_count = d
-            .active_and_finished_iter()
+            .traces_state
+            .iter()
             .filter(|d| d.trace_name == trace_name && d.new_errors)
             .count();
         errors_series.push_data(d.timestamp, with_error_count as f64);
         let with_warning_count = d
-            .active_and_finished_iter()
+            .traces_state
+            .iter()
             .filter(|d| d.trace_name == trace_name && d.new_warnings)
             .count();
         warnings_series.push_data(d.timestamp, with_warning_count as f64);

@@ -164,7 +164,7 @@ fn single_trace_details_els(
         leptos::create_signal(Option::<String>::None);
     let mut trace_names = HashSet::new();
     for d in instances {
-        for trace in d.active_and_finished_iter() {
+        for trace in &d.traces_state {
             trace_names.insert(trace.trace_name.clone());
         }
     }
@@ -270,12 +270,6 @@ fn single_service_view(service: ServiceOverview) -> leptos::HtmlElement<Div> {
             timestamp_to_show_details_for_w,
             create_chart_action,
         );
-    let (spe_buffer_usage, spe_buffer_usage_graph_id): (NodeRef<Div>, String) =
-        graphs::service_graphs::export_buffer::create_graph(
-            &service.service_data_over_time,
-            timestamp_to_show_details_for_w,
-            create_chart_action,
-        );
     let (max_received_trace_duration_graph, max_received_trace_duration_graph_id): (
         NodeRef<Div>,
         String,
@@ -311,7 +305,6 @@ fn single_service_view(service: ServiceOverview) -> leptos::HtmlElement<Div> {
                     <div _ref=active_finished_warning_error_count_graph id=active_finished_warning_error_count_graph_id.clone()></div>
                     <div _ref=max_received_trace_duration_graph id=max_received_trace_duration_graph_id.clone()></div>
                     <div _ref=received_kbytes_graph id=received_kbytes_graph_id.clone()></div>
-                    <div _ref=spe_buffer_usage id=spe_buffer_usage_graph_id.clone()></div>
                 </div>
                 {alerts_html}
         </div>

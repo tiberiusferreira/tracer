@@ -25,12 +25,6 @@ pub fn check_service_for_new_alert(
     ) {
         alerts.push(alert);
     }
-    if let Some(alert) = checks::export_buffer_usage_percentage(
-        &alert_config.service_wide,
-        &service_data.service_runtime_data,
-    ) {
-        alerts.push(alert);
-    }
     if let Some(alert) = checks::trace_alerts(&alert_config, &service_data.service_runtime_data) {
         alerts.push(alert);
     }

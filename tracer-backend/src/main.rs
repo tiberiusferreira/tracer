@@ -1,17 +1,20 @@
-use crate::api::state::AppState;
-use api_structs::ServiceId;
-use backtraced_error::error_chain_to_pretty_formatted;
-use clap::Parser;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+
+use clap::Parser;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::PgPool;
 use tokio::task::spawn_local;
 use tracing::{error, info, info_span, instrument, Instrument};
+
+use api_structs::ServiceId;
+use backtraced_error::error_chain_to_pretty_formatted;
 use tracing_config_helper::TracerConfig;
+
+use crate::api::state::AppState;
 
 mod api;
 mod background_tasks;
@@ -25,7 +28,7 @@ pub const SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT: usize = 1_500_000;
 pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 256;
 pub const DEAD_INSTANCE_RETENTION_TIME_SECONDS: usize = 12 * 60 * 60;
 pub const DEAD_INSTANCE_MAX_STATS_HISTORY_DATA_COUNT: usize = 50;
-pub const CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS: usize = 60;
+pub const CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS: usize = 12 * 60 * 60;
 
 pub const MAX_STATS_HISTORY_DATA_COUNT: usize = 500;
 pub const MAX_NOTIFICATION_SIZE_CHARS: usize = 2048;
@@ -37,7 +40,7 @@ async fn main() {
         .run_until(async {
             // load env vars so clap can use it when parsing a config
             println!("Loading env vars");
-            dotenv::dotenv().ok();
+            dotenvy::dotenv().ok();
             let config = LaunchConfig::parse();
             let env = tracing_config_helper::Env::from(config.environment.clone());
             let tracer_config = TracerConfig::new(

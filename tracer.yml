@@ -3,7 +3,7 @@ services:
   postgres:
     image: postgres:16
     volumes:
-      - ./shared/postgres/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - ./postgres/seed.sql:/docker-entrypoint-initdb.d/seed.sql
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password

@@ -1,4 +1,5 @@
 use sqlx::types::JsonValue;
+
 pub mod chunk;
 pub mod grid;
 
@@ -8,15 +9,19 @@ struct RawDbSpan {
     parent_id: Option<i64>,
     duration: Option<i64>,
     name: String,
-    relocated: bool,
     key_values: JsonValue,
+    module: Option<String>,
+    filename: Option<String>,
+    line: Option<i64>,
 }
 
 struct RawDbEvent {
     span_id: i64,
     message: Option<String>,
     severity: String,
-    relocated: bool,
     timestamp: i64,
     key_values: JsonValue,
+    module: Option<String>,
+    filename: Option<String>,
+    line: Option<i64>,
 }

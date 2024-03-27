@@ -33,7 +33,6 @@ pub fn alerts_html(alert_config: AlertConfig) -> leptos::HtmlElement<Div> {
                 <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center">
                     <p style="margin: 0px">{"Min Instance Count: "}<b>{service_wide.min_instance_count}</b></p>
                     <p style="margin: 0px">{"Max Active Traces: "}<b>{service_wide.max_active_traces_count}</b></p>
-                    <p style="margin: 0px">{"Max Export Buffer Usage: "}<b>{service_wide.max_export_buffer_usage_percentage}</b>"%"</p>
                 </div>
                 <p style="text-align: center">{"Per Trace Global Alerts:"}</p>
                 <div style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center">

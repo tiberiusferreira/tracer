@@ -14,7 +14,7 @@ fn create_graph_data(
         let mut received_trace_series = GraphSeries::new("received".to_string());
         received_trace_series.push_data(
             d.timestamp,
-            (d.active_traces.len() + d.finished_traces.len()) as f64,
+            (d.traces_state.len() + d.finished_traces().count()) as f64,
         );
         active_trace_series.push(received_trace_series);
     }
@@ -23,18 +23,14 @@ fn create_graph_data(
         let mut received_trace_series = GraphSeries::new("errors".to_string());
         received_trace_series.push_data(
             d.timestamp,
-            d.active_traces
-                .iter()
-                .chain(d.finished_traces.iter())
-                .filter(|t| t.new_errors)
-                .count() as f64,
+            d.traces_state.iter().filter(|t| t.new_errors).count() as f64,
         );
         active_trace_series.push(received_trace_series);
     }
 
     for d in instances {
         let mut instance_active_trace_series = GraphSeries::new("active".to_string());
-        instance_active_trace_series.push_data(d.timestamp, d.active_traces.len() as f64);
+        instance_active_trace_series.push_data(d.timestamp, d.traces_state.len() as f64);
         active_trace_series.push(instance_active_trace_series);
     }
 
@@ -42,11 +38,7 @@ fn create_graph_data(
         let mut received_trace_series = GraphSeries::new("warnings".to_string());
         received_trace_series.push_data(
             d.timestamp,
-            d.active_traces
-                .iter()
-                .chain(d.finished_traces.iter())
-                .filter(|t| t.new_warnings)
-                .count() as f64,
+            d.traces_state.iter().filter(|t| t.new_warnings).count() as f64,
         );
         active_trace_series.push(received_trace_series);
     }

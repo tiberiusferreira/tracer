@@ -1,4 +1,3 @@
-use crate::instance::update::ExportBufferStats;
 use crate::time_conversion::now_nanos_u64;
 pub use crate::ui::orphan_events::OrphanEvent;
 use crate::{ServiceId, TraceName};
@@ -19,17 +18,18 @@ pub struct ServiceOverview {
 pub struct ServiceDataOverTime {
     pub timestamp: u64,
     pub instance_id: i64,
-    pub export_buffer_stats: ExportBufferStats,
-    pub active_traces: Vec<TraceHeader>,
-    pub finished_traces: Vec<TraceHeader>,
+    pub traces_state: Vec<TraceHeader>,
     pub orphan_events: Vec<OrphanEvent>,
     pub traces_budget_usage: HashMap<TraceName, u32>,
     pub orphan_events_budget_usage: u32,
 }
 
 impl ServiceDataOverTime {
-    pub fn active_and_finished_iter(&self) -> impl Iterator<Item = &TraceHeader> {
-        self.active_traces.iter().chain(self.finished_traces.iter())
+    pub fn finished_traces(&self) -> impl Iterator<Item = &TraceHeader> {
+        self.traces_state.iter().filter(|t| t.duration.is_some())
+    }
+    pub fn active_traces(&self) -> impl Iterator<Item = &TraceHeader> {
+        self.traces_state.iter().filter(|t| t.duration.is_none())
     }
 }
 
@@ -45,12 +45,6 @@ pub struct Instance {
 pub struct ProfileData {
     pub profile_data_timestamp: u64,
     pub profile_data: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ExportBufferOverTime {
-    pub timestamp: u64,
-    pub tracer_status: ExportBufferStats,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -464,7 +464,11 @@ fn create_html_span(
         })
         .collect();
     let span_key_vals = format_kv(&span.key_values);
-    let span_with_code_namespace = span.name.to_string();
+    let span_with_code_namespace = format!(
+        "{}::{}",
+        span.location.module.as_ref().unwrap_or(&"".to_string()),
+        span.name.to_string()
+    );
     let span_duration_ms_string = match span.duration {
         None => "still running".to_string(),
         Some(duration) => {

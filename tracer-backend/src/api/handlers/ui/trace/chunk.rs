@@ -1,19 +1,23 @@
-use crate::api::handlers::ui::trace::{RawDbEvent, RawDbSpan};
-use crate::api::state::AppState;
-use crate::api::{handlers, u64_nanos_to_db_i64, ApiError};
-use api_structs::ui::trace::chunk::{Event, SingleChunkTraceQuery, Span, TraceId};
-use api_structs::Severity;
+use std::collections::HashMap;
+use std::io::Read;
+use std::str::FromStr;
+
+use api_structs::instance::update::Location;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use backtraced_error::SqlxError;
 use futures::TryFutureExt;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use std::io::Read;
-use std::str::FromStr;
 use tracing::{info, instrument};
+
+use api_structs::ui::trace::chunk::{Event, SingleChunkTraceQuery, Span, TraceId};
+use api_structs::Severity;
+use backtraced_error::SqlxError;
+
+use crate::api::handlers::ui::trace::{RawDbEvent, RawDbSpan};
+use crate::api::state::AppState;
+use crate::api::{handlers, u64_nanos_to_db_i64, ApiError};
 
 #[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
 pub async fn get_trace_timestamp_chunks(
@@ -144,14 +148,18 @@ pub(crate) async fn ui_trace_chunk_get(
                       span.parent_id,
                       span.duration,
                       span.name,
-                      span.relocated,
-                      COALESCE(span_key_value.key_values, '{}') as key_values
+                      COALESCE(span_key_value.key_values, '{}') as key_values,
+                      span.module,
+                      span.filename,
+                      span.line
                from (select span.id,
                             span.timestamp,
                             span.parent_id,
                             span.duration,
                             span.name,
-                            span.relocated
+                            span.module,
+                            span.filename,
+                            span.line
                      from span
                      where span.instance_id = $1
                        and span.trace_id = $2
@@ -189,7 +197,11 @@ pub(crate) async fn ui_trace_chunk_get(
         .await?;
 
     let raw_events_from_db: Vec<RawDbEvent> = sqlx::query_as!(RawDbEvent,
-        "select event.span_id, event.message, event.severity as \"severity: String\", event.relocated, event.timestamp, COALESCE(event_key_value.key_values, '{}') as key_values
+        "select event.span_id, event.message, event.severity as \"severity: String\", event.timestamp,
+         COALESCE(event_key_value.key_values, '{}') as key_values,
+        event.module,
+        event.filename,
+        event.line
 from (select *
       from event
       where event.instance_id = $1
@@ -227,9 +239,13 @@ from (select *
                     timestamp: e.timestamp as u64,
                     message: e.message,
                     severity: Severity::from_str(&e.severity).expect("severity to be valid"),
-                    relocated: e.relocated,
                     key_values: serde_json::from_value(e.key_values)
                         .expect("event key value to be valid"),
+                    location: Location {
+                        module: e.module,
+                        filename: e.filename,
+                        line: e.line.map(|e| e as u32),
+                    },
                 });
                 acc
             });
@@ -242,9 +258,13 @@ from (select *
             parent_id: s.parent_id,
             duration: s.duration.map(|e| e as u64),
             name: s.name,
-            relocated: s.relocated,
             events: events_by_span_id.remove(&s.id).unwrap_or_default(),
             key_values: serde_json::from_value(s.key_values).expect("span key value to be valid"),
+            location: Location {
+                module: s.module,
+                filename: s.filename,
+                line: s.line.map(|e| e as u32),
+            },
         })
         .collect();
 

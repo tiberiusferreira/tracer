@@ -80,7 +80,7 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTra
             trace_id: e.trace_id,
             duration: e.duration_ns,
             has_errors: e.has_errors,
-            warning_count: e.warning_count,
+            warning_count: e.warnings,
             top_level_span_name: e.top_level_span_name,
             // sample_log: e.event,
             // key_value: if let (Some(key), Some(value)) = (e.key, e.value) {
@@ -95,11 +95,11 @@ async fn get_grid_data(search_data: SearchFor, api_response_w: WriteSignal<UiTra
             // span: e.span,
             started_at: e.started_at,
             updated_at: e.updated_at,
-            original_span_count: e.original_span_count,
-            original_event_count: e.original_event_count,
-            stored_span_count: e.stored_span_count,
-            stored_event_count: e.stored_event_count,
-            event_bytes_count: e.estimated_size_bytes,
+            original_span_count: e.spans_produced,
+            original_event_count: e.events_produced,
+            stored_span_count: e.spans_stored,
+            stored_event_count: e.events_stored,
+            event_bytes_count: e.size_bytes,
         })
         .collect();
 

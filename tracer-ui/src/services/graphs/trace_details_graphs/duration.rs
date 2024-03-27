@@ -13,7 +13,7 @@ fn create_graph_data(
 ) -> GraphData {
     let mut duration_series = GraphSeries::new("duration".to_string());
     for d in instances {
-        for t in d.active_and_finished_iter() {
+        for t in &d.traces_state {
             if t.trace_name == trace_name {
                 if let Some(duration) = t.duration {
                     duration_series.push_data(d.timestamp, nanos_to_millis(duration) as f64);

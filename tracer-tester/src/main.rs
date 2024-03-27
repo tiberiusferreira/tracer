@@ -1,10 +1,15 @@
-use rand::random;
+use std::io::Read;
+use std::process::Stdio;
 use std::time::Duration;
+
+use rand::random;
 use thiserror::Error;
 use tokio::join;
 use tracing::{debug, error, info, info_span, instrument, trace, warn};
+
 use tracing_config_helper::{Env, ServiceId, TracerConfig};
 
+mod database_creation;
 #[derive(Debug, Error)]
 enum MyErr {}
 
@@ -208,29 +213,87 @@ fn root_dropped_before_children() {
     drop(first_child);
 }
 
+// fn test_no_oom_if_server_down() {
+//     let mut compilation = std::process::Command::new("cargo")
+//         .args(["build", "--release", "--bin", "no-oom-if-server-down"])
+//         .status()
+//         .unwrap();
+//     assert!(compilation.success());
+//     let mut child = std::process::Command::new("cargo")
+//         .args(["run", "--release", "--bin", "no-oom-if-server-down"])
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::piped())
+//         .spawn()
+//         .unwrap();
+//     std::thread::sleep(Duration::from_secs(10));
+//     child.kill().unwrap();
+//     let mut stdout = child.stdout.unwrap();
+//     let mut std_err = child.stderr.unwrap();
+//     let mut output = String::new();
+//     stdout.read_to_string(&mut output).unwrap();
+//     std_err.read_to_string(&mut output).unwrap();
+//     let stdout_size = output.len();
+//     println!("{}", output);
+//     println!("{}", stdout_size);
+// }
+
+fn test_well_behaved_program_works() {
+    let mut compilation = std::process::Command::new("cargo")
+        .args(["build", "--bin", "well_behaved"])
+        .status()
+        .unwrap();
+    assert!(compilation.success());
+    let mut child = std::process::Command::new("cargo")
+        .args(["run", "--bin", "well_behaved"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_secs(10));
+    //
+    child.kill().unwrap();
+    let mut stdout = child.stdout.unwrap();
+    let mut std_err = child.stderr.unwrap();
+    let mut output = String::new();
+    stdout.read_to_string(&mut output).unwrap();
+    std_err.read_to_string(&mut output).unwrap();
+    let stdout_size = output.len();
+    println!("{}", output);
+    println!("{}", stdout_size);
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    println!("Hello, world from Tracer Test");
-    let tracer_config = TracerConfig::new(
-        ServiceId {
-            name: env!("CARGO_BIN_NAME").to_string(),
-            env: Env::Local,
-        },
-        "http://127.0.0.1:4200".to_string(),
-    );
-    let flush_requester = tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
-    root_dropped_before_children();
-    only_warning();
-    only_error();
-    simple_orphan_logs_test();
-    basic_tracer_trace_tests().await;
-    for _i in 0..100 {
-        trace_60_percent_warning();
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-
-    flush_requester
-        .flush(Duration::from_secs(100))
-        .await
-        .unwrap();
+    println!("Starting Tracer Test");
+    dotenvy::dotenv().ok();
+    test_well_behaved_program_works();
+    // test_no_oom_if_server_down();
+    // let docker_bin_path = std::env::var("DOCKER_BIN_PATH").expect("No DOCKER_BIN_PATH");
+    // let docker_compose_file_path =
+    //     std::env::var("DOCKER_COMPOSE_FILE_PATH").expect("No DOCKER_COMPOSE_FILE_PATH");
+    // database_creation::create_db_overwriting_existing(&docker_bin_path, &docker_compose_file_path);
+    //
+    //
+    // let tracer_config = TracerConfig::new(
+    //     ServiceId {
+    //         name: env!("CARGO_BIN_NAME").to_string(),
+    //         env: Env::Local,
+    //     },
+    //     "http://127.0.0.1:4200".to_string(),
+    // );
+    // let flush_requester = tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
+    // root_dropped_before_children();
+    // only_warning();
+    // only_error();
+    // simple_orphan_logs_test();
+    // basic_tracer_trace_tests().await;
+    // for _i in 0..100 {
+    //     trace_60_percent_warning();
+    //     tokio::time::sleep(Duration::from_secs(1)).await;
+    // }
+    //
+    // flush_requester
+    //     .flush(Duration::from_secs(100))
+    //     .await
+    //     .unwrap();
 }

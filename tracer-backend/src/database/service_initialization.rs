@@ -112,14 +112,12 @@ pub async fn get_service_wide_alert_config(
     struct RawServiceWideAlertConfig {
         min_instance_count: i64,
         max_active_traces: i64,
-        max_export_buffer_usage_percentage: i64,
     }
     let raw_service_config: Option<RawServiceWideAlertConfig> = sqlx::query_as!(
         RawServiceWideAlertConfig,
         "select 
             min_instance_count,
-            max_active_traces,
-            max_export_buffer_usage_percentage
+            max_active_traces
        from
         service_wide_alert_config
          where env=$1 and service_name=$2;",
@@ -137,7 +135,6 @@ pub async fn get_service_wide_alert_config(
     Ok(raw_service_config.map(|e| ServiceWideAlertConfig {
         min_instance_count: e.min_instance_count as u64,
         max_active_traces_count: e.max_active_traces as u64,
-        max_export_buffer_usage_percentage: e.max_export_buffer_usage_percentage as u64,
     }))
 }
 

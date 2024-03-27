@@ -21,7 +21,7 @@ fn create_graph_data(
     let mut series = vec![];
     for d in instances {
         let mut single_series = GraphSeries::new("duration".to_string());
-        let max = d.finished_traces.iter().filter_map(|d| d.duration).max();
+        let max = d.finished_traces().filter_map(|d| d.duration).max();
         if let Some(max_duration) = max {
             single_series.push_data(d.timestamp, max_duration as f64 / 1000_000_000.);
         }
