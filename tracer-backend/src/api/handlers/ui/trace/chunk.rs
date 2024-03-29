@@ -87,7 +87,7 @@ pub async fn get_trace_timestamp_chunks(
     from event
              where event.instance_id=$1
                  and event.trace_id=$2 and event.timestamp >= $3)
-    order by timestamp offset 300 limit 1);",
+    order by timestamp offset 10000 limit 1);",
             trace_id.instance_id.instance_id,
             trace_id.trace_id,
             last_timestamp
@@ -164,18 +164,16 @@ pub(crate) async fn ui_trace_chunk_get(
                      where span.instance_id = $1
                        and span.trace_id = $2
                        and
-                       -- (start inside window or end inside window)
-                         ((
-                                  (span.timestamp >= $3 and span.timestamp <= $4)
-                                  or
-                                  (span.duration is null or
-                                   ((span.timestamp + span.duration) >= $3 and
-                                    (span.timestamp + span.duration) <= $4))
-                              )
-                             -- or
-                             -- start before window and end after window
-                             or (span.timestamp <= $3 and
-                                 (span.duration is null or (span.timestamp + span.duration) > $4)))) as span
+
+                            (
+                                -- span starts before interval end
+                                span.timestamp <= $4
+                                and
+                                -- span never ends, or ends after interval start
+                                (span.duration is null or (span.timestamp + span.duration) >= $3)
+                            )
+                       )
+                        as span
                         left join (select span_id,
                                          json_object_agg(
                                                    span_key_value.key,

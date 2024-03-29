@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "insert into event (instance_id, trace_id, span_id, timestamp, message, severity, relocated)\n            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::BOOLEAN[]) returning id;",
+  "query": "insert into event (instance_id, trace_id, span_id, timestamp, message, severity, module, filename, line)\n            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::TEXT[], $6::severity_level[], $7::TEXT[], $8::TEXT[], $9::INT[]) returning id;",
   "describe": {
     "columns": [
       {
@@ -37,12 +37,14 @@
             }
           }
         },
-        "BoolArray"
+        "TextArray",
+        "TextArray",
+        "Int4Array"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "8e6c9b8086228e86e8fb75b0fd6758b0d651d66be3a5d4bda6696ef76b6da52e"
+  "hash": "3c5d0cb88fe1551486df39d83b8d0d40807b29c85858cd6caafd374aefdeeab9"
 }

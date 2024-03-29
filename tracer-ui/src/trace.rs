@@ -1,15 +1,19 @@
 use crate::datetime::{printable_local_date, printable_local_date_ms};
+use crate::trace::summary::create_summary_html_span_and_children_single_layer;
 use crate::TRACE_CHUNK_PATH;
 use crate::{API_SERVER_URL_NO_TRAILING_SLASH, PAGE_ROOT_URL};
-use api_structs::ui::trace::chunk::{SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
+use api_structs::ui::trace::chunk::{Event, SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
 use api_structs::{Env, InstanceId, ServiceId, Severity};
+use leptos::html::Div;
 use leptos::logging::log;
 use leptos::{
-    component, create_local_resource, view, CollectView, Fragment, IntoView, ReadSignal, Signal,
-    SignalGet, SignalSet, WriteSignal,
+    component, create_local_resource, view, CollectView, Fragment, HtmlElement, IntoView,
+    ReadSignal, Signal, SignalGet, SignalSet, WriteSignal,
 };
 use std::collections::HashMap;
 use std::rc::Rc;
+
+mod summary;
 
 fn span_detail(trace_spans_r: Signal<Option<ApiTraceData>>) -> Fragment {
     let spans = trace_spans_r.get();
@@ -42,55 +46,56 @@ fn span_detail(trace_spans_r: Signal<Option<ApiTraceData>>) -> Fragment {
         api_trace_data.chunk_id.end_timestamp - api_trace_data.chunk_id.start_timestamp;
 
     let spans_by_parent_id: HashMap<i64, Vec<Span>> =
-        spans.into_iter().fold(HashMap::new(), |mut acc, curr| {
-            if let Some(parent_id) = curr.parent_id {
-                acc.entry(parent_id).or_default().push(curr);
-            }
-            acc
-        });
+        spans
+            .clone()
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, curr| {
+                if let Some(parent_id) = curr.parent_id {
+                    acc.entry(parent_id).or_default().push(curr);
+                }
+                acc
+            });
     let spans_by_parent_id = Rc::new(spans_by_parent_id);
     let max_duration_nanos = max_duration;
-    // let mut html_span_and_children_summary = Vec::new();
-    // let mut max_depth = 0;
-    // create_summary_html_span_and_children_single_layer(
-    //     start_timestamp_nanos,
-    //     max_duration_nanos,
-    //     &[root.clone()],
-    //     Rc::clone(&spans_by_parent_id),
-    //     0,
-    //     &mut html_span_and_children_summary,
-    //     &mut max_depth,
-    // );
-    // let container_ref = leptos::create_node_ref::<leptos::html::Div>();
-    // let (read_x_offset_percentage, write_percentage) = create_signal(window_percentage / 2.);
-
-    /*
-          let percentage_0_to_100 = match curr.duration {
-                None => 100.,
-                Some(duration) => {
-                    // clamp in case the span goes on for longer than the current window we are displaying
-                    ((100 * duration) as f64 / max_duration as f64).min(100.)
-                }
-            };
-    */
     let html_span_and_children = move || {
-        // let percentage = read_x_offset_percentage.get();
-        // let new_root_duration = ((max_duration_nanos as f64) * (window_percentage / 100.)) as u64;
-        // let start_percentage = (percentage - window_percentage / 2.).max(0.);
-        // let _end_percentage = (percentage + window_percentage / 2.).min(100.);
-        // let new_root_start_offset =
-        //     ((max_duration_nanos as f64) * (start_percentage / 100.)) as u64;
-        // let new_root_start_micros = root_start_time_unix_nanos + new_root_start_offset;
-        let mut html_span_and_children_fragments = Vec::with_capacity(0);
-        create_html_span_and_children(
+        let mut events = vec![];
+        for s in &spans {
+            events.extend_from_slice(&s.events);
+        }
+        let events_html = events_to_html(&events, start_timestamp_nanos, max_duration_nanos);
+        // let mut html_span_and_children_fragments = Vec::with_capacity(0);
+        // create_html_span_and_children(
+        //     start_timestamp_nanos,
+        //     max_duration_nanos,
+        //     &root,
+        //     Rc::clone(&spans_by_parent_id),
+        //     0,
+        //     &mut html_span_and_children_fragments,
+        // );
+
+        let mut html_span_and_children_summary = Vec::new();
+        let mut max_depth = 0;
+        create_summary_html_span_and_children_single_layer(
             start_timestamp_nanos,
             max_duration_nanos,
-            &root,
-            Rc::clone(&spans_by_parent_id),
+            &[root.clone()],
+            &spans_by_parent_id,
             0,
-            &mut html_span_and_children_fragments,
+            &mut html_span_and_children_summary,
+            &mut max_depth,
         );
-        html_span_and_children_fragments
+        let height = max_depth * 20 + 15 + 16; // 16 is my "padding", 8 top, 8 bottom
+
+        view! {
+            <>
+                <div style=format!("background-color: rgba(255,255,255,0.05); margin: 15px 0 15px 0; height: {height}px; position: relative")>
+                    // {shadows}
+                    {html_span_and_children_summary}
+                </div>
+                // {html_span_and_children_fragments}
+                {events_html}
+            </>
+        }
     };
 
     // let click_handler = move |ev: MouseEvent| {
@@ -394,6 +399,54 @@ fn create_html_span_and_children(
     }
 }
 
+fn events_to_html(
+    events: &[Event],
+    start_timestamp_nanos: u64,
+    max_duration: u64,
+) -> Vec<HtmlElement<Div>> {
+    let mut ordered_events = events.to_vec();
+    ordered_events.sort_by_key(|e| e.timestamp);
+    let events: Vec<_> = ordered_events
+        .iter()
+        .map(|e| {
+            let (event_severity_str, event_color) = match e.severity {
+                Severity::Warn => {
+                    ("WARN: ", "color: rgb(229, 234, 157)")
+                }
+                Severity::Error => {
+                    ("ERROR: ", "color: rgb(236,103,93)")
+                }
+
+                Severity::Trace => {
+                    ("TRACE: ", "color: white")
+                }
+                Severity::Debug => {
+                    ("DEBUG: ", "color: white")
+                }
+                Severity::Info => {
+                    ("INFO: ", "color: rgb(137,244,151)")
+                }
+            };
+            let key_values = format_kv(&e.key_values);
+            let event_date = printable_local_date_ms(e.timestamp);
+            let event_msg = format!(" {}{}", e.message.as_ref().unwrap_or(&"null".to_string()), key_values);
+            // event offset % calculation
+            let event_nanos_after_trace_start = e.timestamp
+                .checked_sub(start_timestamp_nanos).unwrap();
+            let event_percentage_into_trace_duration =
+                100. * event_nanos_after_trace_start as f64 / max_duration as f64;
+            // don't got over 99.6 because we need to display the character itself too
+            let event_percentage_into_trace_duration = event_percentage_into_trace_duration.min(99.6);
+            view! {
+                <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
+                    <p style={format!("margin-left: {event_percentage_into_trace_duration}%")} class="trace-details__event-timestamp">{"|"}</p>
+                    <p class="trace-details__event" style={"white-space: pre-wrap; color: white"}><span>{event_date}</span><span>"  "</span><span style={event_color}>{event_severity_str}</span>{event_msg}</p>
+                </div>
+            }
+        })
+        .collect();
+    events
+}
 fn create_html_span(
     start_timestamp_nanos: u64,
     max_duration: u64,
@@ -401,8 +454,9 @@ fn create_html_span(
     depth: i32,
 ) -> Option<Fragment> {
     let span_start = span.timestamp;
-    let span_duration = span.duration.map(|d| d.max(1)); // make it not 0
-                                                         // span may start before the start_timestamp_nanos
+    // make it not 0
+    let span_duration = span.duration.map(|d| d.max(1));
+    // span may start before the start_timestamp_nanos
     let start_offset_nanos = span_start.saturating_sub(start_timestamp_nanos);
     log!("span_start={span_start}");
     log!("start_timestamp_nanos={start_timestamp_nanos}");
@@ -429,40 +483,7 @@ fn create_html_span(
         "margin-top: 0; height: 10px; background-color: {}; border-radius: 8px",
         depth_to_color.get(&(depth % 8)).unwrap()
     );
-    let mut ordered_events = span.events.clone();
-    ordered_events.sort_by_key(|e| e.timestamp);
-    let events: Vec<_> = ordered_events
-        .iter()
-        .map(|e| {
-            let color = match e.severity {
-                Severity::Warn => {
-                    "yellow"
-                }
-                Severity::Error => {
-                    "red"
-                }
-                _ => {
-                    "white"
-                }
-            };
-            let key_values = format_kv(&e.key_values);
-            let event_date = printable_local_date_ms(e.timestamp);
-            let event_msg = format!("{} - {}{}", event_date, e.message.as_ref().unwrap_or(&"null".to_string()), key_values);
-            // event offset % calculation
-            let event_nanos_after_trace_start = e.timestamp
-                .checked_sub(start_timestamp_nanos).unwrap();
-            let event_percentage_into_trace_duration =
-                100. * event_nanos_after_trace_start as f64 / max_duration as f64;
-            // don't got over 99.6 because we need to display the character itself too
-            let event_percentage_into_trace_duration = event_percentage_into_trace_duration.min(99.6);
-            view! {
-                <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
-                    <p style={format!("margin-left: {event_percentage_into_trace_duration}%")} class="trace-details__event-timestamp">{"|"}</p>
-                    <p class="trace-details__event" style={format!("white-space: pre-wrap; color: {color}")}>{event_msg}</p>
-                </div>
-            }
-        })
-        .collect();
+
     let span_key_vals = format_kv(&span.key_values);
     let span_with_code_namespace = format!(
         "{}::{}",
@@ -478,9 +499,8 @@ fn create_html_span(
 
     let span_html = view! {
         <>
-        <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string} {span_key_vals}", span_with_code_namespace)}</p>
-        <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}></div>
-            {events}
+            <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string} {span_key_vals}", span_with_code_namespace)}</p>
+            <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}></div>
         </>
     };
     Some(span_html)

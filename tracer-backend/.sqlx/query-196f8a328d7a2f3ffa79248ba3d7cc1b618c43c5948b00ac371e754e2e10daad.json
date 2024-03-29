@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration, name, module, filename, line)\n            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::TEXT[], $9::TEXT[], $10::INT[])\n             on conflict (instance_id, trace_id, id) do update set duration=excluded.duration;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "196f8a328d7a2f3ffa79248ba3d7cc1b618c43c5948b00ac371e754e2e10daad"
+}

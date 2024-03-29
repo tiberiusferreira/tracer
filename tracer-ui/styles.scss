@@ -5,6 +5,44 @@ $primary-color: #333;
   box-sizing: border-box;
 }
 
+
+.tooltip-text {
+  display: none;
+  position: absolute;
+  z-index: 3;
+  bottom: 20px;
+  color: #fff;
+  font-size: 12px;
+  background-color: #3474ab;
+  border-radius: 10px;
+  padding: 10px 15px 10px 15px;
+}
+
+.summary-span {
+  text-align: center;
+}
+
+//.tooltip-text::before {
+//  content: "";
+//  position: absolute;
+//  transform: rotate(45deg);
+//  background-color: #3474ab;
+//  padding: 5px;
+//  z-index: 1;
+//}
+
+
+.summary-span:hover .tooltip-text {
+  display: block;
+}
+
+
+//#top::before {
+//  top: 80%;
+//  left: 45%;
+//}
+
+
 body {
   margin: 0;
   background-color: rgb(20, 20, 20);
@@ -101,7 +139,6 @@ header {
       }
     }
   }
-
 
 
   .search-panel {

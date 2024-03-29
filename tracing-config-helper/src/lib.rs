@@ -19,7 +19,6 @@ use api_structs::instance::update::{ExportedServiceTraceData, NewOrphanEvent, Tr
 pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
 pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
-use tracing::Level;
 
 use crate::server_connection::instance_update_sender::export_instance_update;
 use crate::subscriber::{ExporterStateHandle, SamplerHandle, TracerTracingSubscriber};
