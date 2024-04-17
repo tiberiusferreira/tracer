@@ -87,7 +87,7 @@ pub async fn get_trace_timestamp_chunks(
     from event
              where event.instance_id=$1
                  and event.trace_id=$2 and event.timestamp >= $3)
-    order by timestamp offset 10000 limit 1);",
+    order by timestamp offset 20000 limit 1);",
             trace_id.instance_id.instance_id,
             trace_id.trace_id,
             last_timestamp

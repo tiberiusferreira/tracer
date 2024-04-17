@@ -71,6 +71,18 @@ pub enum Severity {
     Error,
 }
 
+impl Display for Severity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Severity::Trace => f.write_str("trace"),
+            Severity::Debug => f.write_str("debug"),
+            Severity::Info => f.write_str("info"),
+            Severity::Warn => f.write_str("warn"),
+            Severity::Error => f.write_str("error"),
+        }
+    }
+}
+
 impl FromStr for Severity {
     type Err = ();
 

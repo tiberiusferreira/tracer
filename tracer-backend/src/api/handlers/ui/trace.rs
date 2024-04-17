@@ -1,6 +1,7 @@
 use sqlx::types::JsonValue;
 
 pub mod chunk;
+pub mod event_search;
 pub mod grid;
 
 struct RawDbSpan {

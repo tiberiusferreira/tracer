@@ -1,3 +1,4 @@
+use api_structs::time_conversion::nanos_to_millis;
 use api_structs::ui::trace::chunk::Span;
 use leptos::{view, Fragment};
 use log::info;
@@ -22,31 +23,6 @@ pub fn create_summary_html_span_and_children_single_layer(
     });
     next_layer_spans.sort_by_key(|k| k.timestamp);
 
-    // group very small children into "single" element
-    // let spans = spans
-    //     .to_vec()
-    //     .into_iter()
-    //     .fold(Vec::new(), |mut acc: Vec<Span>, curr| {
-    //         let span_duration = curr.duration.unwrap_or(root_duration_nanos);
-    //         let percentage_0_to_100 = (100 * span_duration) as f64 / root_duration_nanos as f64;
-    //         if percentage_0_to_100 < 0.2 {
-    //             if let Some(last) = acc.last_mut() {
-    //                 let last_plus_curr_combined_duration = last.duration + span_duration;
-    //                 let combined_percentage_0_to_100 = (100 * last_plus_curr_combined_duration)
-    //                     as f64
-    //                     / root_duration_nanos as f64;
-    //                 let last_end_time = last.timestamp + last.duration;
-    //                 let gap_micros = curr.timestamp.saturating_sub(last_end_time);
-    //                 if combined_percentage_0_to_100 < 0.2 && gap_micros < 1000 {
-    //                     last.duration += curr.duration + gap_micros;
-    //                     return acc;
-    //                 }
-    //             }
-    //         }
-    //         acc.push(curr);
-    //         acc
-    //     });
-    // let mut last_end: u64 = 0;
     for s in spans {
         // dont let them overlap when multiple spans happened at ~ the same time
         // let overlap = last_end.saturating_sub(s.timestamp);
@@ -84,14 +60,15 @@ fn create_span_summary_html(
     span_name: &str,
 ) -> Fragment {
     // span may start before the start_timestamp_nanos
-    let start_offset_nanos = start_time_unix_nanos.saturating_sub(root_start_time_unix_nanos);
+    let start_offset_nanos = start_time_unix_nanos as i64 - root_start_time_unix_nanos as i64;
+
     // info!("\n");
     // info!("start_time_unix_nanos={start_time_unix_nanos}");
     // info!("root_start_time_unix_nanos={root_start_time_unix_nanos}");
     // info!("start_offset_nanos={start_offset_nanos}");
     // let start_offset_nanos = start_time_unix_nanos - root_start_time_unix_nanos;
     let start_offset_percentage = (100 * start_offset_nanos) as f64 / root_duration_nanos as f64;
-    info!("start_offset_percentage={start_offset_percentage}");
+    // info!("start_offset_percentage={start_offset_percentage}");
     let duration_percentage = match duration_nanos {
         None => 100. - start_offset_percentage,
         Some(duration_nanos) => ((100 * duration_nanos) as f64 / root_duration_nanos as f64)
@@ -120,13 +97,11 @@ fn create_span_summary_html(
     } else {
         None
     };
+    let duration_ms = nanos_to_millis(duration_nanos.unwrap_or(0));
     let span_html = view! {
         <>
-        // <div class="hover-text">hover me
-        //     <span class="tooltip-text" id="top">Im a tooltip!</span>
-        // </div>
         <div class="summary-span" style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}>
-            <span class="tooltip-text" id="top">{span_name.to_string()}</span>
+            <span class="tooltip-text" id="top">{format!("{} ({}ms)", span_name, duration_ms)}</span>
             {paragraph}
         </div>
         </>

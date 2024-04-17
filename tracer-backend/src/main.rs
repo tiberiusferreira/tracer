@@ -92,7 +92,7 @@ async fn start_api_and_background_tasks(
             }
             .instrument(info_span!("background_task"))
             .await;
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(60 * 60)).await;
         }
     });
 

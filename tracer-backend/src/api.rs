@@ -63,6 +63,14 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             axum::routing::get(handlers::ui::trace::grid::ui_trace_grid_get),
         )
         .route(
+            "/search",
+            axum::routing::get(handlers::ui::trace::event_search::search),
+        )
+        .route(
+            "/keys",
+            axum::routing::post(handlers::ui::trace::event_search::trace_keys),
+        )
+        .route(
             "/chunk/list",
             axum::routing::get(handlers::ui::trace::chunk::ui_trace_chunk_list_get),
         )
