@@ -71,12 +71,8 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             axum::routing::post(handlers::ui::trace::event_search::trace_keys),
         )
         .route(
-            "/chunk/list",
-            axum::routing::get(handlers::ui::trace::chunk::ui_trace_chunk_list_get),
-        )
-        .route(
-            "/chunk",
-            axum::routing::get(handlers::ui::trace::chunk::ui_trace_chunk_get),
+            "/header_and_spans",
+            axum::routing::get(handlers::ui::trace::chunk::get_header_and_spans),
         )
         .route(
             "/autocomplete",

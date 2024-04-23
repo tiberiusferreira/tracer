@@ -1,5 +1,5 @@
 use crate::{API_SERVER_URL_NO_TRAILING_SLASH, PAGE_ROOT_URL, TRACE_CHUNK_PATH};
-use chrono::{Duration, NaiveDateTime};
+use chrono::{Days, Duration, NaiveDateTime};
 use js_sys::Date;
 use leptos::ev::{Event, MouseEvent};
 use leptos::*;
@@ -126,13 +126,14 @@ async fn get_autocomplete_data(search_data: SearchFor, api_response_w: WriteSign
 }
 
 #[derive(Clone)]
-enum RequestState {
+pub enum RequestState {
     Idle,
     Running,
     RunningBehind,
 }
 
-fn debounced_api<S, T, Fu>(
+pub fn debounced_api<S, T, Fu>(
+    min_wait: Duration,
     source: impl Fn() -> S + 'static,
     fetcher: impl Fn(S) -> Fu + 'static,
 ) -> ReadSignal<RequestState>
@@ -143,10 +144,38 @@ where
 {
     let (request_state_r, request_state_w) = create_signal(RequestState::Idle);
     let task_ref: StoredValue<Option<Resource<S, ()>>> = store_value(None);
+    let last_run_time: StoredValue<NaiveDateTime> = store_value(
+        chrono::Utc::now()
+            .naive_utc()
+            .checked_sub_days(Days::new(1))
+            .unwrap(),
+    );
+    let scheduled_to_rerun: StoredValue<bool> = store_value(false);
     let api_request_sender = create_local_resource(source, {
         move |input: S| {
             let futt = fetcher(input);
             async move {
+                let now = chrono::Utc::now().naive_utc();
+                let time_since_last_run = now - last_run_time.get_value();
+
+                if time_since_last_run < min_wait {
+                    log!("Tried to run too fast");
+                    if scheduled_to_rerun.get_value() {
+                        return;
+                    } else {
+                        leptos::set_timeout(
+                            move || {
+                                if let Some(task) = task_ref.get_value() {
+                                    task.refetch();
+                                }
+                            },
+                            (min_wait - time_since_last_run).to_std().unwrap(),
+                        );
+                        scheduled_to_rerun.set_value(true);
+                        return;
+                    }
+                }
+                scheduled_to_rerun.set_value(false);
                 if let RequestState::Running | RequestState::RunningBehind =
                     request_state_r.get_untracked()
                 {
@@ -157,6 +186,7 @@ where
                 log!("Was idle, setting as running");
                 request_state_w.set(RequestState::Running);
                 futt.await;
+                last_run_time.set_value(chrono::Utc::now().naive_utc());
                 let state_before = request_state_r.get_untracked();
                 log!("Finished running");
                 request_state_w.set(RequestState::Idle);
@@ -182,10 +212,12 @@ pub fn TraceBrowser() -> impl IntoView {
         user_search_input_r.with(|v| v.search_for.clone())
     });
     let grid_request_state = debounced_api(
+        Duration::try_milliseconds(250).unwrap(),
         move || search_data.get(),
         move |search_for| get_grid_data(search_for, api_response_w),
     );
     let autocomplete_request_state = debounced_api(
+        Duration::try_milliseconds(250).unwrap(),
         move || search_data.get(),
         move |search_for| get_autocomplete_data(search_for, api_autocomplete_w),
     );
@@ -431,8 +463,8 @@ pub fn TraceBrowser() -> impl IntoView {
 use crate::datetime::{
     local_date_to_utc, printable_local_date, secs_since, set_page_load_timestamp, utc_to_local_date,
 };
-use api_structs::ui::trace::chunk::TraceId;
 use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse};
+use api_structs::ui::trace::spans::TraceId;
 use leptos::logging::log;
 use std::rc::Rc;
 

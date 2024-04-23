@@ -25,7 +25,7 @@ pub struct TraceId {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Copy)]
 pub struct TraceChunkId {
     // DisplayFromStr needed for using this as query parameter
     #[serde_as(as = "DisplayFromStr")]
@@ -41,16 +41,6 @@ pub struct Span {
     pub parent_id: Option<i64>,
     pub duration: Option<u64>,
     pub name: String,
-    pub events: Vec<Event>,
-    pub key_values: HashMap<String, String>,
-    pub location: Location,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub timestamp: u64,
-    pub message: Option<String>,
-    pub severity: Severity,
     pub key_values: HashMap<String, String>,
     pub location: Location,
 }

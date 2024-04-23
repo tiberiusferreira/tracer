@@ -2,8 +2,8 @@ use crate::api::handlers::ui::trace::{RawDbEvent, RawDbSpan};
 use crate::api::state::AppState;
 use crate::api::{u64_nanos_to_db_i64, ApiError};
 use api_structs::instance::update::Location;
-use api_structs::ui::trace::chunk::{Event, SingleChunkTraceQuery, Span, TraceId};
-use api_structs::ui::trace::search::{TraceEventSearch, TraceEventSearchUrlEncoded};
+use api_structs::ui::trace::search::event::{Event, TraceEventSearch, TraceEventSearchUrlEncoded};
+use api_structs::ui::trace::spans::TraceId;
 use api_structs::Severity;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -96,7 +96,7 @@ from (select *
                       and ($9::text is null or (event_key_value.key = $9 and ($10::text is null or event_key_value.value ilike $10)))
                     group by event_id, span_id) as event_key_value
                    on event_key_value.span_id = event.span_id and event_key_value.event_id = event.id
-                where (($7 is null and $9 is null) or event_key_value.key_values is not null);",
+                where (($7 is null and $9 is null) or event_key_value.key_values is not null) order by event.timestamp limit 250;",
         instance_id,
         trace_id,
         start_timestamp,

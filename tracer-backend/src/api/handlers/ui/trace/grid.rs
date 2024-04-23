@@ -1,7 +1,7 @@
 use crate::api::state::AppState;
 use crate::api::{handlers, u64_nanos_to_db_i64, ApiError};
-use api_structs::ui::trace::chunk::TraceId;
 use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
+use api_structs::ui::trace::spans::TraceId;
 use api_structs::{Env, InstanceId, ServiceId};
 use axum::extract::{Query, State};
 use axum::http::StatusCode;

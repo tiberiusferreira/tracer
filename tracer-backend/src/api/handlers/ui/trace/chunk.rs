@@ -11,7 +11,8 @@ use futures::TryFutureExt;
 use sqlx::PgPool;
 use tracing::{info, instrument};
 
-use api_structs::ui::trace::chunk::{Event, SingleChunkTraceQuery, Span, TraceId};
+use api_structs::ui::trace::spans::{SingleChunkTraceQuery, Span, TraceId};
+use api_structs::ui::trace::TraceHeaderAndSpans;
 use api_structs::Severity;
 use backtraced_error::SqlxError;
 
@@ -132,15 +133,59 @@ pub(crate) async fn ui_trace_chunk_list_get(
 }
 
 #[instrument(level = "error", skip_all, err(Debug))]
-pub(crate) async fn ui_trace_chunk_get(
-    Query(single_trace_query): Query<SingleChunkTraceQuery>,
+pub(crate) async fn get_header_and_spans(
+    Query(single_trace_query): Query<TraceId>,
     State(app_state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Json<TraceHeaderAndSpans>, ApiError> {
     let con = app_state.con;
-    let instance_id = single_trace_query.trace_id.instance_id.instance_id;
-    let trace_id = single_trace_query.trace_id.trace_id;
-    let start_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.start_timestamp)?;
-    let end_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.end_timestamp)?;
+    let instance_id = single_trace_query.instance_id.instance_id;
+    let trace_id = single_trace_query.trace_id;
+    // let start_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.start_timestamp)?;
+    // let end_timestamp = u64_nanos_to_db_i64(single_trace_query.chunk_id.end_timestamp)?;
+    struct RawHeader {
+        pub top_level_span_name: String,
+        pub start: i64,
+        pub duration: Option<i64>,
+    }
+
+    let header = sqlx::query_as!(
+        RawHeader,
+        "select top_level_span_name, timestamp as start, duration
+from trace
+where instance_id = $1
+  and id = $2;",
+        instance_id,
+        trace_id
+    )
+    .fetch_one(&con)
+    .await
+    .map_err(|e| SqlxError::from_sqlx_error(e, "getting raw header"))?;
+
+    let max_span: i64 = sqlx::query_scalar!(
+        "select max(span.timestamp + coalesce(span.duration, 0)) as \"max_span!\"
+                    from span
+                    where instance_id = $1
+                      and trace_id = $2
+                    group by instance_id, trace_id;",
+        instance_id,
+        trace_id
+    )
+    .fetch_one(&con)
+    .await
+    .map_err(|e| SqlxError::from_sqlx_error(e, "getting max span"))?;
+    let max_event: i64 = sqlx::query_scalar!(
+        "select coalesce(max(event.timestamp), 0) as \"max_event!\"
+                    from event
+                    where instance_id = $1
+                      and trace_id = $2
+                    group by instance_id, trace_id;",
+        instance_id,
+        trace_id
+    )
+    .fetch_one(&con)
+    .await
+    .map_err(|e| SqlxError::from_sqlx_error(e, "getting max event"))?;
+
     info!("Getting single trace: {trace_id}");
     let raw_spans_from_db: Vec<RawDbSpan> = sqlx::query_as!(RawDbSpan,
         "select span.id,
@@ -163,15 +208,6 @@ pub(crate) async fn ui_trace_chunk_get(
                      from span
                      where span.instance_id = $1
                        and span.trace_id = $2
-                       and
-
-                            (
-                                -- span starts before interval end
-                                span.timestamp <= $4
-                                and
-                                -- span never ends, or ends after interval start
-                                (span.duration is null or (span.timestamp + span.duration) >= $3)
-                            )
                        )
                         as span
                         left join (select span_id,
@@ -185,68 +221,14 @@ pub(crate) async fn ui_trace_chunk_get(
                                    group by span_id) as span_key_value on span_key_value.span_id = span.id;",
         instance_id,
         trace_id,
-        start_timestamp,
-        end_timestamp
+        // start_timestamp,
+        // end_timestamp
     )
         .fetch_all(&con)
         .map_err(|e| {
-            SqlxError::from_sqlx_error(e, format!("getting single trace span data using {instance_id}, {trace_id}, {start_timestamp}, {end_timestamp}"))
+            SqlxError::from_sqlx_error(e, format!("getting single trace span data using {instance_id}, {trace_id}"))
         })
         .await?;
-
-    let raw_events_from_db: Vec<RawDbEvent> = sqlx::query_as!(RawDbEvent,
-        "select event.span_id, event.message, event.severity as \"severity: String\", event.timestamp,
-         COALESCE(event_key_value.key_values, '{}') as key_values,
-        event.module,
-        event.filename,
-        event.line
-from (select *
-      from event
-      where event.instance_id = $1
-        and event.trace_id = $2
-        and event.timestamp >= $3
-        and event.timestamp <= $4) as event
-         left join (select span_id,
-                           event_id,
-                           json_object_agg(
-                                    event_key_value.key,
-                                    event_key_value.value
-                                    ) as key_values
-                    from event_key_value
-                    where event_key_value.instance_id = $1
-                      and event_key_value.trace_id = $2
-                    group by event_id, span_id) as event_key_value 
-                   on event_key_value.span_id = event.span_id and event_key_value.event_id = event.id;",
-        instance_id,
-        trace_id,
-        start_timestamp,
-        end_timestamp
-    )
-        .fetch_all(&con)
-        .map_err(|e| {
-            SqlxError::from_sqlx_error(e, format!("getting single trace span data using {instance_id}, {trace_id}, {start_timestamp}, {end_timestamp}"))
-        })
-        .await?;
-
-    let mut events_by_span_id: HashMap<i64, Vec<Event>> =
-        raw_events_from_db
-            .into_iter()
-            .fold(HashMap::new(), |mut acc, e| {
-                let entry = acc.entry(e.span_id).or_insert(Vec::new());
-                entry.push(Event {
-                    timestamp: e.timestamp as u64,
-                    message: e.message,
-                    severity: Severity::from_str(&e.severity).expect("severity to be valid"),
-                    key_values: serde_json::from_value(e.key_values)
-                        .expect("event key value to be valid"),
-                    location: Location {
-                        module: e.module,
-                        filename: e.filename,
-                        line: e.line.map(|e| e as u32),
-                    },
-                });
-                acc
-            });
 
     let spans: Vec<Span> = raw_spans_from_db
         .into_iter()
@@ -256,7 +238,6 @@ from (select *
             parent_id: s.parent_id,
             duration: s.duration.map(|e| e as u64),
             name: s.name,
-            events: events_by_span_id.remove(&s.id).unwrap_or_default(),
             key_values: serde_json::from_value(s.key_values).expect("span key value to be valid"),
             location: Location {
                 module: s.module,
@@ -265,25 +246,11 @@ from (select *
             },
         })
         .collect();
-
-    info!("Got it, compressing");
-    let lg_window_size = 21;
-    let quality = 4;
-    let json = serde_json::to_string(&spans).expect("to be able to serialize response");
-    let mut input =
-        brotli::CompressorReader::new(json.as_bytes(), 4096, quality as u32, lg_window_size as u32);
-    let mut resp: Vec<u8> = Vec::with_capacity(10 * crate::BYTES_IN_1MB);
-    input.read_to_end(&mut resp).unwrap();
-    info!("Compressed, sending");
-    Ok((
-        StatusCode::OK,
-        [
-            (
-                axum::http::header::CONTENT_TYPE,
-                "application/json; charset=UTF-8",
-            ),
-            (axum::http::header::CONTENT_ENCODING, "br"),
-        ],
-        resp,
-    ))
+    let duration = header.duration.unwrap_or_else(|| max_span.max(max_event)) as u64;
+    Ok(Json(TraceHeaderAndSpans {
+        top_level_span_name: header.top_level_span_name,
+        start: header.start as u64,
+        duration,
+        spans,
+    }))
 }

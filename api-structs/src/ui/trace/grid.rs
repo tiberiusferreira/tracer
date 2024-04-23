@@ -1,4 +1,4 @@
-use crate::ui::trace::chunk::TraceId;
+use crate::ui::trace::spans::TraceId;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::{DisplayFromStr, NoneAsEmptyString};
