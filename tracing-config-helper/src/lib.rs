@@ -8,14 +8,13 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Duration;
 
-use rand::random;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
-use api_structs::instance::update::{ExportedServiceTraceData, NewOrphanEvent, TraceState};
+use api_structs::instance::update::{ExportedServiceTraceData, OrphanEvent, TraceState};
 pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
 pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
@@ -124,8 +123,8 @@ impl ExportDataContainers {
     pub fn new(
         instance_id: InstanceId,
         rust_log: String,
-        orphan_events: Vec<NewOrphanEvent>,
-        traces_state: HashMap<u64, TraceState>,
+        orphan_events: Vec<OrphanEvent>,
+        traces_state: HashMap<u32, TraceState>,
         profile_data: Option<Vec<u8>>,
     ) -> Self {
         Self {
@@ -234,7 +233,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
     tracing::subscriber::set_global_default(registry).expect("no other global subscriber to exist");
     let instance_id = InstanceId {
         service_id: config.service_id.clone(),
-        instance_id: random::<i64>(),
+        instance_id: uuid::Uuid::new_v4(),
     };
     let sse_task = tokio::task::spawn_local(
         server_connection::server_sent_events::continuously_handle_server_sent_events(

@@ -238,7 +238,7 @@ pub fn TraceChunk() -> impl IntoView {
     {
         let trace_id = trace_id.clone();
         let _resource = crate::grid::debounced_api(
-            Duration::try_milliseconds(2000).unwrap(),
+            Duration::try_milliseconds(1000).unwrap(),
             move || viewing_window_r.get(),
             move |chunk_id: Option<TraceChunkId>| {
                 let trace_id = trace_id.clone();

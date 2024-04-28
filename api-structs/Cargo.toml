@@ -11,5 +11,6 @@ serde_with.workspace = true
 thiserror.workspace = true
 tracing = "0.1"
 serde_json = "1.0"
+uuid.workspace = true
 chrono.workspace = true
 

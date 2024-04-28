@@ -1,11 +1,12 @@
-use crate::InstanceId;
 pub use crate::Severity;
+use crate::{InstanceId, TraceName};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedServiceTraceData {
     pub instance_id: InstanceId,
-    pub orphan_events: Vec<NewOrphanEvent>,
-    pub traces_state: HashMap<u64, TraceState>,
+    pub orphan_events: Vec<OrphanEvent>,
+    pub traces_state: HashMap<u32, TraceState>,
     pub rust_log: String,
     pub profile_data: Option<Vec<u8>>,
 }
@@ -24,13 +25,12 @@ impl ExportedServiceTraceData {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TraceState {
-    pub root_span: RootSpan,
-    pub open_spans: HashMap<u64, OpenSpan>,
+    pub root_span_id: u32,
+    pub spans: HashMap<u32, Span>,
     pub spans_produced: u32,
     pub events_produced: u32,
     pub events_dropped_by_sampling: u32,
-    pub closed_spans: Vec<ClosedSpan>,
-    pub new_events: Vec<NewSpanEvent>,
+    pub new_events: Vec<SpanEvent>,
 }
 
 fn key_val_size(kv: &HashMap<String, String>) -> usize {
@@ -42,17 +42,33 @@ fn key_val_size(kv: &HashMap<String, String>) -> usize {
     total
 }
 impl TraceState {
+    pub fn is_closed(&self) -> bool {
+        self.root().closed
+    }
+    pub fn has_warnings(&self) -> bool {
+        self.new_events
+            .iter()
+            .any(|event| event.severity == Severity::Warn)
+    }
+    pub fn has_errors(&self) -> bool {
+        self.new_events
+            .iter()
+            .any(|event| event.severity == Severity::Error)
+    }
+
+    pub fn root(&self) -> &Span {
+        self.spans
+            .get(&self.root_span_id)
+            .expect("trace_state should always have root")
+    }
+    pub fn root_mut(&mut self) -> &mut Span {
+        self.spans
+            .get_mut(&self.root_span_id)
+            .expect("trace_state should always have root")
+    }
     pub fn total_size(&self) -> usize {
         let mut total_size = 0;
-        total_size += self.root_span.name.len();
-        total_size += self.root_span.location.size_bytes();
-        total_size += key_val_size(&self.root_span.key_vals);
-        for data in self.open_spans.values() {
-            total_size += data.name.len();
-            total_size += key_val_size(&data.key_vals);
-            total_size += data.location.size_bytes();
-        }
-        for data in &self.closed_spans {
+        for data in self.spans.values() {
             total_size += data.name.len();
             total_size += key_val_size(&data.key_vals);
             total_size += data.location.size_bytes();
@@ -98,80 +114,46 @@ impl Sampling {
     }
 }
 
-impl TraceState {
-    pub fn is_closed(&self) -> bool {
-        self.root_span.duration.is_some()
-    }
-    pub fn has_warnings(&self) -> bool {
-        self.new_events
-            .iter()
-            .any(|event| event.level == Severity::Warn)
-    }
-    pub fn has_errors(&self) -> bool {
-        self.new_events
-            .iter()
-            .any(|event| event.level == Severity::Error)
-    }
-
-    pub fn duration_if_closed(&self) -> Option<u64> {
-        self.root_span.duration
-    }
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RootSpan {
-    pub id: u64,
-    pub name: String,
-    pub timestamp: u64,
-    pub duration: Option<u64>,
-    pub key_vals: HashMap<String, String>,
-    pub location: Location,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OpenSpan {
-    pub id: u64,
-    pub name: String,
-    pub timestamp: u64,
-    pub parent_id: u64,
-    pub key_vals: HashMap<String, String>,
-    pub location: Location,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ClosedSpan {
-    pub id: u64,
+pub struct Span {
+    pub id: u32,
     pub name: String,
     pub timestamp: u64,
     pub duration: u64,
-    pub parent_id: u64,
+    pub parent_id: Option<u32>,
     pub key_vals: HashMap<String, String>,
     pub location: Location,
+    pub closed: bool,
+}
+
+impl Span {
+    pub fn refresh_duration(&mut self, now_nanos: u64) {
+        if !self.closed {
+            let new_duration = now_nanos
+                .checked_sub(self.timestamp)
+                .expect("duration to never be negative");
+            assert!(new_duration >= self.duration, "duration should only go up");
+            self.duration = new_duration;
+        }
+    }
+    pub fn close_refreshing_duration(&mut self, now_nanos: u64) {
+        self.refresh_duration(now_nanos);
+        self.closed = true;
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NewSpan {
-    pub id: u64,
-    pub name: String,
-    pub timestamp: u64,
-    pub duration: Option<u64>,
-    pub parent_id: Option<u64>,
-    pub key_vals: HashMap<String, String>,
-    pub location: Location,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NewSpanEvent {
-    pub span_id: u64,
+pub struct SpanEvent {
+    pub span_id: u32,
     pub message: Option<String>,
     pub timestamp: u64,
-    pub level: Severity,
+    pub severity: Severity,
     pub key_vals: HashMap<String, String>,
     pub location: Location,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NewOrphanEvent {
+pub struct OrphanEvent {
     pub timestamp: u64,
     pub severity: Severity,
     pub message: Option<String>,
@@ -194,8 +176,3 @@ impl Location {
         size
     }
 }
-
-///////
-
-use crate::TraceName;
-use std::collections::HashMap;

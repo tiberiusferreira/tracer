@@ -23,7 +23,7 @@ pub struct InstanceId {
     #[serde(flatten)]
     pub service_id: ServiceId,
     #[serde_as(as = "DisplayFromStr")]
-    pub instance_id: i64,
+    pub instance_id: uuid::Uuid,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]

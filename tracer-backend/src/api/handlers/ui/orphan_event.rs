@@ -1,6 +1,7 @@
 use crate::api::handlers::{db_i64_to_nanos, nanos_to_db_i64, Severity};
 use crate::api::state::AppState;
 use crate::api::ApiError;
+use api_structs::instance::update::Location;
 use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
 use axum::extract::{Query, State};
 use axum::Json;
@@ -66,6 +67,12 @@ limit 100000"#,
                 message: e.message,
                 key_vals: serde_json::from_value(e.key_vals)
                     .expect("to be able to deserialize event kv from DB"),
+                location: Location {
+                    // TODO: fix
+                    module: None,
+                    filename: None,
+                    line: None,
+                },
             })
             .collect(),
     ))

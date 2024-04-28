@@ -1,9 +1,7 @@
 use crate::print_if_dbg;
 use crate::subscriber::attribute_visitor::AttributesVisitor;
 use crate::subscriber::state::{State, TracesAndOrphanEvents};
-use api_structs::instance::update::{
-    Location, NewOrphanEvent, NewSpanEvent, OpenSpan, RootSpan, Sampling, Severity,
-};
+use api_structs::instance::update::{Location, OrphanEvent, Sampling, Severity};
 use api_structs::time_conversion::now_nanos_u64;
 use sampler::{Sampler, TracerSampler};
 use std::collections::HashMap;
@@ -168,7 +166,6 @@ impl TracerTracingSubscriber {
         };
         EventData {
             message: event_visitor.message,
-            timestamp: now_nanos_u64(),
             level,
             key_vals: event_visitor.key_vals,
         }
@@ -180,7 +177,7 @@ impl TracerTracingSubscriber {
 struct TracerSpanData {
     key_vals: HashMap<String, String>,
     name: String,
-    // we use this data to calculate the span duration when it gets closed
+    // used to check if span was already entered
     first_entered_at: Option<std::time::Instant>,
 }
 
@@ -194,7 +191,6 @@ struct TracerRootSpanData {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EventData {
     pub message: Option<String>,
-    pub timestamp: u64,
     pub level: Severity,
     pub key_vals: HashMap<String, String>,
 }
@@ -248,9 +244,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     print_if_dbg(context, "Allowed by sampler, sending to exporter");
                     self.exporter_state
                         .write()
-                        .insert_orphan_event(NewOrphanEvent {
+                        .insert_orphan_event(OrphanEvent {
                             message: event_data.message,
-                            timestamp: event_data.timestamp,
+                            timestamp: now_nanos_u64(),
                             severity: event_data.level,
                             key_vals: event_data.key_vals,
                             location: location_from_metadata(event.metadata()),
@@ -281,21 +277,18 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         if new_event_allowed {
             print_if_dbg(context, "Allowed by sampler, sending to exporter.");
             self.exporter_state.write().insert_span_event(
-                root.id().into_u64(),
-                NewSpanEvent {
-                    span_id: span.id().into_u64(),
-                    message: event_data.message,
-                    timestamp: event_data.timestamp,
-                    level: event_data.level,
-                    key_vals: event_data.key_vals,
-                    location: location_from_metadata(event.metadata()),
-                },
+                root.id(),
+                span.id(),
+                event_data.message,
+                event_data.level,
+                event_data.key_vals,
+                location_from_metadata(event.metadata()),
             );
         } else {
             print_if_dbg(context, "Not allowed by sampler, discarding event SpE.");
             self.exporter_state
                 .write()
-                .insert_event_dropped_by_sampling(root.id().into_u64());
+                .insert_event_dropped_by_sampling(root.id());
         }
     }
 
@@ -333,15 +326,12 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             if new_trace_allowed {
                 print_if_dbg(context, "Allowed by sampler, sending to exporter");
                 let key_vals = Self::take_tracer_span_data_key_vals(&span);
-                let now_nanos = now_nanos_u64();
-                self.exporter_state.write().insert_new_trace(RootSpan {
-                    id: id.into_u64(),
-                    name: span_name.to_string(),
-                    timestamp: now_nanos,
-                    duration: None,
+                self.exporter_state.write().insert_new_trace(
+                    id,
+                    span_name,
                     key_vals,
-                    location: location_from_metadata(root_span.metadata()),
-                });
+                    location_from_metadata(root_span.metadata()),
+                );
                 root_span
                     .extensions_mut()
                     .insert(TracerRootSpanData { dropped: false })
@@ -376,15 +366,12 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 };
                 let parent_id = span.parent().expect("parent to exist if non-root").id();
                 self.exporter_state.write().insert_new_span(
-                    root_span.id().into_non_zero_u64().get(),
-                    OpenSpan {
-                        id: id.into_u64(),
-                        name: span_name.to_string(),
-                        timestamp: now_nanos_u64(),
-                        parent_id: parent_id.into_u64(),
-                        key_vals,
-                        location: location_from_metadata(span.metadata()),
-                    },
+                    root_span.id(),
+                    id.clone(),
+                    parent_id,
+                    span_name.to_string(),
+                    key_vals,
+                    location_from_metadata(span.metadata()),
                 );
             }
         }
@@ -403,22 +390,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             .expect("root span to exist")
             .id();
 
-        let extensions = span.extensions();
-        let tracer_span_data: &TracerSpanData = extensions
-            .get()
-            .expect("tracer span data to exist if span is closing");
         print_if_dbg(
             context,
             format!("Span {} closed. Sending to exporter", span_id.into_u64()),
         );
-        let duration = u64::try_from(
-            tracer_span_data
-                .first_entered_at
-                .expect("first_entered_at to exist on span close")
-                .elapsed()
-                .as_nanos(),
-        )
-        .expect("span duration in nanos to fit u64");
         if root_span_id == span_id {
             print_if_dbg(
                 context,
@@ -426,7 +401,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             );
             self.exporter_state
                 .write()
-                .close_trace(root_span_id.into_u64(), duration);
+                .close_trace(root_span_id.clone());
         } else {
             print_if_dbg(
                 context,
@@ -435,11 +410,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                     span_id.into_u64()
                 ),
             );
-            self.exporter_state.write().close_span(
-                root_span_id.into_u64(),
-                span_id.into_u64(),
-                duration,
-            );
+            self.exporter_state
+                .write()
+                .close_span(root_span_id.clone(), span_id);
         }
     }
 }

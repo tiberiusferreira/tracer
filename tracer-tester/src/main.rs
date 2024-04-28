@@ -195,15 +195,15 @@ fn simple_orphan_logs_test() {
     error!("Sample Error orphan event");
 }
 
-#[instrument(skip_all)]
-fn trace_60_percent_warning() {
-    let random_0_1: f32 = random();
-    if random_0_1 < 0.6 {
-        warn!("Sample Warn orphan event");
-    } else {
-        info!("Sample Info orphan event");
-    }
-}
+// #[instrument(skip_all)]
+// fn trace_60_percent_warning() {
+//     let random_0_1: f32 = random();
+//     if random_0_1 < 0.6 {
+//         warn!("Sample Warn orphan event");
+//     } else {
+//         info!("Sample Info orphan event");
+//     }
+// }
 
 fn root_dropped_before_children() {
     let root = info_span!("root_span").entered();

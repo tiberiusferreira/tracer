@@ -5,7 +5,7 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 
 use crate::instance::update::Location;
-use crate::{InstanceId, Severity};
+use crate::InstanceId;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct SingleChunkTraceQuery {

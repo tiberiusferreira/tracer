@@ -145,6 +145,7 @@ dependencies = [
  "serde_with",
  "thiserror",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2101,6 +2102,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "maplit"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3469,6 +3476,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3550,6 +3558,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -3589,6 +3598,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -3614,6 +3624,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]
@@ -4020,7 +4031,6 @@ name = "tracer-tester"
 version = "0.1.0"
 dependencies = [
  "dotenvy",
- "rand",
  "sys-info",
  "thiserror",
  "tokio",
@@ -4089,9 +4099,9 @@ dependencies = [
  "chrono",
  "futures",
  "futures-util",
+ "maplit",
  "parking_lot",
  "pprof",
- "rand",
  "reqwest 0.12.1",
  "reqwest-eventsource",
  "serde",

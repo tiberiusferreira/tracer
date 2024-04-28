@@ -9,8 +9,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 use api_structs::instance::update::{
-    ClosedSpan, ExportedServiceTraceData, NewOrphanEvent, NewSpan, NewSpanEvent, OpenSpan,
-    Sampling, SamplingState, TraceState,
+    ExportedServiceTraceData, Sampling, SamplingState, Span, SpanEvent, TraceState,
 };
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
@@ -32,104 +31,105 @@ fn update_service_and_instance_data(
     live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceRuntimeData>>,
     exported_service_trace_data: &ExportedServiceTraceData,
 ) -> Result<Sampling, ServiceNotRegisteredError> {
-    let mut w_lock = live_instances.write();
-    let service_data = match w_lock.get_mut(&exported_service_trace_data.instance_id.service_id) {
-        None => return Err(ServiceNotRegisteredError),
-        Some(service_data) => service_data,
-    };
-    let instance = match service_data
-        .instances
-        .get_mut(&exported_service_trace_data.instance_id.instance_id)
-    {
-        None => return Err(ServiceNotRegisteredError),
-        Some(instance) => instance,
-    };
-    {
-        instance.rust_log = exported_service_trace_data.rust_log.clone();
-        instance.last_seen = std::time::Instant::now();
-        if let Some(profile_data) = &exported_service_trace_data.profile_data {
-            instance.profile_data = Some(ProfileData {
-                profile_data_timestamp: now_nanos_u64(),
-                profile_data: profile_data.clone(),
-            });
-        }
-    }
-
-    let mut traces_header = vec![];
-    let mut received_bytes_per_trace: HashMap<TraceName, u64> = HashMap::new();
-    let received_orphan_event_bytes = exported_service_trace_data.orphan_events_size();
-    for trace_state in exported_service_trace_data.traces_state.values() {
-        let received_trace_bytes = trace_state.total_size();
-        let entry = received_bytes_per_trace
-            .entry(trace_state.root_span.name.clone())
-            .or_default();
-        *entry += received_trace_bytes as u64;
-        let header = TraceHeader {
-            trace_id: trace_state.root_span.id,
-            trace_name: trace_state.root_span.name.clone(),
-            trace_timestamp: trace_state.root_span.timestamp,
-            new_warnings: trace_state.has_warnings(),
-            new_errors: trace_state.has_errors(),
-            fragment_bytes: received_trace_bytes as u64,
-            duration: trace_state.root_span.duration,
-        };
-        traces_header.push(header);
-    }
-    let mut last_bytes_budget = service_data
-        .service_data_points
-        .back()
-        .map(|b| b.budget_usage.clone())
-        .unwrap_or_else(|| BytesBudgetUsage::new(60, 100_000));
-    debug!("Previous budget: {last_bytes_budget:?}");
-    last_bytes_budget.update();
-    debug!("Previous budget after update: {last_bytes_budget:?}");
-
-    debug!("Decreasing orphan events budget by {received_orphan_event_bytes}");
-    last_bytes_budget.increase_orphan_events_usage_by(received_orphan_event_bytes as u32);
-    for (trace_name, received_bytes) in &received_bytes_per_trace {
-        debug!("Decreasing {trace_name} budget by {received_bytes}");
-        last_bytes_budget.increase_trace_usage_by(trace_name, *received_bytes as u32);
-    }
-    let remaining_budget = last_bytes_budget;
-    debug!("remaining_budget = {remaining_budget:?}");
-    let new_sampling = Sampling {
-        traces: remaining_budget
-            .traces_usage_bytes
-            .iter()
-            .map(|(name, _usage)| {
-                let sampling = if remaining_budget.is_trace_over_budget(name) {
-                    SamplingState::DropNewTracesKeepExistingTraceNewData
-                } else {
-                    SamplingState::AllowNewTraces
-                };
-                (name.to_string(), sampling)
-            })
-            .collect::<HashMap<TraceName, SamplingState>>(),
-        allow_new_orphan_events: !remaining_budget.is_orphan_events_over_budget(),
-    };
-    debug!("new_sampling = {new_sampling:?}");
-    let new = ServiceDataPoint {
-        timestamp: now_nanos_u64(),
-        instance_id: exported_service_trace_data.instance_id.instance_id,
-        traces: traces_header,
-        orphan_events: exported_service_trace_data
-            .orphan_events
-            .iter()
-            .map(|e| OrphanEvent {
-                timestamp: e.timestamp,
-                severity: e.severity,
-                message: e.message.clone(),
-                key_vals: e.key_vals.clone(),
-            })
-            .collect(),
-        budget_usage: remaining_budget,
-    };
-    service_data.service_data_points.push_back(new);
-    while service_data.service_data_points.len() > MAX_STATS_HISTORY_DATA_COUNT {
-        service_data.service_data_points.pop_front();
-    }
-    trace!("{:?}", new_sampling);
-    Ok(new_sampling)
+    // let mut w_lock = live_instances.write();
+    // let service_data = match w_lock.get_mut(&exported_service_trace_data.instance_id.service_id) {
+    //     None => return Err(ServiceNotRegisteredError),
+    //     Some(service_data) => service_data,
+    // };
+    // let instance = match service_data
+    //     .instances
+    //     .get_mut(&exported_service_trace_data.instance_id.instance_id)
+    // {
+    //     None => return Err(ServiceNotRegisteredError),
+    //     Some(instance) => instance,
+    // };
+    // {
+    //     instance.rust_log = exported_service_trace_data.rust_log.clone();
+    //     instance.last_seen = std::time::Instant::now();
+    //     if let Some(profile_data) = &exported_service_trace_data.profile_data {
+    //         instance.profile_data = Some(ProfileData {
+    //             profile_data_timestamp: now_nanos_u64(),
+    //             profile_data: profile_data.clone(),
+    //         });
+    //     }
+    // }
+    //
+    // let mut traces_header = vec![];
+    // let mut received_bytes_per_trace: HashMap<TraceName, u64> = HashMap::new();
+    // let received_orphan_event_bytes = exported_service_trace_data.orphan_events_size();
+    // for trace_state in exported_service_trace_data.traces_state.values() {
+    //     let received_trace_bytes = trace_state.total_size();
+    //     let entry = received_bytes_per_trace
+    //         .entry(trace_state.root_span.name.clone())
+    //         .or_default();
+    //     *entry += received_trace_bytes as u64;
+    //     let header = TraceHeader {
+    //         trace_id: trace_state.root_span.id,
+    //         trace_name: trace_state.root_span.name.clone(),
+    //         trace_timestamp: trace_state.root_span.timestamp,
+    //         new_warnings: trace_state.has_warnings(),
+    //         new_errors: trace_state.has_errors(),
+    //         fragment_bytes: received_trace_bytes as u64,
+    //         duration: trace_state.root_span.duration,
+    //     };
+    //     traces_header.push(header);
+    // }
+    // let mut last_bytes_budget = service_data
+    //     .service_data_points
+    //     .back()
+    //     .map(|b| b.budget_usage.clone())
+    //     .unwrap_or_else(|| BytesBudgetUsage::new(60, 100_000));
+    // debug!("Previous budget: {last_bytes_budget:?}");
+    // last_bytes_budget.update();
+    // debug!("Previous budget after update: {last_bytes_budget:?}");
+    //
+    // debug!("Decreasing orphan events budget by {received_orphan_event_bytes}");
+    // last_bytes_budget.increase_orphan_events_usage_by(received_orphan_event_bytes as u32);
+    // for (trace_name, received_bytes) in &received_bytes_per_trace {
+    //     debug!("Decreasing {trace_name} budget by {received_bytes}");
+    //     last_bytes_budget.increase_trace_usage_by(trace_name, *received_bytes as u32);
+    // }
+    // let remaining_budget = last_bytes_budget;
+    // debug!("remaining_budget = {remaining_budget:?}");
+    // let new_sampling = Sampling {
+    //     traces: remaining_budget
+    //         .traces_usage_bytes
+    //         .iter()
+    //         .map(|(name, _usage)| {
+    //             let sampling = if remaining_budget.is_trace_over_budget(name) {
+    //                 SamplingState::DropNewTracesKeepExistingTraceNewData
+    //             } else {
+    //                 SamplingState::AllowNewTraces
+    //             };
+    //             (name.to_string(), sampling)
+    //         })
+    //         .collect::<HashMap<TraceName, SamplingState>>(),
+    //     allow_new_orphan_events: !remaining_budget.is_orphan_events_over_budget(),
+    // };
+    // debug!("new_sampling = {new_sampling:?}");
+    // let new = ServiceDataPoint {
+    //     timestamp: now_nanos_u64(),
+    //     instance_id: exported_service_trace_data.instance_id.instance_id,
+    //     traces: traces_header,
+    //     orphan_events: exported_service_trace_data
+    //         .orphan_events
+    //         .iter()
+    //         .map(|e| OrphanEvent {
+    //             timestamp: e.timestamp,
+    //             severity: e.severity,
+    //             message: e.message.clone(),
+    //             key_vals: e.key_vals.clone(),
+    //         })
+    //         .collect(),
+    //     budget_usage: remaining_budget,
+    // };
+    // service_data.service_data_points.push_back(new);
+    // while service_data.service_data_points.len() > MAX_STATS_HISTORY_DATA_COUNT {
+    //     service_data.service_data_points.pop_front();
+    // }
+    // trace!("{:?}", new_sampling);
+    // Ok(new_sampling)
+    unimplemented!()
 }
 
 /// We should insert a new trace if it doesn't already exist
@@ -148,22 +148,23 @@ async fn get_db_trace(
     instance_id: &InstanceId,
     trace_id: u64,
 ) -> Result<Option<TraceDuration>, backtraced_error::SqlxError> {
-    debug!("instance_id: {instance_id:?}, trace_id: {trace_id}");
-    let raw: Option<RawTraceHeader> = sqlx::query_as!(
-        RawTraceHeader,
-        "select duration from trace where instance_id=$1 and id=$2",
-        instance_id.instance_id as i64,
-        trace_id as i64
-    )
-    .fetch_optional(con)
-    .await
-    .map_err(|e| SqlxError::from_sqlx_error(e, "get_db_trace"))?;
-    return match raw {
-        None => Ok(None),
-        Some(raw) => Ok(Some(TraceDuration {
-            duration: raw.duration.map(|e| e as u64),
-        })),
-    };
+    // debug!("instance_id: {instance_id:?}, trace_id: {trace_id}");
+    // let raw: Option<RawTraceHeader> = sqlx::query_as!(
+    //     RawTraceHeader,
+    //     "select duration from trace where instance_id=$1 and id=$2",
+    //     instance_id.instance_id as i64,
+    //     trace_id as i64
+    // )
+    // .fetch_optional(con)
+    // .await
+    // .map_err(|e| SqlxError::from_sqlx_error(e, "get_db_trace"))?;
+    // return match raw {
+    //     None => Ok(None),
+    //     Some(raw) => Ok(Some(TraceDuration {
+    //         duration: raw.duration.map(|e| e as u64),
+    //     })),
+    // };
+    unimplemented!()
 }
 
 #[instrument(skip_all)]
@@ -206,70 +207,31 @@ async fn insert_new_trace(
     top_level_span_name: &str,
     timestamp: u64,
 ) -> Result<(), backtraced_error::SqlxError> {
-    info!(
-        "Inserting trace header information for: {}",
-        top_level_span_name
-    );
-    let now_nanos = now_nanos_u64();
-    if let Err(e) = sqlx::query!(
-        "insert into trace (env, service_name, instance_id, id, top_level_span_name, timestamp, updated_at) values
-        ($1, $2, $3, $4, $5, $6, $7);",
-        instance_id.service_id.env.to_string() as _,
-        instance_id.service_id.name as _,
-        instance_id.instance_id as _,
-        trace_id as i64,
-        top_level_span_name as _,
-        timestamp as i64,
-        now_nanos as i64
-    )
-        .execute(con.deref_mut())
-        .await
-    {
-        return Err(SqlxError::from_sqlx_error(e, format!("DB Error when inserting trace with data:\
-         instance_id={instance_id:?} trace_id={trace_id} \
-         timestamp={timestamp} top_level_span_name={top_level_span_name} updated_at={now_nanos}")));
-    }
-    Ok(())
-}
-
-#[instrument(skip_all)]
-fn relocate_event_references_from_lost_spans_to_root(
-    events: &mut Vec<NewSpanEvent>,
-    lost_span_ids: &HashSet<u64>,
-    relocated_event_vec_indexes: &mut HashSet<usize>,
-    relocate_to: u64,
-) {
-    for (idx, e) in events.iter_mut().enumerate() {
-        if lost_span_ids.contains(&e.span_id) {
-            debug!(
-                "Relocating event {} span from {} to {}",
-                e.timestamp, e.span_id, relocate_to
-            );
-            relocated_event_vec_indexes.insert(idx);
-            e.span_id = relocate_to;
-        }
-    }
-}
-
-#[instrument(skip_all)]
-fn relocate_span_references_from_lost_spans_to_root(
-    spans: &mut Vec<NewSpan>,
-    lost_span_ids: &HashSet<u64>,
-    relocated_span_ids: &mut HashSet<u64>,
-    relocate_to: u64,
-) {
-    for s in spans {
-        if let Some(parent_id) = s.parent_id {
-            if lost_span_ids.contains(&parent_id) {
-                debug!(
-                    "Relocating span {} parent from {} to {}",
-                    s.id, parent_id, relocate_to
-                );
-                relocated_span_ids.insert(s.id);
-                s.parent_id = Some(relocate_to);
-            }
-        }
-    }
+    // info!(
+    //     "Inserting trace header information for: {}",
+    //     top_level_span_name
+    // );
+    // let now_nanos = now_nanos_u64();
+    // if let Err(e) = sqlx::query!(
+    //     "insert into trace (env, service_name, instance_id, id, top_level_span_name, timestamp, updated_at) values
+    //     ($1, $2, $3, $4, $5, $6, $7);",
+    //     instance_id.service_id.env.to_string() as _,
+    //     instance_id.service_id.name as _,
+    //     instance_id.instance_id as _,
+    //     trace_id as i64,
+    //     top_level_span_name as _,
+    //     timestamp as i64,
+    //     now_nanos as i64
+    // )
+    //     .execute(con.deref_mut())
+    //     .await
+    // {
+    //     return Err(SqlxError::from_sqlx_error(e, format!("DB Error when inserting trace with data:\
+    //      instance_id={instance_id:?} trace_id={trace_id} \
+    //      timestamp={timestamp} top_level_span_name={top_level_span_name} updated_at={now_nanos}")));
+    // }
+    // Ok(())
+    unimplemented!()
 }
 
 #[instrument(skip_all)]
@@ -279,15 +241,16 @@ pub async fn get_existing_span_ids(
     trace_id: i64,
     span_ids: &[i64],
 ) -> Result<Vec<i64>, backtraced_error::SqlxError> {
-    sqlx::query_scalar!(
-        "select id from span where instance_id=$1 and trace_id=$2 and id = ANY($3::BIGINT[])",
-        instance_id,
-        trace_id,
-        span_ids
-    )
-    .fetch_all(con.deref_mut())
-    .await
-    .map_err(|e| SqlxError::from_sqlx_error(e, "getting existing span ids"))
+    // sqlx::query_scalar!(
+    //     "select id from span where instance_id=$1 and trace_id=$2 and id = ANY($3::BIGINT[])",
+    //     instance_id,
+    //     trace_id,
+    //     span_ids
+    // )
+    // .fetch_all(con.deref_mut())
+    // .await
+    // .map_err(|e| SqlxError::from_sqlx_error(e, "getting existing span ids"))
+    unimplemented!()
 }
 
 #[instrument(skip_all)]
@@ -296,154 +259,172 @@ pub async fn update_trace_with_new_state(
     instance_id: &InstanceId,
     fragment: TraceState,
 ) -> Result<(), SqlxError> {
-    trace!("fragment = {:#?}", fragment);
-    info!("fragment for: {}", fragment.root_span.name);
-
-    let db_trace_duration = get_db_trace(&con, &instance_id, fragment.root_span.id).await?;
-    let trace_already_exists = db_trace_duration.is_some();
-    debug!("trace_already_exists = {trace_already_exists}");
-    let trace_is_complete = db_trace_duration
-        .as_ref()
-        .map(|t| t.duration.is_some())
-        .unwrap_or(false);
-    debug!("trace_is_complete = {trace_is_complete}");
-    if trace_is_complete {
-        error!("Got new data for completed trace");
-        return Ok(());
-    }
-    debug!("Trying to start transaction");
-    let mut transaction = con
-        .begin()
-        .instrument(info_span!("start_transaction"))
-        .await
-        .map_err(|e| SqlxError::from_sqlx_error(e, "starting transaction"))?;
-    debug!("Started!");
-    if !trace_already_exists {
-        insert_new_trace(
-            &mut transaction,
-            &instance_id,
-            fragment.root_span.id,
-            &fragment.root_span.name.clone(),
-            fragment.root_span.timestamp,
-        )
-        .await?;
-        insert_spans(
-            &mut transaction,
-            &vec![NewSpan {
-                id: fragment.root_span.id,
-                name: fragment.root_span.name.clone(),
-                timestamp: fragment.root_span.timestamp,
-                duration: fragment.root_span.duration,
-                parent_id: None,
-                key_vals: fragment.root_span.key_vals.clone(),
-                location: fragment.root_span.location.clone(),
-            }],
-            fragment.root_span.id,
-            instance_id,
-        )
-        .await?;
-    }
-    let open_spans = fragment.open_spans.clone();
-    let open_spans_ids: Vec<i64> = open_spans.keys().map(|e| (*e) as i64).collect();
-    let existing_span_id = get_existing_span_ids(
-        &mut transaction,
-        instance_id.instance_id,
-        fragment.root_span.id as i64,
-        &open_spans_ids,
-    )
-    .await?;
-    let mut spans_to_insert = vec![];
-    for open_span in open_spans.values() {
-        if !existing_span_id.contains(&(open_span.id as i64)) {
-            spans_to_insert.push(NewSpan {
-                id: open_span.id,
-                name: open_span.name.clone(),
-                timestamp: open_span.timestamp,
-                duration: None,
-                parent_id: Some(open_span.parent_id),
-                key_vals: open_span.key_vals.clone(),
-                location: open_span.location.clone(),
-            });
-        }
-    }
-    for s in &fragment.closed_spans {
-        spans_to_insert.push(NewSpan {
-            id: s.id,
-            name: s.name.clone(),
-            timestamp: s.timestamp,
-            duration: Some(s.duration),
-            parent_id: Some(s.parent_id),
-            key_vals: s.key_vals.clone(),
-            location: s.location.clone(),
-        });
-    }
-    insert_spans(
-        &mut transaction,
-        &spans_to_insert,
-        fragment.root_span.id,
-        &instance_id,
-    )
-    .await?;
-    crate::api::database::insert_events(
-        &mut transaction,
-        &fragment.new_events,
-        fragment.root_span.id,
-        &instance_id,
-    )
-    .await?;
-    /*
-        spans_produced
-        events_produced
-        events_dropped_by_sampling
-    */
-    let spans_produced = fragment.spans_produced as u64;
-    let events_produced = fragment.events_produced as u64;
-    let events_dropped_by_sampling = fragment.events_dropped_by_sampling as u64;
-    let stored_span_count_increase = spans_to_insert.len() as u64;
-    let stored_event_count_increase = fragment.new_events.len() as u64;
-    let size_bytes_increase = fragment.total_size();
-    let warnings_count_increase = fragment
-        .new_events
-        .iter()
-        .filter(|e| matches!(e.level, api_structs::Severity::Warn))
-        .count() as u64;
-    let has_errors = fragment
-        .new_events
-        .iter()
-        .find(|e| matches!(e.level, api_structs::Severity::Error))
-        .is_some();
-    debug!(
-        "root_duration={:?}
-    spans_produced={spans_produced}
-    events_produced={events_produced}
-    events_dropped_by_sampling={events_dropped_by_sampling}
-    stored_span_count_increase={stored_span_count_increase}
-    stored_event_count_increase={stored_event_count_increase}
-    size_bytes_increase={size_bytes_increase}
-    warnings_count_increase={warnings_count_increase}
-    has_errors={has_errors}",
-        fragment.root_span.duration
-    );
-    update_trace_header(
-        &mut transaction,
-        &instance_id,
-        fragment.root_span.id,
-        fragment.root_span.duration,
-        spans_produced,
-        stored_span_count_increase,
-        events_produced,
-        events_dropped_by_sampling,
-        stored_event_count_increase,
-        size_bytes_increase as u64,
-        warnings_count_increase,
-        has_errors,
-    )
-    .await?;
-    transaction
-        .commit()
-        .await
-        .map_err(|e| SqlxError::from_sqlx_error(e, "commiting transaction"))?;
-    Ok(())
+    // trace!("fragment = {:#?}", fragment);
+    // info!("fragment for: {}", fragment.root_span.name);
+    //
+    // let db_trace_duration = get_db_trace(&con, &instance_id, fragment.root_span.id).await?;
+    // let trace_already_exists = db_trace_duration.is_some();
+    // debug!("trace_already_exists = {trace_already_exists}");
+    // let trace_is_complete = db_trace_duration
+    //     .as_ref()
+    //     .map(|t| t.duration.is_some())
+    //     .unwrap_or(false);
+    // debug!("trace_is_complete = {trace_is_complete}");
+    // if trace_is_complete {
+    //     error!("Got new data for completed trace");
+    //     return Ok(());
+    // }
+    // debug!("Trying to start transaction");
+    // let mut transaction = con
+    //     .begin()
+    //     .instrument(info_span!("start_transaction"))
+    //     .await
+    //     .map_err(|e| SqlxError::from_sqlx_error(e, "starting transaction"))?;
+    // debug!("Started!");
+    // if !trace_already_exists {
+    //     insert_new_trace(
+    //         &mut transaction,
+    //         &instance_id,
+    //         fragment.root_span.id,
+    //         &fragment.root_span.name.clone(),
+    //         fragment.root_span.timestamp,
+    //     )
+    //     .await?;
+    //     insert_spans(
+    //         &mut transaction,
+    //         &vec![NewSpan {
+    //             id: fragment.root_span.id,
+    //             name: fragment.root_span.name.clone(),
+    //             timestamp: fragment.root_span.timestamp,
+    //             duration: fragment.root_span.duration,
+    //             parent_id: None,
+    //             key_vals: fragment.root_span.key_vals.clone(),
+    //             location: fragment.root_span.location.clone(),
+    //         }],
+    //         fragment.root_span.id,
+    //         instance_id,
+    //     )
+    //     .await?;
+    // }
+    // let open_spans = fragment.open_spans.clone();
+    // let open_spans_ids: Vec<i64> = open_spans.keys().map(|e| (*e) as i64).collect();
+    // let existing_span_id = get_existing_span_ids(
+    //     &mut transaction,
+    //     instance_id.instance_id,
+    //     fragment.root_span.id as i64,
+    //     &open_spans_ids,
+    // )
+    // .await?;
+    // let mut spans_to_insert = HashMap::new();
+    // for open_span in open_spans.values() {
+    //     if !existing_span_id.contains(&(open_span.id as i64)) {
+    //         if let Some(existing) = spans_to_insert.insert(
+    //             open_span.id,
+    //             NewSpan {
+    //                 id: open_span.id,
+    //                 name: open_span.name.clone(),
+    //                 timestamp: open_span.timestamp,
+    //                 duration: None,
+    //                 parent_id: Some(open_span.parent_id),
+    //                 key_vals: open_span.key_vals.clone(),
+    //                 location: open_span.location.clone(),
+    //             },
+    //         ) {
+    //             error!("Dup open span {existing:?}");
+    //         }
+    //     }
+    // }
+    // for s in &fragment.closed_spans {
+    //     let new_span = NewSpan {
+    //         id: s.id,
+    //         name: s.name.clone(),
+    //         timestamp: s.timestamp,
+    //         duration: Some(s.duration),
+    //         parent_id: Some(s.parent_id),
+    //         key_vals: s.key_vals.clone(),
+    //         location: s.location.clone(),
+    //     };
+    //     if let Some(existing) = spans_to_insert.insert(s.id, new_span.clone()) {
+    //         error!("Dup closed span {existing:?}\n{new_span:?}");
+    //     }
+    // }
+    // insert_spans(
+    //     &mut transaction,
+    //     &spans_to_insert
+    //         .clone()
+    //         .into_values()
+    //         .collect::<Vec<NewSpan>>(),
+    //     fragment.root_span.id,
+    //     &instance_id,
+    // )
+    // .await?;
+    // crate::api::database::insert_events(
+    //     &mut transaction,
+    //     &fragment.new_events,
+    //     fragment.root_span.id,
+    //     &instance_id,
+    // )
+    // .await?;
+    // /*
+    //     spans_produced
+    //     events_produced
+    //     events_dropped_by_sampling
+    // */
+    // let spans_produced = fragment.spans_produced as u64;
+    // let events_produced = fragment.events_produced as u64;
+    // let events_dropped_by_sampling = fragment.events_dropped_by_sampling as u64;
+    // let stored_span_count_increase = {
+    //     if trace_already_exists {
+    //         spans_to_insert.len() as u64
+    //     } else {
+    //         spans_to_insert.len() as u64 + 1
+    //     }
+    // };
+    // let stored_event_count_increase = fragment.new_events.len() as u64;
+    // let size_bytes_increase = fragment.total_size();
+    // let warnings_count_increase = fragment
+    //     .new_events
+    //     .iter()
+    //     .filter(|e| matches!(e.level, api_structs::Severity::Warn))
+    //     .count() as u64;
+    // let has_errors = fragment
+    //     .new_events
+    //     .iter()
+    //     .find(|e| matches!(e.level, api_structs::Severity::Error))
+    //     .is_some();
+    // debug!(
+    //     "root_duration={:?}
+    // spans_produced={spans_produced}
+    // events_produced={events_produced}
+    // events_dropped_by_sampling={events_dropped_by_sampling}
+    // stored_span_count_increase={stored_span_count_increase}
+    // stored_event_count_increase={stored_event_count_increase}
+    // size_bytes_increase={size_bytes_increase}
+    // warnings_count_increase={warnings_count_increase}
+    // has_errors={has_errors}",
+    //     fragment.root_span.duration
+    // );
+    // update_trace_header(
+    //     &mut transaction,
+    //     &instance_id,
+    //     fragment.root_span.id,
+    //     fragment.root_span.duration,
+    //     spans_produced,
+    //     stored_span_count_increase,
+    //     events_produced,
+    //     events_dropped_by_sampling,
+    //     stored_event_count_increase,
+    //     size_bytes_increase as u64,
+    //     warnings_count_increase,
+    //     has_errors,
+    // )
+    // .await?;
+    // transaction
+    //     .commit()
+    //     .await
+    //     .map_err(|e| SqlxError::from_sqlx_error(e, "commiting transaction"))?;
+    // Ok(())
+    unimplemented!()
 }
 
 // #[instrument(skip_all)]
@@ -501,7 +482,7 @@ pub async fn update_trace_with_new_state(
 pub async fn insert_orphan_events(
     con: &PgPool,
     instance_id: &InstanceId,
-    orphan_events: &[NewOrphanEvent],
+    orphan_events: &[OrphanEvent],
 ) {
     info!("{} events to insert", orphan_events.len());
     for e in orphan_events {
@@ -619,20 +600,14 @@ fn truncate_key_values(key_vals: &mut HashMap<String, String>) {
 }
 
 #[instrument(skip_all)]
-fn truncate_open_span_key_values_if_needed(spans: &mut ValuesMut<u64, OpenSpan>) {
-    for s in spans {
-        truncate_key_values(&mut s.key_vals);
-    }
-}
-#[instrument(skip_all)]
-fn truncate_closed_span_key_values_if_needed(spans: &mut Vec<ClosedSpan>) {
+fn truncate_span_key_values_if_needed(spans: &mut ValuesMut<u32, Span>) {
     for s in spans {
         truncate_key_values(&mut s.key_vals);
     }
 }
 
 #[instrument(skip_all)]
-fn truncate_events_if_needed(events: &mut Vec<NewSpanEvent>) {
+fn truncate_events_if_needed(events: &mut Vec<SpanEvent>) {
     for e in events {
         if let Some(msg) = &mut e.message {
             if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
@@ -645,7 +620,7 @@ fn truncate_events_if_needed(events: &mut Vec<NewSpanEvent>) {
 }
 
 #[instrument(skip_all)]
-fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<NewOrphanEvent>) {
+fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<OrphanEvent>) {
     for e in events {
         if let Some(msg) = &mut e.message {
             if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
@@ -680,9 +655,7 @@ pub async fn instance_update_post(
     let instance_id = trace_data.instance_id;
     info!("Got {} new fragments", trace_data.traces_state.len());
     for mut fragment in trace_data.traces_state.into_values() {
-        truncate_key_values(&mut fragment.root_span.key_vals);
-        truncate_open_span_key_values_if_needed(&mut fragment.open_spans.values_mut());
-        truncate_closed_span_key_values_if_needed(&mut fragment.closed_spans);
+        truncate_span_key_values_if_needed(&mut fragment.spans.values_mut());
         truncate_events_if_needed(&mut fragment.new_events);
         if let Err(db_error) = update_trace_with_new_state(&con, &instance_id, fragment).await {
             error!("DB error when inserting fragment: {:#?}", db_error);
@@ -711,153 +684,158 @@ async fn update_trace_header(
     warnings_count_increase: u64,
     has_new_errors: bool,
 ) -> Result<(), SqlxError> {
-    sqlx::query!(
-        "update trace
-        set duration=$3,
-            spans_produced=$4,
-            spans_stored=($5 + spans_stored),
-            events_produced=$6,
-            events_dropped_by_sampling=$7,
-            events_stored=($8 + events_stored),
-            size_bytes=(size_bytes + $9),
-            warnings=(warnings + $10),
-            has_errors=(has_errors or $11)
-        where instance_id = $1
-          and id = $2;",
-        instance_id.instance_id,                   //1
-        trace_id as i64 as _,                      //2
-        duration.map(|d| d as i64) as Option<i64>, //3
-        spans_produced as i64 as _,                //4
-        spans_stored_increase as i64 as _,         //5
-        events_produced as i64 as _,               //6
-        events_dropped_by_sampling as i64 as _,    //7
-        stored_event_count_increase as i64 as _,   //8
-        size_bytes_increase as i64 as _,           //9
-        warnings_count_increase as i64 as _,       //10
-        has_new_errors,                            //11
-    )
-    .execute(con.deref_mut())
-    .await
-    .map_err(|e| SqlxError::from_sqlx_error(e, "updating trace header"))?;
-    Ok(())
+    // sqlx::query!(
+    //     "update trace
+    //     set duration=$3,
+    //         spans_produced=$4,
+    //         spans_stored=($5 + spans_stored),
+    //         events_produced=$6,
+    //         events_dropped_by_sampling=$7,
+    //         events_stored=($8 + events_stored),
+    //         size_bytes=(size_bytes + $9),
+    //         warnings=(warnings + $10),
+    //         has_errors=(has_errors or $11)
+    //     where instance_id = $1
+    //       and id = $2;",
+    //     instance_id.instance_id,                   //1
+    //     trace_id as i64 as _,                      //2
+    //     duration.map(|d| d as i64) as Option<i64>, //3
+    //     spans_produced as i64 as _,                //4
+    //     spans_stored_increase as i64 as _,         //5
+    //     events_produced as i64 as _,               //6
+    //     events_dropped_by_sampling as i64 as _,    //7
+    //     stored_event_count_increase as i64 as _,   //8
+    //     size_bytes_increase as i64 as _,           //9
+    //     warnings_count_increase as i64 as _,       //10
+    //     has_new_errors,                            //11
+    // )
+    // .execute(con.deref_mut())
+    // .await
+    // .map_err(|e| SqlxError::from_sqlx_error(e, "updating trace header"))?;
+    // Ok(())
+    unimplemented!()
 }
 
 #[instrument(skip_all)]
 pub(crate) async fn insert_spans(
     con: &mut Transaction<'static, Postgres>,
-    new_spans: &[NewSpan],
+    new_spans: &[Span],
     trace_id: u64,
     instance_id: &InstanceId,
 ) -> Result<(), backtraced_error::SqlxError> {
-    if new_spans.is_empty() {
-        info!("No spans to insert");
-        return Ok(());
-    } else {
-        info!("Inserting {} spans", new_spans.len());
-    }
-    let span_ids: Vec<i64> = new_spans.iter().map(|s| s.id as i64).collect();
-    let instance_ids: Vec<i64> = new_spans.iter().map(|_s| instance_id.instance_id).collect();
-    let trace_ids: Vec<i64> = new_spans.iter().map(|_s| trace_id as i64).collect();
-    let timestamp: Vec<i64> = new_spans.iter().map(|s| s.timestamp as i64).collect();
-    let modules: Vec<Option<String>> = new_spans
-        .iter()
-        .map(|s| s.location.module.clone())
-        .collect();
-    let filenames: Vec<Option<String>> = new_spans
-        .iter()
-        .map(|s| s.location.filename.clone())
-        .collect();
-    let lines: Vec<Option<i32>> = new_spans
-        .iter()
-        .map(|s| s.location.line.map(|l| l as i32))
-        .collect();
-    let parent_id: Vec<Option<i64>> = new_spans
-        .iter()
-        .map(|s| s.parent_id.map(|e| e as i64))
-        .collect();
-    let duration: Vec<Option<i64>> = new_spans
-        .iter()
-        .map(|s| s.duration.map(|d| d as i64))
-        .collect();
-    let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
-    // on conflict can happen if the span was active and open (so exists), but now is closed
-    match sqlx::query!(
-            "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration, name, module, filename, line)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::TEXT[], $9::TEXT[], $10::INT[])
-             on conflict (instance_id, trace_id, id) do update set duration=excluded.duration;",
-            &span_ids,
-            &instance_ids,
-            &trace_ids,
-            &timestamp,
-            &parent_id as &Vec<Option<i64>>,
-            &duration as &Vec<Option<i64>>,
-            &name,
-            &modules as &Vec<Option<String>>,
-            &filenames as &Vec<Option<String>>,
-            &lines as &Vec<Option<i32>>,
-        )
-        .execute(con.deref_mut())
-        .await {
-        Ok(_) => {
-            info!("Inserted spans");
-        }
-        Err(e) => {
-            error!("Error when inserting spans");
-            error!("Span Ids: {:?}", span_ids);
-            error!("Instance Ids: {:?}", instance_ids);
-            error!("Trace Ids: {:?}", trace_id);
-            error!("Timestamp: {:?}", timestamp);
-            error!("parent_id: {:?}", parent_id);
-            error!("duration: {:?}", duration);
-            error!("name: {:?}", name);
-            return Err(SqlxError::from_sqlx_error(e, "inserting spans"));
-
-        }
-    };
-    let mut kv_instance_id = vec![];
-    let mut kv_trace_id = vec![];
-    let mut kv_span_id = vec![];
-    let mut kv_key = vec![];
-    let mut kv_value = vec![];
-    for (_idx, span) in new_spans.iter().enumerate() {
-        for (key, val) in &span.key_vals {
-            kv_instance_id.push(instance_id.instance_id);
-            kv_trace_id.push(trace_id as i64);
-            kv_span_id.push(span.id as i64);
-            kv_key.push(key.as_str());
-            kv_value.push(val.as_str());
-        }
-    }
-    if kv_instance_id.is_empty() {
-        info!("No span key-values to insert");
-        return Ok(());
-    } else {
-        info!("Inserting {} span key-values", kv_instance_id.len());
-    }
-    match sqlx::query!(
-            "insert into span_key_value (instance_id, trace_id, span_id,  key, value)
-            select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::TEXT[], $5::TEXT[]);",
-            &kv_instance_id,
-            &kv_trace_id,
-            &kv_span_id,
-            &kv_key as &Vec<&str>,
-            &kv_value as &Vec<&str>
-        )
-        .execute(con.deref_mut())
-        .await {
-        Ok(_) => {
-            info!("Inserted span key-values");
-        }
-        Err(e) => {
-            error!("Error when inserting span key-values");
-            error!("kv_instance_id: {:?}", kv_instance_id);
-            error!("kv_trace_id: {:?}", kv_trace_id);
-            error!("kv_span_id: {:?}", kv_span_id);
-            error!("kv_key: {:?}", kv_key);
-            error!("kv_value: {:?}", kv_value);
-            return Err(SqlxError::from_sqlx_error(e, "inserting spans kvs"));
-        }
-    };
-
-    Ok(())
+    // if new_spans.is_empty() {
+    //     info!("No spans to insert");
+    //     return Ok(());
+    // } else {
+    //     info!("Inserting {} spans", new_spans.len());
+    // }
+    // let span_ids: Vec<i64> = new_spans.iter().map(|s| s.id as i64).collect();
+    // let instance_ids: Vec<i64> = new_spans.iter().map(|_s| instance_id.instance_id).collect();
+    // let trace_ids: Vec<i64> = new_spans.iter().map(|_s| trace_id as i64).collect();
+    // let timestamp: Vec<i64> = new_spans.iter().map(|s| s.timestamp as i64).collect();
+    // let modules: Vec<Option<String>> = new_spans
+    //     .iter()
+    //     .map(|s| s.location.module.clone())
+    //     .collect();
+    // let filenames: Vec<Option<String>> = new_spans
+    //     .iter()
+    //     .map(|s| s.location.filename.clone())
+    //     .collect();
+    // let lines: Vec<Option<i32>> = new_spans
+    //     .iter()
+    //     .map(|s| s.location.line.map(|l| l as i32))
+    //     .collect();
+    // let parent_id: Vec<Option<i64>> = new_spans
+    //     .iter()
+    //     .map(|s| s.parent_id.map(|e| e as i64))
+    //     .collect();
+    // let duration: Vec<Option<i64>> = new_spans
+    //     .iter()
+    //     .map(|s| s.duration.map(|d| d as i64))
+    //     .collect();
+    // let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
+    // // on conflict can happen if the span was active and open (so exists), but now is closed
+    // match sqlx::query!(
+    //         "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration, name, module, filename, line)
+    //         select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::BIGINT[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::TEXT[], $9::TEXT[], $10::INT[])
+    //          on conflict (instance_id, trace_id, id) do update set duration=excluded.duration;",
+    //         &span_ids,
+    //         &instance_ids,
+    //         &trace_ids,
+    //         &timestamp,
+    //         &parent_id as &Vec<Option<i64>>,
+    //         &duration as &Vec<Option<i64>>,
+    //         &name,
+    //         &modules as &Vec<Option<String>>,
+    //         &filenames as &Vec<Option<String>>,
+    //         &lines as &Vec<Option<i32>>,
+    //     )
+    //     .execute(con.deref_mut())
+    //     .await {
+    //     Ok(_) => {
+    //         info!("Inserted spans");
+    //     }
+    //     Err(e) => {
+    //         error!("Error when inserting spans");
+    //         error!("Span Ids: {:?}", span_ids);
+    //         error!("Instance Ids: {:?}", instance_ids);
+    //         error!("Trace Ids: {:?}", trace_id);
+    //         error!("Timestamp: {:?}", timestamp);
+    //         error!("parent_id: {:?}", parent_id);
+    //         error!("duration: {:?}", duration);
+    //         error!("name: {:?}", name);
+    //         return Err(SqlxError::from_sqlx_error(e, "inserting spans"));
+    //
+    //     }
+    // };
+    // let mut kv_instance_id = vec![];
+    // let mut kv_trace_id = vec![];
+    // let mut kv_span_id = vec![];
+    // let mut kv_key = vec![];
+    // let mut kv_value = vec![];
+    // for (_idx, span) in new_spans.iter().enumerate() {
+    //     for (key, val) in &span.key_vals {
+    //         kv_instance_id.push(instance_id.instance_id);
+    //         kv_trace_id.push(trace_id as i64);
+    //         kv_span_id.push(span.id as i64);
+    //         kv_key.push(key.as_str());
+    //         kv_value.push(val.as_str());
+    //     }
+    // }
+    // if kv_instance_id.is_empty() {
+    //     info!("No span key-values to insert");
+    //     return Ok(());
+    // } else {
+    //     info!("Inserting {} span key-values", kv_instance_id.len());
+    // }
+    // // conflicts can happen for the same reason span conflicts can
+    // match sqlx::query!(
+    //     "insert into span_key_value (instance_id, trace_id, span_id,  key, value)
+    //         select * from unnest($1::BIGINT[], $2::BIGINT[], $3::BIGINT[], $4::TEXT[], $5::TEXT[])
+    //         on conflict (instance_id, trace_id, span_id, key) do update set value=excluded.value;",
+    //     &kv_instance_id,
+    //     &kv_trace_id,
+    //     &kv_span_id,
+    //     &kv_key as &Vec<&str>,
+    //     &kv_value as &Vec<&str>
+    // )
+    // .execute(con.deref_mut())
+    // .await
+    // {
+    //     Ok(_) => {
+    //         info!("Inserted span key-values");
+    //     }
+    //     Err(e) => {
+    //         error!("Error when inserting span key-values");
+    //         error!("kv_instance_id: {:?}", kv_instance_id);
+    //         error!("kv_trace_id: {:?}", kv_trace_id);
+    //         error!("kv_span_id: {:?}", kv_span_id);
+    //         error!("kv_key: {:?}", kv_key);
+    //         error!("kv_value: {:?}", kv_value);
+    //         return Err(SqlxError::from_sqlx_error(e, "inserting spans kvs"));
+    //     }
+    // };
+    //
+    // Ok(())
+    unimplemented!()
 }

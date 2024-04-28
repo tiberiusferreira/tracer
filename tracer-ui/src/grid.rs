@@ -144,6 +144,7 @@ where
 {
     let (request_state_r, request_state_w) = create_signal(RequestState::Idle);
     let task_ref: StoredValue<Option<Resource<S, ()>>> = store_value(None);
+    let run_count: StoredValue<u32> = store_value(0);
     let last_run_time: StoredValue<NaiveDateTime> = store_value(
         chrono::Utc::now()
             .naive_utc()
@@ -154,16 +155,17 @@ where
     let api_request_sender = create_local_resource(source, {
         move |input: S| {
             let futt = fetcher(input);
+            run_count.update_value(|v| *v = *v + 1);
             async move {
                 let now = chrono::Utc::now().naive_utc();
                 let time_since_last_run = now - last_run_time.get_value();
 
-                if time_since_last_run < min_wait {
+                if time_since_last_run < min_wait && run_count.get_value() > 3 {
                     log!("Tried to run too fast");
                     if scheduled_to_rerun.get_value() {
                         return;
                     } else {
-                        leptos::set_timeout(
+                        set_timeout(
                             move || {
                                 if let Some(task) = task_ref.get_value() {
                                     task.refetch();
@@ -379,7 +381,7 @@ pub fn TraceBrowser() -> impl IntoView {
                     "Service Name:"
                     <input on:input=service_name_changed
                         prop:value={move || user_search_input_r.with(|r| r.search_for.service_name.to_string())}
-                        class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                        class="search-panel__input" type="text"  minlength="3" maxlength="50" size="30"
                         list="service-name-list"
 
                     />
@@ -403,7 +405,7 @@ pub fn TraceBrowser() -> impl IntoView {
                     "Top Level Span:"
                     <input on:input=top_level_span_changed
                         prop:value={move || user_search_input_r.with(|r| r.search_for.top_level_span.to_string())}
-                        class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                        class="search-panel__input" type="text"  minlength="3" maxlength="50" size="30"
                         list="top-level-span-list"
 
                     />

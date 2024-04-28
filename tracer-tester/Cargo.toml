@@ -25,7 +25,6 @@ tokio.workspace = true
 sys-info.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-rand.workspace = true
 dotenvy.workspace = true
 [dependencies.tracing-config-helper]
 version = "0.1.0"
