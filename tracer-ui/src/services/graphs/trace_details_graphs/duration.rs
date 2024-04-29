@@ -15,9 +15,7 @@ fn create_graph_data(
     for d in instances {
         for t in &d.traces_state {
             if t.trace_name == trace_name {
-                if let Some(duration) = t.duration {
-                    duration_series.push_data(d.timestamp, nanos_to_millis(duration) as f64);
-                }
+                duration_series.push_data(d.timestamp, nanos_to_millis(t.duration) as f64);
             }
         }
     }

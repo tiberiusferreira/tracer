@@ -25,6 +25,7 @@ impl ExportedServiceTraceData {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TraceState {
+    pub id: u32,
     pub root_span_id: u32,
     pub spans: HashMap<u32, Span>,
     pub spans_produced: u32,

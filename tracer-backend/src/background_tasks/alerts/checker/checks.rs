@@ -30,11 +30,7 @@ pub fn max_active_traces(
     debug!("max_active_traces_count={}", max_active_traces_count);
     for data_point in service_runtime_data.data_points_since_last_alert_check_reversed() {
         trace!("checking {:?}", data_point.traces);
-        let current_active_traces_count = data_point
-            .traces
-            .iter()
-            .filter(|t| t.duration.is_none())
-            .count();
+        let current_active_traces_count = data_point.traces.iter().filter(|t| !t.is_closed).count();
         debug!("active_traces_count={}", current_active_traces_count);
         if max_active_traces_count < current_active_traces_count as u64 {
             let event_datetime = time_from_nanos(data_point.timestamp);
@@ -50,7 +46,7 @@ pub fn max_active_traces(
 }
 
 pub fn trace_over_duration_limit(max_duration_ms: u64, trace: &TraceHeader) -> bool {
-    let current_duration_nanos = trace.duration_so_far_nanos();
+    let current_duration_nanos = trace.duration;
     let current_duration_ms = nanos_to_millis(current_duration_nanos);
     max_duration_ms < current_duration_ms
 }
@@ -73,7 +69,7 @@ fn event_datetime_utc(timestamp: u64) -> EventDateTimeUtc {
 fn create_over_duration_message(
     trace_name: &str,
     trace_timestamp: u64,
-    trace_id: u64,
+    trace_id: u32,
     current_duration_ms: u64,
     max_duration_ms: u64,
 ) -> String {
@@ -86,7 +82,7 @@ fn create_over_duration_message(
     format!("Trace {trace_name} (id={trace_id}) hit duration of {current_duration_ms}ms, over maximum of {max_duration_ms}ms {seconds_ago} seconds ago ({event_datetime_utc})")
 }
 
-fn create_had_errors_message(trace_name: &str, trace_timestamp: u64, trace_id: u64) -> String {
+fn create_had_errors_message(trace_name: &str, trace_timestamp: u64, trace_id: u32) -> String {
     let trace_datetime = event_datetime_utc(trace_timestamp);
     debug!("{trace_datetime:?}");
     let EventDateTimeUtc {
@@ -179,7 +175,7 @@ pub fn trace_alerts(
             debug!(
                 "checking trace_name={} duration={}ms max_duration_ms={max_duration_ms}",
                 trace.trace_name,
-                nanos_to_millis(trace.duration_so_far_nanos())
+                nanos_to_millis(trace.duration)
             );
             if trace_over_duration_limit(max_duration_ms, trace) {
                 debug!("over duration limit");
@@ -187,7 +183,7 @@ pub fn trace_alerts(
                     &trace.trace_name,
                     trace.trace_timestamp,
                     trace.trace_id,
-                    nanos_to_millis(trace.duration_so_far_nanos()),
+                    nanos_to_millis(trace.duration),
                     max_duration_ms,
                 );
                 alerts.push(over_duration_alert);

@@ -42,6 +42,7 @@ pub fn get_html(
                                 new_warnings: trace_header.new_warnings,
                                 new_errors: trace_header.new_errors,
                                 fragment_bytes: trace_header.fragment_bytes,
+                                is_closed: trace_header.is_closed,
                                 duration: trace_header.duration,
                             },
                             instance_id: InstanceId {
@@ -61,6 +62,7 @@ pub fn get_html(
                                 new_warnings: trace_header.new_warnings,
                                 new_errors: trace_header.new_errors,
                                 fragment_bytes: trace_header.fragment_bytes,
+                                is_closed: trace_header.is_closed,
                                 duration: trace_header.duration,
                             },
                             instance_id: InstanceId {
@@ -84,10 +86,10 @@ pub fn get_html(
             active_trace_els.push(view! {
                 <tr class={row_container_class}>
                     <td class="trace-table__cell">{active.trace_header.trace_name}</td>
-                    <td class="trace-table__cell">{active.instance_id.instance_id}</td>
+                    <td class="trace-table__cell">{active.instance_id.instance_id.to_string()}</td>
                     <td class="trace-table__cell">{secs_since(active.trace_header.trace_timestamp)}</td>
                     <td class="trace-table__cell">{format!("{:.2}", active.trace_header.fragment_bytes as f32/100.)}</td>
-                    <td class="trace-table__cell">{active.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or(format!("{} seconds - Still Running", secs_since(active.trace_header.trace_timestamp)))}</td>
+                    <td class="trace-table__cell">{(active.trace_header.duration/1000_000).to_string()}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, active.instance_id.service_id.env, active.instance_id.service_id.name, active.instance_id.instance_id, active.trace_header.trace_id, active.trace_header.trace_timestamp)}>{"➔"}</a>
                     </td>
@@ -107,10 +109,10 @@ pub fn get_html(
             finished_trace_els.push(view! {
                 <tr class={row_container_class}>
                     <td class="trace-table__cell">{finished.trace_header.trace_name}</td>
-                    <td class="trace-table__cell">{finished.instance_id.instance_id}</td>
+                    <td class="trace-table__cell">{finished.instance_id.instance_id.to_string()}</td>
                     <td class="trace-table__cell">{secs_since(finished.trace_header.trace_timestamp)}</td>
                     <td class="trace-table__cell">{format!("{:.2}", finished.trace_header.fragment_bytes as f32/1_000.)}</td>
-                    <td class="trace-table__cell">{finished.trace_header.duration.map(|e| (e/1000_000).to_string()).unwrap_or_default()}</td>
+                    <td class="trace-table__cell">{finished.trace_header.duration/1000_000}</td>
                     <td class="trace-table__cell">
                         <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, finished.instance_id.service_id.env, finished.instance_id.service_id.name, finished.instance_id.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>
                     </td>

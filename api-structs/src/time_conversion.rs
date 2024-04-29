@@ -26,7 +26,7 @@ pub fn now_nanos_u64() -> u64 {
     time_to_nanos_u64(chrono::Utc::now().naive_utc())
 }
 
-fn time_to_nanos_u64(time: NaiveDateTime) -> u64 {
+pub fn time_to_nanos_u64(time: NaiveDateTime) -> u64 {
     u64::try_from(
         time.and_utc()
             .timestamp_nanos_opt()

@@ -9,7 +9,7 @@ pub fn create_summary_html_span_and_children_single_layer(
     trace_start: u64,
     trace_end: u64,
     spans: &[Span],
-    spans_by_parent_id: &HashMap<i64, Vec<Span>>,
+    spans_by_parent_id: &HashMap<u32, Vec<Span>>,
     curr_depth: i32,
     html_span_and_children_summary: &mut Vec<Fragment>,
     max_depth: &mut i32,
@@ -61,7 +61,7 @@ fn create_span_summary_html(
     trace_start: u64,
     trace_end: u64,
     span_start: u64,
-    span_duration: Option<u64>,
+    span_duration: u64,
     depth: i32,
     span_name: &str,
 ) -> Fragment {
@@ -75,12 +75,9 @@ fn create_span_summary_html(
     // let start_offset_nanos = start_time_unix_nanos - root_start_time_unix_nanos;
     let start_offset_percentage = (100 * start_offset_nanos) as f64 / total_viewing_window as f64;
     // info!("start_offset_percentage={start_offset_percentage}");
-    let duration_percentage = match span_duration {
-        None => 100. - start_offset_percentage,
-        Some(duration_nanos) => ((100 * duration_nanos) as f64 / total_viewing_window as f64)
-            .max(0.2)
-            .min(100f64 - start_offset_percentage),
-    };
+    let duration_percentage = ((100 * span_duration) as f64 / total_viewing_window as f64)
+        .max(0.2)
+        .min(100f64 - start_offset_percentage);
 
     let mut depth_to_color: HashMap<i32, String> = HashMap::new();
     depth_to_color.insert(0, "white".to_string());
@@ -107,7 +104,7 @@ fn create_span_summary_html(
         None
     };
 
-    let duration_ms = nanos_to_millis(span_duration.unwrap_or(0));
+    let duration_ms = nanos_to_millis(span_duration);
     let span_html = if depth == 0 {
         let start_offset_nanos = viewing_window_start as i64 - trace_start as i64;
         let total_trace_duration = trace_end - trace_start;
@@ -125,12 +122,9 @@ fn create_span_summary_html(
         // info!("start_offset_nanos={start_offset_nanos}");
         // let start_offset_nanos = start_time_unix_nanos - root_start_time_unix_nanos;
         // info!("start_offset_percentage={start_offset_percentage}");
-        let duration_percentage = match span_duration {
-            None => 100. - start_offset_percentage,
-            Some(duration_nanos) => ((100 * duration_nanos) as f64 / total_viewing_window as f64)
-                .max(0.2)
-                .min(100f64 - start_offset_percentage),
-        };
+        let duration_percentage = ((100 * span_duration) as f64 / total_viewing_window as f64)
+            .max(0.2)
+            .min(100f64 - start_offset_percentage);
         view! {
             <>
             <div class="summary-span" style={format!("margin-left: 0%; width: 99.6%; {}", span_style)}>

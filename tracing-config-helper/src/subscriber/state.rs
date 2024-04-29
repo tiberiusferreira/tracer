@@ -6,6 +6,7 @@ use api_structs::instance::update::{Location, OrphanEvent, Span, SpanEvent, Trac
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::Severity;
 
+pub const ROOT_SPAN_ID: u32 = 1;
 #[derive(Debug, Clone)]
 pub struct State {
     traces: HashMap<u32, TraceState>,
@@ -61,8 +62,9 @@ impl State {
         let new_id = self.trace_count;
         self.registry_to_tracer_id_mapping
             .insert(id.clone(), new_id);
+
         let span = Span {
-            id: 0,
+            id: ROOT_SPAN_ID,
             name,
             timestamp: now_nanos_u64(),
             duration: 0,
@@ -74,7 +76,8 @@ impl State {
         let existing = self.traces.insert(
             new_id,
             TraceState {
-                root_span_id: 0,
+                id: new_id,
+                root_span_id: span.id,
                 spans: hashmap! {span.id => span},
                 spans_produced: 1,
                 events_produced: 0,
@@ -119,11 +122,15 @@ impl State {
         trace.spans_produced += 1;
         let new_span_id = trace.spans_produced;
         self.registry_to_tracer_id_mapping
-            .insert(span_id, new_span_id);
-        let mapped_parent_id = self
-            .registry_to_tracer_id_mapping
-            .get(&parent_id)
-            .expect("parent id to exist");
+            .insert(span_id.clone(), new_span_id);
+        let mapped_parent_id = if trace_id == parent_id {
+            ROOT_SPAN_ID
+        } else {
+            *self
+                .registry_to_tracer_id_mapping
+                .get(&parent_id)
+                .expect("parent id to exist")
+        };
 
         let existing = trace.spans.insert(
             new_span_id,
@@ -132,7 +139,7 @@ impl State {
                 name,
                 timestamp: now_nanos_u64(),
                 duration: 0,
-                parent_id: Some(*mapped_parent_id),
+                parent_id: Some(mapped_parent_id),
                 key_vals,
                 location,
                 closed: false,
@@ -174,17 +181,21 @@ impl State {
             .registry_to_tracer_id_mapping
             .get(&trace_id)
             .expect("trace id to exist");
-        let mapped_span_id = self
-            .registry_to_tracer_id_mapping
-            .get(&span_id)
-            .expect("span id to exist");
+        let mapped_span_id = if trace_id == span_id {
+            ROOT_SPAN_ID
+        } else {
+            *self
+                .registry_to_tracer_id_mapping
+                .get(&span_id)
+                .expect("span id to exist")
+        };
         let trace = self
             .traces
             .get_mut(mapped_trace_id)
             .expect("trace to exist if it has a new span");
         trace.events_produced += 1;
         trace.new_events.push(SpanEvent {
-            span_id: *mapped_span_id,
+            span_id: mapped_span_id,
             message,
             timestamp: now_nanos_u64(),
             severity,

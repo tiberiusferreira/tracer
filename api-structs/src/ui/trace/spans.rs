@@ -21,7 +21,7 @@ pub struct TraceId {
     #[serde(flatten)]
     pub instance_id: InstanceId,
     #[serde_as(as = "DisplayFromStr")]
-    pub trace_id: i64,
+    pub trace_id: u32,
 }
 
 #[serde_as]
@@ -36,10 +36,10 @@ pub struct TraceChunkId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Span {
-    pub id: i64,
+    pub id: u32,
     pub timestamp: u64,
-    pub parent_id: Option<i64>,
-    pub duration: Option<u64>,
+    pub parent_id: Option<u32>,
+    pub duration: u64,
     pub name: String,
     pub key_values: HashMap<String, String>,
     pub location: Location,

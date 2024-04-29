@@ -25,6 +25,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 use tracing::info;
+use uuid::Uuid;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlOptionElement, HtmlSelectElement, MouseEvent, WheelEvent};
 
@@ -59,7 +60,7 @@ fn span_detail(
         end_timestamp: trace_end,
     });
 
-    let spans_by_parent_id: HashMap<i64, Vec<Span>> =
+    let spans_by_parent_id: HashMap<u32, Vec<Span>> =
         spans
             .clone()
             .into_iter()
@@ -201,15 +202,12 @@ pub fn TraceChunk() -> impl IntoView {
     let query_parameters = leptos_router::use_query_map().get();
     let env = query_parameters.get("env").unwrap().to_string();
     let service_name = query_parameters.get("service_name").unwrap().to_string();
-    let instance_id = query_parameters
-        .get("instance_id")
-        .unwrap()
-        .parse::<i64>()
-        .unwrap();
+    let instance_id = Uuid::parse_str(query_parameters.get("instance_id").unwrap()).unwrap();
+
     let trace_id = query_parameters
         .get("trace_id")
         .unwrap()
-        .parse::<i64>()
+        .parse::<u32>()
         .unwrap();
     let start_timestamp = query_parameters
         .get("start_timestamp")
@@ -635,7 +633,7 @@ fn create_html_span_and_children(
     start_time_unix_nanos: u64,
     max_duration_nanos: u64,
     span: &Span,
-    spans_by_parent_id: Rc<HashMap<i64, Vec<Span>>>,
+    spans_by_parent_id: Rc<HashMap<u32, Vec<Span>>>,
     depth: i32,
     html_span_and_children_fragments: &mut Vec<Fragment>,
 ) {
@@ -709,7 +707,7 @@ fn create_html_span(
 ) -> Option<Fragment> {
     let span_start = span.timestamp;
     // make it not 0
-    let span_duration = span.duration.map(|d| d.max(1));
+    let span_duration = span.duration.max(1);
     // span may start before the start_timestamp_nanos
     let start_offset_nanos = span_start.saturating_sub(start_timestamp_nanos);
     info!("span_start={span_start}");
@@ -718,12 +716,9 @@ fn create_html_span(
     info!("max_duration={max_duration}");
     let start_offset_percentage: f64 = (100 * start_offset_nanos) as f64 / max_duration as f64;
     let max_duration_percentage = 100. - start_offset_percentage;
-    let duration_percentage: f64 = match span_duration {
-        None => max_duration_percentage,
-        Some(duration) => ((100 * duration) as f64 / max_duration as f64)
-            .max(0.2)
-            .min(max_duration_percentage),
-    };
+    let duration_percentage: f64 = ((100 * span_duration) as f64 / max_duration as f64)
+        .max(0.2)
+        .min(max_duration_percentage);
     let mut depth_to_color: HashMap<i32, String> = HashMap::new();
     depth_to_color.insert(0, "white".to_string());
     depth_to_color.insert(1, "red".to_string());
@@ -744,13 +739,7 @@ fn create_html_span(
         span.location.module.as_ref().unwrap_or(&"".to_string()),
         span.name.to_string()
     );
-    let span_duration_ms_string = match span.duration {
-        None => "still running".to_string(),
-        Some(duration) => {
-            format!("{}ms", duration / 1000_000)
-        }
-    };
-
+    let span_duration_ms_string = format!("{}ms", span_duration / 1000_000);
     let span_html = view! {
         <>
             <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string} {span_key_vals}", span_with_code_namespace)}</p>

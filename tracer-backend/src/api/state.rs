@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use tracing::debug;
+use uuid::Uuid;
 
 pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 
@@ -19,7 +20,7 @@ pub struct AppState {
 
 #[derive(Debug, Clone)]
 pub struct InstanceState {
-    pub id: i64,
+    pub id: Uuid,
     pub created_at: Instant,
     pub last_seen: Instant,
     /// info
@@ -98,7 +99,7 @@ impl BytesBudgetUsage {
 #[derive(Debug, Clone)]
 pub struct ServiceDataPoint {
     pub timestamp: u64,
-    pub instance_id: i64,
+    pub instance_id: Uuid,
     pub traces: Vec<TraceHeader>,
     pub orphan_events: Vec<OrphanEvent>,
     pub budget_usage: BytesBudgetUsage,
@@ -108,7 +109,7 @@ pub struct ServiceDataPoint {
 pub struct ServiceRuntimeData {
     pub last_time_checked_for_alerts: NaiveDateTime,
     pub service_data_points: VecDeque<ServiceDataPoint>,
-    pub instances: HashMap<i64, InstanceState>,
+    pub instances: HashMap<Uuid, InstanceState>,
 }
 
 impl ServiceRuntimeData {
