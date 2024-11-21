@@ -1,10 +1,10 @@
 use crate::background_tasks::alerts::AlertingError;
-use backtraced_error::error_chain_to_pretty_formatted;
 use chrono::NaiveDateTime;
 use frankenstein::{Error, SendMessageParams, TelegramApi};
 use sqlx::PgPool;
 use std::fmt::Formatter;
 use tracing::{debug, error, info, instrument};
+use tracked_error::error_chain_to_pretty_formatted;
 mod database;
 #[instrument(skip_all)]
 pub async fn send_to_telegram_and_update_database(

@@ -1,7 +1,4 @@
 use crate::background_tasks::alerts::AlertingError;
-use backtraced_error::{
-    error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter, ReqwestError,
-};
 use chrono::NaiveDateTime;
 use reqwest::header::InvalidHeaderValue;
 use reqwest::Response;
@@ -9,6 +6,7 @@ use sqlx::PgPool;
 use std::fmt::Formatter;
 use thiserror::Error;
 use tracing::{error, info, instrument};
+use tracked_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter, ReqwestError};
 
 pub mod database;
 

@@ -12,7 +12,7 @@ pub fn compress_and_set_body_and_with_encoding_headers(
     let context = "compressing request body";
     print_if_dbg(
         context,
-        format!("Response before compression: {} bytes", body.len()),
+        format!("request body before compression: {} bytes", body.len()),
     );
     let lg_window_size = 21;
     let quality = 4;
@@ -23,7 +23,7 @@ pub fn compress_and_set_body_and_with_encoding_headers(
     print_if_dbg(
         context,
         format!(
-            "Response after compression: {} bytes",
+            "request body after compression: {} bytes",
             compressed_body.len()
         ),
     );

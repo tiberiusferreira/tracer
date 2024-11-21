@@ -3,7 +3,6 @@ use crate::subscriber::attribute_visitor::AttributesVisitor;
 use crate::subscriber::state::{State, TracesAndOrphanEvents};
 use api_structs::instance::update::{Location, OrphanEvent, Sampling, Severity};
 use api_structs::time_conversion::now_nanos_u64;
-use sampler::{Sampler, TracerSampler};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::span::{Attributes, Record};
@@ -13,9 +12,8 @@ use tracing_subscriber::registry::{LookupSpan, SpanRef};
 use tracing_subscriber::Layer;
 
 pub mod attribute_visitor;
-pub mod sampler;
+// pub mod sampler;
 pub mod state;
-pub const TRACER_RENAME_SPAN_TO_KEY: &str = "tracer_span_rename_to";
 
 /// The subscriber:
 /// Receives new spans and events
@@ -23,16 +21,7 @@ pub const TRACER_RENAME_SPAN_TO_KEY: &str = "tracer_span_rename_to";
 /// Checks if they should be kept or not by asking the Sampler
 /// Formats the data in a more ergonomic structure and passes it on to the export buffer
 pub struct TracerTracingSubscriber {
-    sampler: Arc<parking_lot::RwLock<TracerSampler>>,
     exporter_state: Arc<parking_lot::RwLock<State>>,
-}
-
-pub struct SamplerHandle(Arc<parking_lot::RwLock<TracerSampler>>);
-
-impl SamplerHandle {
-    pub fn set_new(&self, sampler: Sampling) {
-        self.0.write().current_trace_sampling = sampler;
-    }
 }
 
 pub struct ExporterStateHandle(Arc<parking_lot::RwLock<State>>);
@@ -44,16 +33,10 @@ impl ExporterStateHandle {
 
 impl TracerTracingSubscriber {
     pub fn new() -> Self {
-        let sampler = Arc::new(parking_lot::RwLock::new(TracerSampler::new()));
         let tracer = Self {
-            sampler,
             exporter_state: Arc::new(parking_lot::RwLock::new(State::new())),
         };
         tracer
-    }
-
-    pub fn get_sampler_handle(&self) -> SamplerHandle {
-        SamplerHandle(Arc::clone(&self.sampler))
     }
 
     pub fn get_sampler_state_handle(&self) -> ExporterStateHandle {
@@ -68,33 +51,7 @@ impl TracerTracingSubscriber {
     ) {
         let context = "create_tracer_span_data_with_key_vals_and_final_name";
         let mut extensions = span.extensions_mut();
-        let name = match key_vals.remove(TRACER_RENAME_SPAN_TO_KEY) {
-            None => span.name().to_string(),
-            Some(alternative_name) => {
-                let alternative_name = if alternative_name.len() > 128 {
-                    print_if_dbg(
-                        context,
-                        format!(
-                            "span {} alternative name was too big: {}, trimmed to 128 chars",
-                            span.name(),
-                            alternative_name,
-                        ),
-                    );
-                    alternative_name.chars().take(128).collect::<String>()
-                } else {
-                    alternative_name
-                };
-                print_if_dbg(
-                    context,
-                    format!(
-                        "span {} renamed to {} because of tracer_span_rename_to key value set",
-                        span.name(),
-                        alternative_name
-                    ),
-                );
-                alternative_name
-            }
-        };
+        let name = span.name().to_string();
         extensions.insert(TracerSpanData {
             key_vals,
             name,
@@ -236,24 +193,17 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         let span = match span {
             None => {
                 print_if_dbg(context, "Event is orphan");
-                let new_orphan_event_allowed = {
-                    let mut w_sampler = self.sampler.write();
-                    w_sampler.allow_new_orphan_event()
-                };
-                return if new_orphan_event_allowed {
-                    print_if_dbg(context, "Allowed by sampler, sending to exporter");
-                    self.exporter_state
-                        .write()
-                        .insert_orphan_event(OrphanEvent {
-                            message: event_data.message,
-                            timestamp: now_nanos_u64(),
-                            severity: event_data.level,
-                            key_vals: event_data.key_vals,
-                            location: location_from_metadata(event.metadata()),
-                        });
-                } else {
-                    print_if_dbg(context, "Not Allowed by sampler, dropping");
-                };
+                print_if_dbg(context, "Sending to exporter");
+                self.exporter_state
+                    .write()
+                    .insert_orphan_event(OrphanEvent {
+                        message: event_data.message,
+                        timestamp: now_nanos_u64(),
+                        severity: event_data.level,
+                        key_vals: event_data.key_vals,
+                        location: location_from_metadata(event.metadata()),
+                    });
+                return;
             }
             Some(span) => {
                 print_if_dbg(context, "Event belongs to a span");
@@ -269,27 +219,15 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
             return;
         }
         let root = Self::span_root(span.id(), &ctx).expect("root span to exist");
-        let root_name = Self::span_final_name(&root);
-        let new_event_allowed = {
-            let mut w_sampler = self.sampler.write();
-            w_sampler.allow_new_event(&root_name)
-        };
-        if new_event_allowed {
-            print_if_dbg(context, "Allowed by sampler, sending to exporter.");
-            self.exporter_state.write().insert_span_event(
-                root.id(),
-                span.id(),
-                event_data.message,
-                event_data.level,
-                event_data.key_vals,
-                location_from_metadata(event.metadata()),
-            );
-        } else {
-            print_if_dbg(context, "Not allowed by sampler, discarding event SpE.");
-            self.exporter_state
-                .write()
-                .insert_event_dropped_by_sampling(root.id());
-        }
+        print_if_dbg(context, "Allowed by sampler, sending to exporter.");
+        self.exporter_state.write().insert_span_event(
+            root.id(),
+            span.id(),
+            event_data.message,
+            event_data.level,
+            event_data.key_vals,
+            location_from_metadata(event.metadata()),
+        );
     }
 
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
@@ -319,10 +257,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 ),
             );
             // check is this new trace is not over the limit
-            let new_trace_allowed = {
-                let mut w_sampler = self.sampler.write();
-                w_sampler.allow_new_trace(&root_span_name)
-            };
+            let new_trace_allowed = true;
             if new_trace_allowed {
                 print_if_dbg(context, "Allowed by sampler, sending to exporter");
                 let key_vals = Self::take_tracer_span_data_key_vals(&span);
@@ -352,10 +287,7 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 return;
             } else {
                 print_if_dbg(context, "Span belongs to non-dropped trace");
-                let new_span_kv_allowed = {
-                    let mut w_sampler = self.sampler.write();
-                    w_sampler.allow_new_span_kv(&root_span_name)
-                };
+                let new_span_kv_allowed = true;
                 let key_vals = Self::take_tracer_span_data_key_vals(&span);
                 let key_vals = if new_span_kv_allowed {
                     print_if_dbg(context, "KV allowed by sampler");

@@ -4,39 +4,33 @@
 //!
 
 use pprof::ProfilerGuard;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
+use crate::server_connection::instance_update_sender::export_instance_update;
+use crate::server_connection::Error;
+use crate::subscriber::{ExporterStateHandle, TracerTracingSubscriber};
+use api_structs::instance::connect::RegistrationResponse;
 use api_structs::instance::update::{ExportedServiceTraceData, OrphanEvent, TraceState};
 pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
-pub use subscriber::TRACER_RENAME_SPAN_TO_KEY;
-
-use crate::server_connection::instance_update_sender::export_instance_update;
-use crate::subscriber::{ExporterStateHandle, SamplerHandle, TracerTracingSubscriber};
 
 mod print_debugging;
 mod server_connection;
 mod subscriber;
-
-pub const UPDATE_ENDPOINT: &str = "/api/instance/update";
-pub const SSE_CONNECT_ENDPOINT: &str = "/api/instance/connect";
 
 #[derive(Debug, Clone)]
 pub struct TracerConfig {
     /// Where to send data to, should not contain a trailing /
     pub collector_url: String,
     pub service_id: ServiceId,
-    /// The initial filters. Initial because these can be changed during runtime and this field does not reflect that
-    /// change
-    pub initial_filters: String,
     /// How long to wait for when exporting data before timing out
     pub export_timeout: Duration,
     /// How long to wait between exports. A short duration will flood the collector and a long one will cause the
@@ -51,10 +45,6 @@ impl TracerConfig {
     pub fn new(service_id: ServiceId, collector_url: String) -> TracerConfig {
         TracerConfig {
             collector_url,
-            initial_filters: std::env::var("RUST_LOG").unwrap_or_else(|_| {
-                println!("RUST_LOG not found, defaulting to info");
-                "info".to_string()
-            }),
             export_timeout: Duration::from_secs(10),
             wait_duration_between_exports: Duration::from_secs(5),
             min_wait_duration_between_profile_exports: Duration::from_secs(60),
@@ -212,18 +202,43 @@ fn start_cpu_profiler() -> ProfilerGuard<'static> {
         .expect("to be able to start profiler")
 }
 
+async fn registration_loop(reqwest_client: &Client, collector_url: &str) -> RegistrationResponse {
+    let context = "registration_loop";
+    loop {
+        match server_connection::instance_registration::register_instance(
+            &reqwest_client,
+            collector_url,
+            Duration::from_secs(10),
+        )
+        .await
+        {
+            Ok(registration_response) => return registration_response,
+            Err(err) => {
+                let sleep_seconds = 60;
+                print_if_dbg(
+                    context,
+                    format!("Registration failure: {} - sleeping {sleep_seconds}s", err),
+                );
+                tokio::time::sleep(Duration::from_secs(sleep_seconds)).await;
+            }
+        }
+    }
+}
 async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
+    let reqwest_client = reqwest::ClientBuilder::new()
+        .build()
+        .expect("reqwest client to be able to be created");
+    let registration_response = registration_loop(&reqwest_client, &config.collector_url).await;
     let (export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
     let cpu_profiler_guard = start_cpu_profiler();
 
     let tracer_filter = EnvFilter::builder()
-        .parse(&config.initial_filters)
+        .parse(registration_response.log_filter)
         .expect("initial filters to be valid");
     let (reloadable_tracer_filter, reload_tracer_handle) =
         tracing_subscriber::reload::Layer::new(tracer_filter);
 
     let tracer_tracing_subscriber = TracerTracingSubscriber::new();
-    let tracer_sampler = tracer_tracing_subscriber.get_sampler_handle();
     let tracer_export_state = tracer_tracing_subscriber.get_sampler_state_handle();
 
     let registry = Registry::default()
@@ -248,7 +263,6 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         cpu_profiler_guard,
         export_now_request_receiver,
         reload_tracer_handle,
-        tracer_sampler,
         tracer_export_state,
         instance_id,
     ));
@@ -265,7 +279,6 @@ async fn trace_export_loop(
     profiler_guard: ProfilerGuard<'static>,
     mut flush_request_receiver: Receiver<FlushRequest>,
     reload_tracer_handle: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
-    tracer_sampler: SamplerHandle,
     tracer_export_state: ExporterStateHandle,
     instance_id: InstanceId,
 ) {
@@ -346,11 +359,11 @@ async fn trace_export_loop(
         .await
         {
             Ok(new_sampling) => {
-                tracer_sampler.set_new(new_sampling);
+                // tracer_sampler.set_new(new_sampling);
                 Ok(())
             }
             Err(err) => {
-                let err = backtraced_error::error_chain_to_pretty_formatted(err);
+                let err = tracked_error::error_chain_to_pretty_formatted(err);
                 println!("{context} - {}", err);
                 Err(err)
             }

@@ -8,10 +8,9 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
 
-use api_structs::{InstanceId, ServiceId};
-use backtraced_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter};
-
 use crate::api::state::AppState;
+use api_structs::{InstanceId, ServiceId};
+use tracked_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter};
 
 pub mod database;
 pub mod handlers;
@@ -51,7 +50,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     let instance_routes = axum::Router::new()
         .route(
             "/connect",
-            axum::routing::get(handlers::instance::connect::instance_connect_get),
+            axum::routing::get(handlers::instance::connect::handler),
         )
         .route(
             "/update",
@@ -158,6 +157,15 @@ pub struct ApiError {
     pub message: String,
 }
 
+impl From<handlers::instance::connect::service_initialization::Error> for ApiError {
+    fn from(value: handlers::instance::connect::service_initialization::Error) -> Self {
+        ApiError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "Service initialization error".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppStateError {
     #[error("AppStateError")]
@@ -196,8 +204,8 @@ impl IntoResponse for ApiError {
     }
 }
 
-impl From<backtraced_error::SqlxError> for ApiError {
-    fn from(err: backtraced_error::SqlxError) -> Self {
+impl From<tracked_error::SqlxError> for ApiError {
+    fn from(err: tracked_error::SqlxError) -> Self {
         error!("{:?}", error_chain_to_pretty_formatted(err));
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,

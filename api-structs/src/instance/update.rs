@@ -2,6 +2,8 @@ pub use crate::Severity;
 use crate::{InstanceId, TraceName};
 use std::collections::HashMap;
 
+pub const ROOT_SPAN_ID: u32 = 0;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedServiceTraceData {
     pub instance_id: InstanceId,
@@ -23,14 +25,11 @@ impl ExportedServiceTraceData {
     }
 }
 
+/// The first span, with id=0 will always be the root
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TraceState {
     pub id: u32,
-    pub root_span_id: u32,
     pub spans: HashMap<u32, Span>,
-    pub spans_produced: u32,
-    pub events_produced: u32,
-    pub events_dropped_by_sampling: u32,
     pub new_events: Vec<SpanEvent>,
 }
 
@@ -59,12 +58,12 @@ impl TraceState {
 
     pub fn root(&self) -> &Span {
         self.spans
-            .get(&self.root_span_id)
+            .get(&ROOT_SPAN_ID)
             .expect("trace_state should always have root")
     }
     pub fn root_mut(&mut self) -> &mut Span {
         self.spans
-            .get_mut(&self.root_span_id)
+            .get_mut(&ROOT_SPAN_ID)
             .expect("trace_state should always have root")
     }
     pub fn total_size(&self) -> usize {
@@ -115,6 +114,14 @@ impl Sampling {
     }
 }
 
+/// Uniquely identifies a Span globally
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GlobalSpanId {
+    instance_id: uuid::Uuid,
+    trace_id: u32,
+    span_id: u32,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Span {
     pub id: u32,
@@ -124,6 +131,7 @@ pub struct Span {
     pub parent_id: Option<u32>,
     pub key_vals: HashMap<String, String>,
     pub location: Location,
+    pub links_to: Option<GlobalSpanId>,
     pub closed: bool,
 }
 

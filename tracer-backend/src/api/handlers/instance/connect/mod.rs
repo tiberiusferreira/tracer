@@ -1,13 +1,17 @@
-use crate::api::state::{AppState, ServiceRuntimeData};
+use crate::api::handlers::instance::connect::service_initialization::{Error, ServiceConfig};
+use crate::api::state::AppState;
 use crate::api::{state, ApiError, LiveServiceInstance};
 use api_structs::{InstanceId, ServiceId};
 use axum::extract::State;
 use futures::StreamExt;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
-use tokio::sync::mpsc::Receiver;
-use tracing::{info, instrument, trace};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::{info, instrument, trace, warn};
+use tracked_error::SqlxError;
 
+pub mod service_initialization;
 #[derive(Debug, Clone)]
 pub struct ChangeFilterInternalRequest {
     pub filters: String,
@@ -60,7 +64,7 @@ impl From<ApiError> for SseError {
 }
 
 #[instrument(skip_all)]
-pub(crate) async fn instance_connect_get(
+pub(crate) async fn handler(
     State(app_state): State<AppState>,
     instance_id: axum::extract::Query<InstanceId>,
 ) -> axum::response::Sse<
@@ -72,60 +76,42 @@ pub(crate) async fn instance_connect_get(
 > {
     let instance_id = instance_id.0;
     trace!("New SSE connection request for {:?}", instance_id);
-    let exists = {
-        let w_lock = app_state.services_runtime_stats.read();
-        w_lock.get(&instance_id.service_id).is_some()
+    let mut transaction = app_state.con.begin().await.unwrap();
+    let _service_config = match service_initialization::get_or_init_service_config(
+        &mut transaction,
+        &instance_id.service_id,
+    )
+    .await
+    {
+        Ok(config) => config,
+        Err(e) => {
+            let stream = Box::pin(futures::stream::once(async {
+                Err(SseError::from(crate::api::ApiError::from(e)))
+            }));
+            return axum::response::sse::Sse::new(stream);
+        }
     };
-    if !exists {
-        let _config = match crate::database::service_initialization::get_or_init_service_config(
-            &app_state.con,
-            &instance_id.service_id,
-        )
-        .await
-        {
-            Ok(config) => config,
-            Err(e) => {
-                let stream = Box::pin(futures::stream::once(async {
-                    Err(SseError::from(crate::api::ApiError::from(e)))
-                }));
-                return axum::response::sse::Sse::new(stream);
-            }
-        };
-        let mut w_lock = app_state.services_runtime_stats.write();
-        w_lock.insert(
-            instance_id.service_id.clone(),
-            ServiceRuntimeData {
-                last_time_checked_for_alerts: chrono::Utc::now().naive_utc(),
-                service_data_points: VecDeque::new(),
-                instances: HashMap::new(),
-            },
-        );
-    }
-    let mut w_lock = app_state.services_runtime_stats.write();
-    let instance_list = &mut w_lock
-        .get_mut(&instance_id.service_id)
-        .expect("To exist, just inserted")
-        .instances;
     let (see_handle, r) = tokio::sync::mpsc::channel(1);
-    instance_list.insert(
-        instance_id.instance_id,
-        state::InstanceState {
-            id: instance_id.instance_id,
-            created_at: Instant::now(),
-            last_seen: Instant::now(),
-            rust_log: "unknown".to_string(),
-            profile_data: None,
-            see_handle,
-        },
-    );
-    drop(w_lock);
-    let stream = Box::pin(futures::stream::unfold(r, |r| change_filter_request(r)).map(Ok));
-    let stream = stream
+
+    let mut w_lock = app_state.connected_instances_sse_handle.write();
+    let w = w_lock.entry(instance_id.clone());
+    match w {
+        Entry::Occupied(mut existing) => {
+            warn!(instance = ?instance_id, "replacing instance service sse handle");
+            existing.insert(see_handle);
+        }
+        Entry::Vacant(vacant) => {
+            vacant.insert(see_handle);
+        }
+    }
+
+    let new_stream = Box::pin(futures::stream::unfold(r, |r| change_filter_request(r)).map(Ok));
+    let new_stream = new_stream
         as std::pin::Pin<
             Box<
                 dyn futures::stream::Stream<Item = Result<axum::response::sse::Event, SseError>>
                     + Send,
             >,
         >;
-    axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+    axum::response::sse::Sse::new(new_stream).keep_alive(axum::response::sse::KeepAlive::default())
 }

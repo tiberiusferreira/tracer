@@ -16,10 +16,10 @@ use api_structs::instance::update::{
 use api_structs::time_conversion::{now_nanos_u64, time_from_nanos};
 use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
 use api_structs::{InstanceId, ServiceId, TraceName};
-use backtraced_error::SqlxError;
+use tracked_error::SqlxError;
 
 use crate::api::handlers::Severity;
-use crate::api::state::{AppState, BytesBudgetUsage, ServiceDataPoint, Shared};
+use crate::api::state::{AppState, BytesBudgetUsage, Shared};
 use crate::api::ApiError;
 use crate::{
     MAX_STATS_HISTORY_DATA_COUNT, SINGLE_KEY_VALUE_KEY_CHARS_LIMIT,
@@ -29,111 +29,111 @@ mod db_trace;
 pub struct ServiceNotRegisteredError;
 
 #[instrument(skip_all)]
-fn update_service_and_instance_data(
-    live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceRuntimeData>>,
-    exported_service_trace_data: &ExportedServiceTraceData,
+fn update_service_and_instance_data(// live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceRuntimeData>>,
+                                    // exported_service_trace_data: &ExportedServiceTraceData,
 ) -> Result<Sampling, ServiceNotRegisteredError> {
-    let mut w_lock = live_instances.write();
-    let service_data = match w_lock.get_mut(&exported_service_trace_data.instance_id.service_id) {
-        None => return Err(ServiceNotRegisteredError),
-        Some(service_data) => service_data,
-    };
-    let instance = match service_data
-        .instances
-        .get_mut(&exported_service_trace_data.instance_id.instance_id)
-    {
-        None => return Err(ServiceNotRegisteredError),
-        Some(instance) => instance,
-    };
-    {
-        instance.rust_log = exported_service_trace_data.rust_log.clone();
-        instance.last_seen = std::time::Instant::now();
-        if let Some(profile_data) = &exported_service_trace_data.profile_data {
-            instance.profile_data = Some(ProfileData {
-                profile_data_timestamp: now_nanos_u64(),
-                profile_data: profile_data.clone(),
-            });
-        }
-    }
-
-    let mut traces_header = vec![];
-    let mut received_bytes_per_trace: HashMap<TraceName, u64> = HashMap::new();
-    let received_orphan_event_bytes = exported_service_trace_data.orphan_events_size();
-    for trace_state in exported_service_trace_data.traces_state.values() {
-        let received_trace_bytes = trace_state.total_size();
-        let root = trace_state.root();
-        let entry = received_bytes_per_trace
-            .entry(root.name.clone())
-            .or_default();
-        *entry += received_trace_bytes as u64;
-        let header = TraceHeader {
-            trace_id: trace_state.id,
-            trace_name: root.name.clone(),
-            trace_timestamp: root.timestamp,
-            new_warnings: trace_state.has_warnings(),
-            new_errors: trace_state.has_errors(),
-            fragment_bytes: received_trace_bytes as u64,
-            is_closed: trace_state.is_closed(),
-            duration: root.duration,
-        };
-        traces_header.push(header);
-    }
-    let mut last_bytes_budget = service_data
-        .service_data_points
-        .back()
-        .map(|b| b.budget_usage.clone())
-        .unwrap_or_else(|| BytesBudgetUsage::new(60, 100_000));
-    debug!("Previous budget: {last_bytes_budget:?}");
-    last_bytes_budget.update();
-    debug!("Previous budget after update: {last_bytes_budget:?}");
-
-    debug!("Decreasing orphan events budget by {received_orphan_event_bytes}");
-    last_bytes_budget.increase_orphan_events_usage_by(received_orphan_event_bytes as u32);
-    for (trace_name, received_bytes) in &received_bytes_per_trace {
-        debug!("Decreasing {trace_name} budget by {received_bytes}");
-        last_bytes_budget.increase_trace_usage_by(trace_name, *received_bytes as u32);
-    }
-    let remaining_budget = last_bytes_budget;
-    debug!("remaining_budget = {remaining_budget:?}");
-    let new_sampling = Sampling {
-        traces: remaining_budget
-            .traces_usage_bytes
-            .iter()
-            .map(|(name, _usage)| {
-                let sampling = if remaining_budget.is_trace_over_budget(name) {
-                    SamplingState::DropNewTracesKeepExistingTraceNewData
-                } else {
-                    SamplingState::AllowNewTraces
-                };
-                (name.to_string(), sampling)
-            })
-            .collect::<HashMap<TraceName, SamplingState>>(),
-        allow_new_orphan_events: !remaining_budget.is_orphan_events_over_budget(),
-    };
-    debug!("new_sampling = {new_sampling:?}");
-    let new = ServiceDataPoint {
-        timestamp: now_nanos_u64(),
-        instance_id: exported_service_trace_data.instance_id.instance_id,
-        traces: traces_header,
-        orphan_events: exported_service_trace_data
-            .orphan_events
-            .iter()
-            .map(|e| OrphanEvent {
-                timestamp: e.timestamp,
-                severity: e.severity,
-                message: e.message.clone(),
-                key_vals: e.key_vals.clone(),
-                location: e.location.clone(),
-            })
-            .collect(),
-        budget_usage: remaining_budget,
-    };
-    service_data.service_data_points.push_back(new);
-    while service_data.service_data_points.len() > MAX_STATS_HISTORY_DATA_COUNT {
-        service_data.service_data_points.pop_front();
-    }
-    trace!("{:?}", new_sampling);
-    Ok(new_sampling)
+    unimplemented!()
+    // let mut w_lock = live_instances.write();
+    // let service_data = match w_lock.get_mut(&exported_service_trace_data.instance_id.service_id) {
+    //     None => return Err(ServiceNotRegisteredError),
+    //     Some(service_data) => service_data,
+    // };
+    // let instance = match service_data
+    //     .instances
+    //     .get_mut(&exported_service_trace_data.instance_id.instance_id)
+    // {
+    //     None => return Err(ServiceNotRegisteredError),
+    //     Some(instance) => instance,
+    // };
+    // {
+    //     instance.rust_log = exported_service_trace_data.rust_log.clone();
+    //     instance.last_seen = std::time::Instant::now();
+    //     if let Some(profile_data) = &exported_service_trace_data.profile_data {
+    //         instance.profile_data = Some(ProfileData {
+    //             profile_data_timestamp: now_nanos_u64(),
+    //             profile_data: profile_data.clone(),
+    //         });
+    //     }
+    // }
+    //
+    // let mut traces_header = vec![];
+    // let mut received_bytes_per_trace: HashMap<TraceName, u64> = HashMap::new();
+    // let received_orphan_event_bytes = exported_service_trace_data.orphan_events_size();
+    // for trace_state in exported_service_trace_data.traces_state.values() {
+    //     let received_trace_bytes = trace_state.total_size();
+    //     let root = trace_state.root();
+    //     let entry = received_bytes_per_trace
+    //         .entry(root.name.clone())
+    //         .or_default();
+    //     *entry += received_trace_bytes as u64;
+    //     let header = TraceHeader {
+    //         trace_id: trace_state.id,
+    //         trace_name: root.name.clone(),
+    //         trace_timestamp: root.timestamp,
+    //         new_warnings: trace_state.has_warnings(),
+    //         new_errors: trace_state.has_errors(),
+    //         fragment_bytes: received_trace_bytes as u64,
+    //         is_closed: trace_state.is_closed(),
+    //         duration: root.duration,
+    //     };
+    //     traces_header.push(header);
+    // }
+    // let mut last_bytes_budget = service_data
+    //     .service_data_points
+    //     .back()
+    //     .map(|b| b.budget_usage.clone())
+    //     .unwrap_or_else(|| BytesBudgetUsage::new(60, 100_000));
+    // debug!("Previous budget: {last_bytes_budget:?}");
+    // last_bytes_budget.update();
+    // debug!("Previous budget after update: {last_bytes_budget:?}");
+    //
+    // debug!("Decreasing orphan events budget by {received_orphan_event_bytes}");
+    // last_bytes_budget.increase_orphan_events_usage_by(received_orphan_event_bytes as u32);
+    // for (trace_name, received_bytes) in &received_bytes_per_trace {
+    //     debug!("Decreasing {trace_name} budget by {received_bytes}");
+    //     last_bytes_budget.increase_trace_usage_by(trace_name, *received_bytes as u32);
+    // }
+    // let remaining_budget = last_bytes_budget;
+    // debug!("remaining_budget = {remaining_budget:?}");
+    // let new_sampling = Sampling {
+    //     traces: remaining_budget
+    //         .traces_usage_bytes
+    //         .iter()
+    //         .map(|(name, _usage)| {
+    //             let sampling = if remaining_budget.is_trace_over_budget(name) {
+    //                 SamplingState::DropNewTracesKeepExistingTraceNewData
+    //             } else {
+    //                 SamplingState::AllowNewTraces
+    //             };
+    //             (name.to_string(), sampling)
+    //         })
+    //         .collect::<HashMap<TraceName, SamplingState>>(),
+    //     allow_new_orphan_events: !remaining_budget.is_orphan_events_over_budget(),
+    // };
+    // debug!("new_sampling = {new_sampling:?}");
+    // let new = ServiceDataPoint {
+    //     timestamp: now_nanos_u64(),
+    //     instance_id: exported_service_trace_data.instance_id.instance_id,
+    //     traces: traces_header,
+    //     orphan_events: exported_service_trace_data
+    //         .orphan_events
+    //         .iter()
+    //         .map(|e| OrphanEvent {
+    //             timestamp: e.timestamp,
+    //             severity: e.severity,
+    //             message: e.message.clone(),
+    //             key_vals: e.key_vals.clone(),
+    //             location: e.location.clone(),
+    //         })
+    //         .collect(),
+    //     budget_usage: remaining_budget,
+    // };
+    // service_data.service_data_points.push_back(new);
+    // while service_data.service_data_points.len() > MAX_STATS_HISTORY_DATA_COUNT {
+    //     service_data.service_data_points.pop_front();
+    // }
+    // trace!("{:?}", new_sampling);
+    // Ok(new_sampling)
 }
 
 /// We should insert a new trace if it doesn't already exist
@@ -151,7 +151,7 @@ async fn get_db_trace(
     con: &PgPool,
     instance_id: &InstanceId,
     trace_id: u64,
-) -> Result<Option<TraceDuration>, backtraced_error::SqlxError> {
+) -> Result<Option<TraceDuration>, tracked_error::SqlxError> {
     // debug!("instance_id: {instance_id:?}, trace_id: {trace_id}");
     // let raw: Option<RawTraceHeader> = sqlx::query_as!(
     //     RawTraceHeader,
@@ -209,7 +209,7 @@ pub async fn get_existing_span_ids(
     instance_id: i64,
     trace_id: i64,
     span_ids: &[i64],
-) -> Result<Vec<i64>, backtraced_error::SqlxError> {
+) -> Result<Vec<i64>, tracked_error::SqlxError> {
     // sqlx::query_scalar!(
     //     "select id from span where instance_id=$1 and trace_id=$2 and id = ANY($3::BIGINT[])",
     //     instance_id,
@@ -238,8 +238,7 @@ pub async fn update_trace_with_new_state(
     let mut transaction = con
         .begin()
         .instrument(info_span!("starting_transaction"))
-        .await
-        .map_err(|e| SqlxError::from_sqlx_error(e, "starting transaction"))?;
+        .await?;
     let db_trace =
         db_trace::get_trace_header(&mut transaction, instance_id.instance_id, trace_id as i32)
             .await?;
@@ -462,10 +461,7 @@ pub async fn update_trace_with_new_state(
     //     has_errors,
     // )
     // .await?;
-    transaction
-        .commit()
-        .await
-        .map_err(|e| SqlxError::from_sqlx_error(e, "commiting transaction"))?;
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -526,84 +522,85 @@ pub async fn insert_orphan_events(
     instance_id: &InstanceId,
     orphan_events: &[OrphanEvent],
 ) {
-    info!("{} events to insert", orphan_events.len());
-    for e in orphan_events {
-        trace!("Inserting event: {:?}", e);
-    }
-    let mut timestamps = vec![];
-    let mut envs = vec![];
-    let mut service_names = vec![];
-    let mut severities = vec![];
-    let mut message = vec![];
-    for event in orphan_events {
-        timestamps.push(event.timestamp as i64);
-        envs.push(instance_id.service_id.env.to_string());
-        service_names.push(instance_id.service_id.name.as_str());
-        severities.push(Severity::from(event.severity));
-        message.push(event.message.clone());
-    }
-    let orphan_events_db_ids = match sqlx::query_scalar!(
-            "insert into orphan_event (timestamp, env, service_name, severity, message) select * from unnest($1::BIGINT[], \
-            $2::TEXT[], $3::TEXT[], $4::severity_level[], $5::TEXT[]) returning id;",
-            &timestamps,
-            &envs,
-            &service_names as &Vec<&str>,
-            severities.as_slice() as &[Severity],
-            &message as &Vec<Option<String>>
-        )
-        .fetch_all(con).await {
-        Ok(res) => {
-            debug!("Inserted and got {} ids back", res.len());
-            let res: Vec<i64> = res;
-            res
-        }
-        Err(e) => {
-            error!("Error inserting orphan events: {:#?}", e);
-            error!("timestamp={:?}", timestamps);
-            error!("service_names={:?}", service_names);
-            error!("severities={:?}", severities);
-            for v in message {
-                error!("message={:?}", v);
-            }
-            return;
-        }
-    };
-    let mut kv_orphan_event_id = vec![];
-    let mut kv_orphan_timestamp = vec![];
-    let mut kv_envs = vec![];
-    let mut kv_orphan_key = vec![];
-    let mut kv_orphan_value = vec![];
-    let mut kv_service_names = vec![];
-
-    for (idx, event) in orphan_events.iter().enumerate() {
-        for (key, val) in &event.key_vals {
-            kv_orphan_event_id.push(orphan_events_db_ids[idx]);
-            kv_orphan_timestamp.push(event.timestamp as i64);
-            kv_envs.push(instance_id.service_id.env.to_string());
-            kv_service_names.push(instance_id.service_id.name.as_str());
-            kv_orphan_key.push(key.as_str());
-            kv_orphan_value.push(val.as_str());
-        }
-    }
-    info!("{} events key values to insert", kv_orphan_event_id.len());
-
-    match sqlx::query!(
-            "insert into orphan_event_key_value (orphan_event_id, key, value) select * from unnest($1::BIGINT[], $2::TEXT[], $3::TEXT[]);",
-            &kv_orphan_event_id,
-            &kv_orphan_key as &Vec<&str>,
-            &kv_orphan_value as &Vec<&str>,
-        )
-        .execute(con).await {
-        Ok(res) => {
-            debug!("Inserted {}", res.rows_affected());
-        }
-        Err(e) => {
-            error!("Error inserting orphan events: {:#?}", e);
-            error!("kv_orphan_event_id={:?}", kv_orphan_event_id);
-            error!("kv_orphan_key={:?}", kv_orphan_key);
-            error!("kv_orphan_value={:?}", kv_orphan_value);
-        }
-    };
+    // info!("{} events to insert", orphan_events.len());
+    // for e in orphan_events {
+    //     trace!("Inserting event: {:?}", e);
+    // }
+    // let mut timestamps = vec![];
+    // let mut envs = vec![];
+    // let mut service_names = vec![];
+    // let mut severities = vec![];
+    // let mut message = vec![];
+    // for event in orphan_events {
+    //     timestamps.push(event.timestamp as i64);
+    //     envs.push(instance_id.service_id.env.to_string());
+    //     service_names.push(instance_id.service_id.name.as_str());
+    //     severities.push(Severity::from(event.severity));
+    //     message.push(event.message.clone());
+    // }
+    // let orphan_events_db_ids = match sqlx::query_scalar!(
+    //         "insert into orphan_event (timestamp, env, service_name, severity, message) select * from unnest($1::BIGINT[], \
+    //         $2::TEXT[], $3::TEXT[], $4::severity_level[], $5::TEXT[]) returning id;",
+    //         &timestamps,
+    //         &envs,
+    //         &service_names as &Vec<&str>,
+    //         severities.as_slice() as &[Severity],
+    //         &message as &Vec<Option<String>>
+    //     )
+    //     .fetch_all(con).await {
+    //     Ok(res) => {
+    //         debug!("Inserted and got {} ids back", res.len());
+    //         let res: Vec<i64> = res;
+    //         res
+    //     }
+    //     Err(e) => {
+    //         error!("Error inserting orphan events: {:#?}", e);
+    //         error!("timestamp={:?}", timestamps);
+    //         error!("service_names={:?}", service_names);
+    //         error!("severities={:?}", severities);
+    //         for v in message {
+    //             error!("message={:?}", v);
+    //         }
+    //         return;
+    //     }
+    // };
+    // let mut kv_orphan_event_id = vec![];
+    // let mut kv_orphan_timestamp = vec![];
+    // let mut kv_envs = vec![];
+    // let mut kv_orphan_key = vec![];
+    // let mut kv_orphan_value = vec![];
+    // let mut kv_service_names = vec![];
+    //
+    // for (idx, event) in orphan_events.iter().enumerate() {
+    //     for (key, val) in &event.key_vals {
+    //         kv_orphan_event_id.push(orphan_events_db_ids[idx]);
+    //         kv_orphan_timestamp.push(event.timestamp as i64);
+    //         kv_envs.push(instance_id.service_id.env.to_string());
+    //         kv_service_names.push(instance_id.service_id.name.as_str());
+    //         kv_orphan_key.push(key.as_str());
+    //         kv_orphan_value.push(val.as_str());
+    //     }
+    // }
+    // info!("{} events key values to insert", kv_orphan_event_id.len());
+    //
+    // match sqlx::query!(
+    //         "insert into orphan_event_key_value (orphan_event_id, key, value) select * from unnest($1::BIGINT[], $2::TEXT[], $3::TEXT[]);",
+    //         &kv_orphan_event_id,
+    //         &kv_orphan_key as &Vec<&str>,
+    //         &kv_orphan_value as &Vec<&str>,
+    //     )
+    //     .execute(con).await {
+    //     Ok(res) => {
+    //         debug!("Inserted {}", res.rows_affected());
+    //     }
+    //     Err(e) => {
+    //         error!("Error inserting orphan events: {:#?}", e);
+    //         error!("kv_orphan_event_id={:?}", kv_orphan_event_id);
+    //         error!("kv_orphan_key={:?}", kv_orphan_key);
+    //         error!("kv_orphan_value={:?}", kv_orphan_value);
+    //     }
+    // };
+    unimplemented!()
 }
 
 fn truncate_string(string: &str, max_chars: usize) -> String {
@@ -683,32 +680,33 @@ pub async fn instance_update_post(
     State(app_state): State<AppState>,
     trace_data: Json<ExportedServiceTraceData>,
 ) -> Result<Json<Sampling>, ApiError> {
-    let con = app_state.con;
-    let trace_data: ExportedServiceTraceData = trace_data.0;
-    trace!("{trace_data:#?}");
-    let sampling = update_service_and_instance_data(&app_state.services_runtime_stats, &trace_data)
-        .map_err(|_e| {
-            error!("Tried to update instance, but was not registered!");
-            ApiError {
-                code: StatusCode::BAD_REQUEST,
-                message: "Instance not registered by SSE".to_string(),
-            }
-        })?;
-    let instance_id = trace_data.instance_id;
-    info!("Got {} new fragments", trace_data.traces_state.len());
-    for mut fragment in trace_data.traces_state.into_values() {
-        truncate_span_key_values_if_needed(&mut fragment.spans.values_mut());
-        truncate_events_if_needed(&mut fragment.new_events);
-        if let Err(db_error) = update_trace_with_new_state(&con, &instance_id, fragment).await {
-            error!("DB error when inserting fragment: {:#?}", db_error);
-        }
-    }
-
-    let mut orphan_events = trace_data.orphan_events;
-    truncate_orphan_events_and_kv_if_needed(&mut orphan_events);
-    insert_orphan_events(&con, &instance_id, &orphan_events).await;
-
-    Ok(Json(sampling))
+    unimplemented!()
+    // let con = app_state.con;
+    // let trace_data: ExportedServiceTraceData = trace_data.0;
+    // trace!("{trace_data:#?}");
+    // let sampling = update_service_and_instance_data(&app_state.services_runtime_stats, &trace_data)
+    //     .map_err(|_e| {
+    //         error!("Tried to update instance, but was not registered!");
+    //         ApiError {
+    //             code: StatusCode::BAD_REQUEST,
+    //             message: "Instance not registered by SSE".to_string(),
+    //         }
+    //     })?;
+    // let instance_id = trace_data.instance_id;
+    // info!("Got {} new fragments", trace_data.traces_state.len());
+    // for mut fragment in trace_data.traces_state.into_values() {
+    //     truncate_span_key_values_if_needed(&mut fragment.spans.values_mut());
+    //     truncate_events_if_needed(&mut fragment.new_events);
+    //     if let Err(db_error) = update_trace_with_new_state(&con, &instance_id, fragment).await {
+    //         error!("DB error when inserting fragment: {:#?}", db_error);
+    //     }
+    // }
+    //
+    // let mut orphan_events = trace_data.orphan_events;
+    // truncate_orphan_events_and_kv_if_needed(&mut orphan_events);
+    // insert_orphan_events(&con, &instance_id, &orphan_events).await;
+    //
+    // Ok(Json(sampling))
 }
 
 #[instrument(skip_all)]
@@ -765,120 +763,121 @@ pub(crate) async fn insert_spans(
     trace_id: i32,
     instance_id: &InstanceId,
 ) -> Result<(), SqlxError> {
-    if new_spans.is_empty() {
-        info!("No spans to insert");
-        return Ok(());
-    } else {
-        info!("Inserting {} spans", new_spans.len());
-    }
-    let span_ids: Vec<i32> = new_spans.iter().map(|s| s.id as i32).collect();
-    let instance_ids: Vec<Uuid> = new_spans.iter().map(|_s| instance_id.instance_id).collect();
-    let trace_ids: Vec<i32> = new_spans.iter().map(|_s| trace_id).collect();
-    let timestamp: Vec<NaiveDateTime> = new_spans
-        .iter()
-        .map(|s| time_from_nanos(s.timestamp))
-        .collect();
-    let modules: Vec<Option<String>> = new_spans
-        .iter()
-        .map(|s| s.location.module.clone())
-        .collect();
-    let filenames: Vec<Option<String>> = new_spans
-        .iter()
-        .map(|s| s.location.filename.clone())
-        .collect();
-    let lines: Vec<Option<i32>> = new_spans
-        .iter()
-        .map(|s| s.location.line.map(|l| l as i32))
-        .collect();
-    let parent_id: Vec<Option<i32>> = new_spans
-        .iter()
-        .map(|s| s.parent_id.map(|e| e as i32))
-        .collect();
-    let duration: Vec<i64> = new_spans.iter().map(|s| s.duration as i64).collect();
-    let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
-    let closed: Vec<bool> = new_spans.iter().map(|s| s.closed).collect();
-    // on conflict can happen if the span was active and open (so exists), but now is closed
-    match sqlx::query!(
-            "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration_nanos, name, module, filename, line, closed)
-            select * from unnest($1::INT[], $2::UUID[], $3::INT[], $4::TIMESTAMP[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::TEXT[], $9::TEXT[], $10::INT[], $11::boolean[])
-             on conflict (instance_id, trace_id, id) do update set duration_nanos=excluded.duration_nanos, closed=excluded.closed;",
-            &span_ids,
-            &instance_ids,
-            &trace_ids,
-            &timestamp,
-            &parent_id as &Vec<Option<i32>>,
-            &duration as &Vec<i64>,
-            &name,
-            &modules as &Vec<Option<String>>,
-            &filenames as &Vec<Option<String>>,
-            &lines as &Vec<Option<i32>>,
-            &closed as &Vec<bool>,
-        )
-        .execute(con.deref_mut())
-        .await {
-        Ok(_) => {
-            info!("Inserted spans");
-        }
-        Err(e) => {
-            error!("Error when inserting spans");
-            error!("Span Ids: {:?}", span_ids);
-            error!("Instance Ids: {:?}", instance_ids);
-            error!("Trace Ids: {:?}", trace_id);
-            error!("Timestamp: {:?}", timestamp);
-            error!("parent_id: {:?}", parent_id);
-            error!("duration: {:?}", duration);
-            error!("name: {:?}", name);
-            return Err(SqlxError::from_sqlx_error(e, "inserting spans"));
-
-        }
-    };
-    let mut kv_instance_id = vec![];
-    let mut kv_trace_id = vec![];
-    let mut kv_span_id = vec![];
-    let mut kv_key = vec![];
-    let mut kv_value = vec![];
-    for (_idx, span) in new_spans.iter().enumerate() {
-        for (key, val) in &span.key_vals {
-            kv_instance_id.push(instance_id.instance_id);
-            kv_trace_id.push(trace_id as i32);
-            kv_span_id.push(span.id as i32);
-            kv_key.push(key.as_str());
-            kv_value.push(val.as_str());
-        }
-    }
-    if kv_instance_id.is_empty() {
-        info!("No span key-values to insert");
-        return Ok(());
-    } else {
-        info!("Inserting {} span key-values", kv_instance_id.len());
-    }
-    // conflicts can happen for the same reason span conflicts can
-    match sqlx::query!(
-        "insert into span_key_value (instance_id, trace_id, span_id,  key, value)
-            select * from unnest($1::UUID[], $2::INT[], $3::INT[], $4::TEXT[], $5::TEXT[])
-            on conflict (instance_id, trace_id, span_id, key) do update set value=excluded.value;",
-        &kv_instance_id,
-        &kv_trace_id,
-        &kv_span_id,
-        &kv_key as &Vec<&str>,
-        &kv_value as &Vec<&str>
-    )
-    .execute(con.deref_mut())
-    .await
-    {
-        Ok(_) => {
-            info!("Inserted span key-values");
-        }
-        Err(e) => {
-            error!("Error when inserting span key-values");
-            error!("kv_instance_id: {:?}", kv_instance_id);
-            error!("kv_trace_id: {:?}", kv_trace_id);
-            error!("kv_span_id: {:?}", kv_span_id);
-            error!("kv_key: {:?}", kv_key);
-            error!("kv_value: {:?}", kv_value);
-            return Err(SqlxError::from_sqlx_error(e, "inserting spans kvs"));
-        }
-    };
-
-    Ok(())
+    // if new_spans.is_empty() {
+    //     info!("No spans to insert");
+    //     return Ok(());
+    // } else {
+    //     info!("Inserting {} spans", new_spans.len());
+    // }
+    // let span_ids: Vec<i32> = new_spans.iter().map(|s| s.id as i32).collect();
+    // let instance_ids: Vec<Uuid> = new_spans.iter().map(|_s| instance_id.instance_id).collect();
+    // let trace_ids: Vec<i32> = new_spans.iter().map(|_s| trace_id).collect();
+    // let timestamp: Vec<NaiveDateTime> = new_spans
+    //     .iter()
+    //     .map(|s| time_from_nanos(s.timestamp))
+    //     .collect();
+    // let modules: Vec<Option<String>> = new_spans
+    //     .iter()
+    //     .map(|s| s.location.module.clone())
+    //     .collect();
+    // let filenames: Vec<Option<String>> = new_spans
+    //     .iter()
+    //     .map(|s| s.location.filename.clone())
+    //     .collect();
+    // let lines: Vec<Option<i32>> = new_spans
+    //     .iter()
+    //     .map(|s| s.location.line.map(|l| l as i32))
+    //     .collect();
+    // let parent_id: Vec<Option<i32>> = new_spans
+    //     .iter()
+    //     .map(|s| s.parent_id.map(|e| e as i32))
+    //     .collect();
+    // let duration: Vec<i64> = new_spans.iter().map(|s| s.duration as i64).collect();
+    // let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
+    // let closed: Vec<bool> = new_spans.iter().map(|s| s.closed).collect();
+    // // on conflict can happen if the span was active and open (so exists), but now is closed
+    // match sqlx::query!(
+    //         "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration_nanos, name, module, filename, line, closed)
+    //         select * from unnest($1::INT[], $2::UUID[], $3::INT[], $4::TIMESTAMP[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::TEXT[], $9::TEXT[], $10::INT[], $11::boolean[])
+    //          on conflict (instance_id, trace_id, id) do update set duration_nanos=excluded.duration_nanos, closed=excluded.closed;",
+    //         &span_ids,
+    //         &instance_ids,
+    //         &trace_ids,
+    //         &timestamp,
+    //         &parent_id as &Vec<Option<i32>>,
+    //         &duration as &Vec<i64>,
+    //         &name,
+    //         &modules as &Vec<Option<String>>,
+    //         &filenames as &Vec<Option<String>>,
+    //         &lines as &Vec<Option<i32>>,
+    //         &closed as &Vec<bool>,
+    //     )
+    //     .execute(con.deref_mut())
+    //     .await {
+    //     Ok(_) => {
+    //         info!("Inserted spans");
+    //     }
+    //     Err(e) => {
+    //         error!("Error when inserting spans");
+    //         error!("Span Ids: {:?}", span_ids);
+    //         error!("Instance Ids: {:?}", instance_ids);
+    //         error!("Trace Ids: {:?}", trace_id);
+    //         error!("Timestamp: {:?}", timestamp);
+    //         error!("parent_id: {:?}", parent_id);
+    //         error!("duration: {:?}", duration);
+    //         error!("name: {:?}", name);
+    //         return Err(SqlxError::from_sqlx_error(e, "inserting spans"));
+    //
+    //     }
+    // };
+    // let mut kv_instance_id = vec![];
+    // let mut kv_trace_id = vec![];
+    // let mut kv_span_id = vec![];
+    // let mut kv_key = vec![];
+    // let mut kv_value = vec![];
+    // for (_idx, span) in new_spans.iter().enumerate() {
+    //     for (key, val) in &span.key_vals {
+    //         kv_instance_id.push(instance_id.instance_id);
+    //         kv_trace_id.push(trace_id as i32);
+    //         kv_span_id.push(span.id as i32);
+    //         kv_key.push(key.as_str());
+    //         kv_value.push(val.as_str());
+    //     }
+    // }
+    // if kv_instance_id.is_empty() {
+    //     info!("No span key-values to insert");
+    //     return Ok(());
+    // } else {
+    //     info!("Inserting {} span key-values", kv_instance_id.len());
+    // }
+    // // conflicts can happen for the same reason span conflicts can
+    // match sqlx::query!(
+    //     "insert into span_key_value (instance_id, trace_id, span_id,  key, value)
+    //         select * from unnest($1::UUID[], $2::INT[], $3::INT[], $4::TEXT[], $5::TEXT[])
+    //         on conflict (instance_id, trace_id, span_id, key) do update set value=excluded.value;",
+    //     &kv_instance_id,
+    //     &kv_trace_id,
+    //     &kv_span_id,
+    //     &kv_key as &Vec<&str>,
+    //     &kv_value as &Vec<&str>
+    // )
+    // .execute(con.deref_mut())
+    // .await
+    // {
+    //     Ok(_) => {
+    //         info!("Inserted span key-values");
+    //     }
+    //     Err(e) => {
+    //         error!("Error when inserting span key-values");
+    //         error!("kv_instance_id: {:?}", kv_instance_id);
+    //         error!("kv_trace_id: {:?}", kv_trace_id);
+    //         error!("kv_span_id: {:?}", kv_span_id);
+    //         error!("kv_key: {:?}", kv_key);
+    //         error!("kv_value: {:?}", kv_value);
+    //         return Err(SqlxError::from_sqlx_error(e, "inserting spans kvs"));
+    //     }
+    // };
+    //
+    // Ok(())
+    unimplemented!()
 }

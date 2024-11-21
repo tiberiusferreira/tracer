@@ -2,11 +2,12 @@ use maplit::hashmap;
 use std::collections::HashMap;
 use tracing::Id;
 
-use api_structs::instance::update::{Location, OrphanEvent, Span, SpanEvent, TraceState};
+use api_structs::instance::update::{
+    Location, OrphanEvent, Span, SpanEvent, TraceState, ROOT_SPAN_ID,
+};
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::Severity;
 
-pub const ROOT_SPAN_ID: u32 = 1;
 #[derive(Debug, Clone)]
 pub struct State {
     traces: HashMap<u32, TraceState>,
@@ -71,17 +72,14 @@ impl State {
             parent_id: None,
             key_vals,
             location,
+            links_to: None,
             closed: false,
         };
         let existing = self.traces.insert(
             new_id,
             TraceState {
                 id: new_id,
-                root_span_id: span.id,
                 spans: hashmap! {span.id => span},
-                spans_produced: 1,
-                events_produced: 0,
-                events_dropped_by_sampling: 0,
                 new_events: vec![],
             },
         );
@@ -119,8 +117,7 @@ impl State {
             .traces
             .get_mut(mapped_trace_id)
             .expect("trace to exist if it has a new span");
-        trace.spans_produced += 1;
-        let new_span_id = trace.spans_produced;
+        let new_span_id = trace.spans.len() as u32;
         self.registry_to_tracer_id_mapping
             .insert(span_id.clone(), new_span_id);
         let mapped_parent_id = if trace_id == parent_id {
@@ -142,6 +139,7 @@ impl State {
                 parent_id: Some(mapped_parent_id),
                 key_vals,
                 location,
+                links_to: None,
                 closed: false,
             },
         );
@@ -193,7 +191,6 @@ impl State {
             .traces
             .get_mut(mapped_trace_id)
             .expect("trace to exist if it has a new span");
-        trace.events_produced += 1;
         trace.new_events.push(SpanEvent {
             span_id: mapped_span_id,
             message,
@@ -202,18 +199,6 @@ impl State {
             key_vals,
             location,
         });
-    }
-    pub fn insert_event_dropped_by_sampling(&mut self, trace_id: Id) {
-        let mapped_trace_id = self
-            .registry_to_tracer_id_mapping
-            .get(&trace_id)
-            .expect("trace id to exist");
-        let trace = self
-            .traces
-            .get_mut(mapped_trace_id)
-            .expect("trace to exist if it has an event dropped by sampling");
-        trace.events_produced += 1;
-        trace.events_dropped_by_sampling += 1;
     }
     pub fn insert_orphan_event(&mut self, event: OrphanEvent) {
         self.orphan_events.push(event);

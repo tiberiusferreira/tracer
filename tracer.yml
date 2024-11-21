@@ -1,19 +1,21 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:17
     volumes:
-      - ./postgres/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./postgres/cascading_id_schema.sql:/docker-entrypoint-initdb.d/schema.sql
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     command:
       - "-c"
       - "plan_cache_mode=force_custom_plan"
+      - "-c"
+      - "shared_buffers=512MB"
     networks:
       - backend
     ports:
       - "5435:5432"
-    shm_size: 256MB
+    shm_size: 512MB
   tracer:
     image: tiberio/tracer:latest
     depends_on:

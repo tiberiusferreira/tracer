@@ -11,14 +11,13 @@ use tokio::task::spawn_local;
 use tracing::{error, info, info_span, instrument, Instrument};
 
 use api_structs::ServiceId;
-use backtraced_error::error_chain_to_pretty_formatted;
 use tracing_config_helper::TracerConfig;
+use tracked_error::error_chain_to_pretty_formatted;
 
 use crate::api::state::AppState;
 
 mod api;
 mod background_tasks;
-mod database;
 mod notification_worthy_events;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;
@@ -71,7 +70,7 @@ async fn start_api_and_background_tasks(
     let con = connect_to_db(&config).await?;
     let app_state = AppState {
         con,
-        services_runtime_stats: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        connected_instances_sse_handle: Arc::new(parking_lot::RwLock::new(HashMap::new())),
     };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
@@ -79,16 +78,16 @@ async fn start_api_and_background_tasks(
             async {
                 let state = app_state.clone();
                 info!("Checking for check_for_alerts_and_send");
-                if let Err(e) = background_tasks::alerts::check_for_alerts_and_send(&state).await {
-                    let error_chain_as_string = error_chain_to_pretty_formatted(&e);
-                    error!("{}", error_chain_as_string);
-                }
-                background_tasks::clean_up::instance_runtime_data::clean_up_dead_instances_and_services(
-                    Arc::clone(&state.services_runtime_stats),
-                );
-                background_tasks::clean_up::database_old_traces_and_logs::delete_old_traces_logging_error(&state.con).await;
-                background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
-                background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
+                // if let Err(e) = background_tasks::alerts::check_for_alerts_and_send(&state).await {
+                //     let error_chain_as_string = error_chain_to_pretty_formatted(&e);
+                //     error!("{}", error_chain_as_string);
+                // }
+                // background_tasks::clean_up::instance_runtime_data::clean_up_dead_instances_and_services(
+                //     Arc::clone(&state.services_runtime_stats),
+                // );
+                // background_tasks::clean_up::database_old_traces_and_logs::delete_old_traces_logging_error(&state.con).await;
+                // background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
+                // background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
             }
             .instrument(info_span!("background_task"))
             .await;

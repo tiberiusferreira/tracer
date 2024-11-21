@@ -8,8 +8,9 @@ use tracing_subscriber::{EnvFilter, Registry};
 use api_structs::instance::connect::SseRequest;
 use api_structs::InstanceId;
 
-use crate::{print_if_dbg, SSE_CONNECT_ENDPOINT};
+use crate::print_if_dbg;
 
+pub const SSE_CONNECT_ENDPOINT: &str = "/api/instance/connect";
 #[derive(Debug)]
 pub enum Error {
     ConnectionFailed,
@@ -120,13 +121,14 @@ pub async fn continuously_handle_server_sent_events(
 
 #[cfg(test)]
 mod test {
+    use uuid::Uuid;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use api_structs::{Env, InstanceId, ServiceId};
 
     use crate::server_connection::server_sent_events::continuously_listen_for_server_sent_events;
-    use crate::SSE_CONNECT_ENDPOINT;
+    use crate::server_connection::server_sent_events::SSE_CONNECT_ENDPOINT;
 
     #[tokio::test]
     async fn listen_for_server_sent_events_works() {
@@ -137,7 +139,7 @@ mod test {
         let second_see_event = "some data2";
         let instance_name = "some_name";
         let instance_env = "local";
-        let instance_id = 2;
+        let instance_id = Uuid::new_v4();
         Mock::given(method("GET"))
             .and(path(SSE_CONNECT_ENDPOINT))
             .and(query_param("name", instance_name))

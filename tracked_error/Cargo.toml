@@ -1,5 +1,5 @@
 [package]
-name = "backtraced_error"
+name = "tracked_error"
 version = "0.1.0"
 edition = "2021"
 

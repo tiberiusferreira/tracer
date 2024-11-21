@@ -5,8 +5,8 @@ use axum::http::StatusCode;
 pub mod instance;
 pub mod ui;
 
-#[derive(Debug, Clone, sqlx::Type)]
-#[sqlx(type_name = "severity_level", rename_all = "lowercase")]
+#[derive(Debug, Clone)]
+// #[sqlx(type_name = "severity_level", rename_all = "lowercase")]
 pub enum Severity {
     Trace,
     Debug,
@@ -15,11 +15,11 @@ pub enum Severity {
     Error,
 }
 
-impl sqlx::postgres::PgHasArrayType for Severity {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("_severity_level")
-    }
-}
+// impl sqlx::postgres::PgHasArrayType for Severity {
+//     fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+//         sqlx::postgres::PgTypeInfo::with_name("_severity_level")
+//     }
+// }
 
 impl Severity {
     pub fn to_api(&self) -> api_structs::Severity {
