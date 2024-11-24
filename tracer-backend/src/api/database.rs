@@ -5,7 +5,7 @@ use sqlx::{Postgres, Transaction};
 use tracing::{error, info, instrument, trace};
 use uuid::Uuid;
 
-use api_structs::instance::update::SpanEvent;
+use api_structs::instance::update::Event;
 use api_structs::time_conversion::time_from_nanos;
 use api_structs::InstanceId;
 use tracked_error::SqlxError;
@@ -15,7 +15,7 @@ use crate::api::handlers::Severity;
 #[instrument(skip_all)]
 pub(crate) async fn insert_events(
     con: &mut Transaction<'static, Postgres>,
-    new_events: &[SpanEvent],
+    new_events: &[Event],
     trace_id: i32,
     instance_id: &InstanceId,
 ) -> Result<(), SqlxError> {

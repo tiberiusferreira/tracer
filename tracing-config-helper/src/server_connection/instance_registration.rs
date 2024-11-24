@@ -1,7 +1,6 @@
 use crate::print_if_dbg;
 use crate::server_connection::Error;
 use api_structs::instance::connect::RegistrationResponse;
-use serde::{Deserialize, Serialize};
 use tracked_error::{ReqwestError, SerdeJsonError};
 
 const REGISTRATION_ENDPOINT: &str = "/api/instance/register";

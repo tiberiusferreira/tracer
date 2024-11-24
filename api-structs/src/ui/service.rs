@@ -1,4 +1,4 @@
-pub use crate::ui::orphan_events::OrphanEvent;
+use crate::instance::update::Event;
 use crate::{ServiceId, TraceName};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ pub struct ServiceDataOverTime {
     pub timestamp: u64,
     pub instance_id: Uuid,
     pub traces_state: Vec<TraceHeader>,
-    pub orphan_events: Vec<OrphanEvent>,
+    pub orphan_events: Vec<Event>,
     pub traces_budget_usage: HashMap<TraceName, u32>,
     pub orphan_events_budget_usage: u32,
 }

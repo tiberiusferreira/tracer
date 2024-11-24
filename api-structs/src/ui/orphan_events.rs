@@ -1,4 +1,3 @@
-pub use crate::instance::update::OrphanEvent;
 use crate::ServiceId;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServiceOrphanEventsRequest {

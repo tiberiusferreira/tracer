@@ -4,21 +4,16 @@
 //!
 
 use pprof::ProfilerGuard;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::task::JoinHandle;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
 use crate::server_connection::instance_update_sender::export_instance_update;
-use crate::server_connection::Error;
-use crate::subscriber::{ExporterStateHandle, TracerTracingSubscriber};
+use crate::subscriber::{ExportDataGetter, TracerTracingSubscriber};
 use api_structs::instance::connect::RegistrationResponse;
-use api_structs::instance::update::{ExportedServiceTraceData, OrphanEvent, TraceState};
+use api_structs::instance::update::InstanceSnapshot;
 pub use api_structs::{Env, InstanceId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
 
@@ -35,8 +30,8 @@ pub struct TracerConfig {
     pub export_timeout: Duration,
     /// How long to wait between exports. A short duration will flood the collector and a long one will cause the
     /// export buffers to fill up. Stats are also exported on this schedule.
-    pub wait_duration_between_exports: Duration,
-    pub min_wait_duration_between_profile_exports: Duration,
+    pub duration_between_exports: Duration,
+    pub min_duration_between_profile_exports: Duration,
     pub log_stdout: bool,
     pub log_stdout_json: bool,
 }
@@ -46,8 +41,8 @@ impl TracerConfig {
         TracerConfig {
             collector_url,
             export_timeout: Duration::from_secs(10),
-            wait_duration_between_exports: Duration::from_secs(5),
-            min_wait_duration_between_profile_exports: Duration::from_secs(60),
+            duration_between_exports: Duration::from_secs(5),
+            min_duration_between_profile_exports: Duration::from_secs(60),
             log_stdout: false,
             service_id,
             log_stdout_json: false,
@@ -61,16 +56,21 @@ impl TracerConfig {
             duration.as_secs() >= 2,
             "Sleep between exports needs to be at least 2s to not flood collector"
         );
-        self.wait_duration_between_exports = duration
+        self.duration_between_exports = duration
     }
 }
 
-pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> ExportNowRequester {
+pub struct TracerHandle {
+    pub thread_handle: std::thread::JoinHandle<()>,
+    pub export_now_requester: ExportNowRequester,
+}
+
+pub async fn setup_tracer_client_in_background_or_panic(config: TracerConfig) -> TracerHandle {
     println!("Starting up using: {config:#?}");
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
-    // runtime starved from CPU time
+    // runtime starved from CPU time.
     let (s, r) = tokio::sync::oneshot::channel();
-    let _thread_handle = std::thread::spawn(move || {
+    let thread_handle = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .thread_name("tracer_thread")
@@ -78,54 +78,33 @@ pub async fn setup_tracer_client_or_panic(config: TracerConfig) -> ExportNowRequ
             .expect("runtime to be able to start");
 
         runtime.block_on(async {
-            // we use a localset so tasks dont have to implement Send
+            // we use a local set so tasks don't have to implement Send
             tokio::task::LocalSet::new()
                 .run_until(async {
-                    let export_flusher_handle = setup_tracer_client_or_panic_impl(config).await;
-                    s.send(export_flusher_handle.export_now_request_sender.clone())
+                    let tracer_tasks = setup_tracer_client_or_panic_impl(config).await;
+                    s.send(tracer_tasks.export_now_request_sender.clone())
                         .unwrap();
-                    export_flusher_handle.wait_or_panic().await;
+                    tracer_tasks.wait_or_panic().await;
                 })
                 .await;
         });
     });
-    r.await.unwrap()
+    let export_now_requester = r.await.expect("initialization to work");
+    TracerHandle {
+        thread_handle,
+        export_now_requester,
+    }
 }
 
 struct TracerTasks {
-    sse_task: JoinHandle<()>,
-    trace_export_task: JoinHandle<()>,
+    sse_task: tokio::task::JoinHandle<()>,
+    trace_export_task: tokio::task::JoinHandle<()>,
     export_now_request_sender: ExportNowRequester,
 }
 
 impl TracerTasks {
     pub async fn wait_or_panic(self) {
         let _res = futures::try_join!(self.sse_task, self.trace_export_task).unwrap();
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ExportDataContainers {
-    data: ExportedServiceTraceData,
-}
-
-impl ExportDataContainers {
-    pub fn new(
-        instance_id: InstanceId,
-        rust_log: String,
-        orphan_events: Vec<OrphanEvent>,
-        traces_state: HashMap<u32, TraceState>,
-        profile_data: Option<Vec<u8>>,
-    ) -> Self {
-        Self {
-            data: ExportedServiceTraceData {
-                instance_id,
-                orphan_events,
-                traces_state,
-                rust_log,
-                profile_data,
-            },
-        }
     }
 }
 
@@ -202,7 +181,10 @@ fn start_cpu_profiler() -> ProfilerGuard<'static> {
         .expect("to be able to start profiler")
 }
 
-async fn registration_loop(reqwest_client: &Client, collector_url: &str) -> RegistrationResponse {
+async fn registration_loop(
+    reqwest_client: &reqwest::Client,
+    collector_url: &str,
+) -> RegistrationResponse {
     let context = "registration_loop";
     loop {
         match server_connection::instance_registration::register_instance(
@@ -239,7 +221,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         tracing_subscriber::reload::Layer::new(tracer_filter);
 
     let tracer_tracing_subscriber = TracerTracingSubscriber::new();
-    let tracer_export_state = tracer_tracing_subscriber.get_sampler_state_handle();
+    let export_data_getter = tracer_tracing_subscriber.export_data_getter_handle();
 
     let registry = Registry::default()
         .with(reloadable_tracer_filter)
@@ -259,11 +241,12 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
     );
 
     let trace_export_task = tokio::task::spawn_local(trace_export_loop(
+        reqwest_client,
         config,
         cpu_profiler_guard,
         export_now_request_receiver,
         reload_tracer_handle,
-        tracer_export_state,
+        export_data_getter,
         instance_id,
     ));
     install_global_export_traces_on_panic_hook(export_now_request_sender.clone());
@@ -275,32 +258,28 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
 }
 
 async fn trace_export_loop(
+    client: reqwest::Client,
     config: TracerConfig,
     profiler_guard: ProfilerGuard<'static>,
     mut flush_request_receiver: Receiver<FlushRequest>,
     reload_tracer_handle: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
-    tracer_export_state: ExporterStateHandle,
+    export_data_getter: ExportDataGetter,
     instance_id: InstanceId,
 ) {
-    let min_wait_duration_between_profile_exports =
-        config.min_wait_duration_between_profile_exports;
-    let client = reqwest::ClientBuilder::new()
-        .build()
-        .expect("reqwest client to be able to be created");
     let context = "trace_export_task";
-    let profiler_guard = profiler_guard;
+    let min_wait_duration_between_profile_exports = config.min_duration_between_profile_exports;
     let mut time_last_profile_export = std::time::Instant::now();
     loop {
-        let period_time_secs = config.wait_duration_between_exports;
+        let period_time_secs = config.duration_between_exports;
         print_if_dbg(
             context,
             format!(
-                "Sleeping {}s or until flush request",
+                "Sleeping until next export ({}s) or until flush request",
                 period_time_secs.as_secs()
             ),
         );
         let flush_request = tokio::select! {
-            _ = tokio::time::sleep(period_time_secs) => {
+            () = tokio::time::sleep(period_time_secs) => {
                 print_if_dbg(context, "Slept");
                 None
             },
@@ -334,41 +313,44 @@ async fn trace_export_loop(
                 .build()
                 .expect("profile creation to work")
                 .flamegraph(&mut profile_data)
-                .expect("profile writing to work");
+                .expect("profile flamegraph generation to work");
             Some(profile_data)
         } else {
             None
         };
-        let traces_and_orphan_events = tracer_export_state.get_export_data();
-        let export_data = ExportDataContainers::new(
-            instance_id.clone(),
-            current_filters,
-            traces_and_orphan_events.orphan_events,
-            traces_and_orphan_events.traces,
-            profile_data,
-        );
+        let traces_and_orphan_events = export_data_getter.get_data_ready_to_export();
+        let export_data = InstanceSnapshot {
+            instance_id: instance_id.instance_id,
+            orphan_events: traces_and_orphan_events.orphan_events,
+            trace_snapshots: traces_and_orphan_events.traces,
+            export_buffer_size_bytes: traces_and_orphan_events.export_buffer_size_bytes,
+            log_filter: current_filters,
+            cpu_profile: profile_data,
+        };
         print_if_dbg(context, format!("Export data: {:#?}", export_data));
         let export_data_json =
-            serde_json::to_string(&export_data.data).expect("export data to be serializable");
-        let export_update_result = match export_instance_update(
-            &client,
-            &config.collector_url,
-            &export_data_json,
-            config.export_timeout,
-        )
-        .await
-        {
-            Ok(new_sampling) => {
-                // tracer_sampler.set_new(new_sampling);
-                Ok(())
-            }
-            Err(err) => {
-                let err = tracked_error::error_chain_to_pretty_formatted(err);
-                println!("{context} - {}", err);
-                Err(err)
-            }
-        };
-        flush_request.map(|f| match f.respond_to.send(export_update_result) {
+            serde_json::to_string(&export_data).expect("export data to be serializable");
+        loop {
+            print_if_dbg(context, "attempting export");
+            match export_instance_update(
+                &client,
+                &config.collector_url,
+                &export_data_json,
+                config.export_timeout,
+            )
+            .await
+            {
+                Ok(()) => break,
+                Err(err) => {
+                    let err = tracked_error::error_chain_to_pretty_formatted(err);
+                    println!("{context} - {err}");
+                    let sleep_sec = Duration::from_secs(10);
+                    println!("sleeping 10s");
+                    tokio::time::sleep(sleep_sec).await;
+                }
+            };
+        }
+        flush_request.map(|f| match f.respond_to.send(Ok(())) {
             Ok(_) => {
                 println!("Responded to flush request");
             }

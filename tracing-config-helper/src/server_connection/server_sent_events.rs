@@ -1,20 +1,27 @@
-use std::time::Duration;
-
-use futures_util::StreamExt;
+use futures::StreamExt;
 use reqwest_eventsource::Event;
+use std::time::Duration;
 use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{EnvFilter, Registry};
 
+use crate::print_if_dbg;
 use api_structs::instance::connect::SseRequest;
 use api_structs::InstanceId;
-
-use crate::print_if_dbg;
+use tracked_error::error_chain_to_pretty_formatted;
 
 pub const SSE_CONNECT_ENDPOINT: &str = "/api/instance/connect";
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    ConnectionFailed,
-    HttpError(reqwest_eventsource::Error),
+    #[error("SSE connection failed\nat {location}")]
+    ConnectionFailed {
+        location: &'static std::panic::Location<'static>,
+    },
+    #[error("SSE HttpError at\n{location}")]
+    HttpError {
+        location: &'static std::panic::Location<'static>,
+        #[source]
+        source: reqwest_eventsource::Error,
+    },
 }
 
 pub async fn continuously_listen_for_server_sent_events<OnMessage, Fut>(
@@ -54,11 +61,17 @@ pub async fn continuously_listen_for_server_sent_events<OnMessage, Fut>(
                     on_event(Ok(message.data)).await;
                 }
                 Err(err) => {
-                    on_event(Err(Error::HttpError(err))).await;
+                    on_event(Err(Error::HttpError {
+                        location: std::panic::Location::caller(),
+                        source: err,
+                    }))
+                    .await;
                 }
             }
         }
-        on_event(Err(Error::ConnectionFailed));
+        on_event(Err(Error::ConnectionFailed {
+            location: std::panic::Location::caller(),
+        }));
         let sleep_time_s = 10;
         println!("{context} - Server Sent Events connection failed, retrying in: {sleep_time_s}s");
         tokio::time::sleep(Duration::from_secs(sleep_time_s)).await;
@@ -102,8 +115,9 @@ async fn handle_new_sse_message(
                 }
             }
         }
-        Err(e) => {
-            println!("{context} - SSE error: {e:#?}");
+        Err(error) => {
+            let error = error_chain_to_pretty_formatted(error);
+            println!("{context} - {error}");
         }
     }
 }

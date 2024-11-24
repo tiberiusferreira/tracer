@@ -50,7 +50,8 @@ async fn main() {
                 format!("http://127.0.0.1:{}", config.api_listen_port),
             );
             let _tracer_flush_request =
-                tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
+                tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)
+                    .await;
             let join_handle = start_api_and_background_tasks(config)
                 .await
                 .expect("failed to start server and tasks");

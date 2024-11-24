@@ -8,7 +8,7 @@ use crate::server_connection::Error;
 pub async fn export_instance_update(
     client: &reqwest::Client,
     collector_url: &str,
-    export_data: &str,
+    export_data_json: &str,
     export_timeout: core::time::Duration,
 ) -> Result<(), Error> {
     let context = "export_instance_update";
@@ -18,7 +18,7 @@ pub async fn export_instance_update(
         context,
         format!("sending request to {export_endpoint} with timeout: {export_timeout:?}"),
     );
-    let request = compress_and_set_body_and_with_encoding_headers(request, &export_data);
+    let request = compress_and_set_body_and_with_encoding_headers(request, &export_data_json);
     let response = request
         .header("Content-Type", "application/json")
         .timeout(export_timeout)

@@ -156,11 +156,9 @@ name = "api-structs"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "deepsize",
  "serde",
- "serde_json",
  "serde_with",
- "thiserror 2.0.3",
- "tracing",
  "uuid",
 ]
 
@@ -4261,9 +4259,8 @@ version = "0.1.0"
 dependencies = [
  "api-structs",
  "brotli 7.0.0",
- "chrono",
+ "deepsize",
  "futures",
- "futures-util",
  "maplit",
  "parking_lot",
  "pprof",

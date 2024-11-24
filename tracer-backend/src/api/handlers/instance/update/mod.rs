@@ -11,7 +11,7 @@ use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 use uuid::Uuid;
 
 use api_structs::instance::update::{
-    ExportedServiceTraceData, Sampling, SamplingState, Span, SpanEvent, TraceState,
+    Event, InstanceSnapshot, Sampling, SamplingState, Span, TraceSnapshot,
 };
 use api_structs::time_conversion::{now_nanos_u64, time_from_nanos};
 use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
@@ -226,7 +226,7 @@ pub async fn get_existing_span_ids(
 pub async fn update_trace_with_new_state(
     con: &PgPool,
     instance_id: &InstanceId,
-    trace_state: TraceState,
+    trace_state: TraceSnapshot,
 ) -> Result<(), SqlxError> {
     trace!("fragment = {:#?}", trace_state);
     info!("fragment for: {}", trace_state.root().name);
@@ -292,7 +292,7 @@ pub async fn update_trace_with_new_state(
         0,
         0,
         false,
-        trace_root.closed,
+        trace_root.is_closed,
     )
     .await?;
 
@@ -646,7 +646,7 @@ fn truncate_span_key_values_if_needed(spans: &mut ValuesMut<u32, Span>) {
 }
 
 #[instrument(skip_all)]
-fn truncate_events_if_needed(events: &mut Vec<SpanEvent>) {
+fn truncate_events_if_needed(events: &mut Vec<Event>) {
     for e in events {
         if let Some(msg) = &mut e.message {
             if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
@@ -678,7 +678,7 @@ fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<OrphanEvent>) {
 #[instrument(level = "error", skip_all, err(Debug))]
 pub async fn instance_update_post(
     State(app_state): State<AppState>,
-    trace_data: Json<ExportedServiceTraceData>,
+    trace_data: Json<InstanceSnapshot>,
 ) -> Result<Json<Sampling>, ApiError> {
     unimplemented!()
     // let con = app_state.con;

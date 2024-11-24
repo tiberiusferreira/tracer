@@ -1,13 +1,17 @@
+use deepsize::DeepSizeOf;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
 pub mod instance;
 pub mod time_conversion;
 pub mod ui;
 
 pub type TraceName = String;
+pub type SpanId = u64;
+pub type TraceId = u64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct ServiceId {
@@ -61,7 +65,7 @@ impl Display for Env {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize, DeepSizeOf)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Trace,

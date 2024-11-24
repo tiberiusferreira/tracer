@@ -14,7 +14,8 @@ async fn main() {
         },
         "http://127.0.0.1:4123".to_string(),
     );
-    let _flush_requester = tracing_config_helper::setup_tracer_client_or_panic(tracer_config).await;
+    let _flush_requester =
+        tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config).await;
     loop {
         info!("sample info log");
         sample_function();
