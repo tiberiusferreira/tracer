@@ -1,2 +1,2 @@
-pub mod connect;
+pub mod registration;
 pub mod update;

@@ -8,7 +8,7 @@ use api_structs::ui::trace::search::event::Event;
 use api_structs::ui::trace::search::event::TraceEventSearch;
 use api_structs::ui::trace::spans::{SingleChunkTraceQuery, Span, TraceChunkId, TraceId};
 use api_structs::ui::trace::TraceHeaderAndSpans;
-use api_structs::{Env, InstanceId, ServiceId, Severity};
+use api_structs::{Env, InstanceGlobalId, ServiceId, Severity};
 use chrono::Duration;
 use js_sys::encode_uri_component;
 use js_sys::JSON::stringify;
@@ -216,7 +216,7 @@ pub fn TraceChunk() -> impl IntoView {
         .get("end_timestamp")
         .map(|e| e.parse::<u64>().unwrap());
     let trace_id = TraceId {
-        instance_id: InstanceId {
+        instance_id: InstanceGlobalId {
             service_id: ServiceId {
                 env: Env::from(env.to_string()),
                 name: service_name.to_string(),

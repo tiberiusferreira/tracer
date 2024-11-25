@@ -2,13 +2,26 @@ pub use crate::Severity;
 use deepsize::{Context, DeepSizeOf};
 use std::collections::HashMap;
 
+pub struct InstanceUpdateEndpoint;
+impl crate::Endpoint for InstanceUpdateEndpoint {
+    const PATH: &'static str = "/api/instance/update";
+    const METHOD: &'static str = "POST";
+    type RequestBody = InstanceSnapshot;
+    type ResponseBody = ConfigChange;
+}
+
 pub const ROOT_SPAN_ID: u64 = 0;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConfigChange {
+    pub log_filter: Option<String>,
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InstanceSnapshot {
     pub instance_id: uuid::Uuid,
-    pub orphan_events: Vec<Event>,
     pub trace_snapshots: HashMap<crate::TraceId, TraceSnapshot>,
+    pub orphan_events: Vec<Event>,
     pub export_buffer_size_bytes: u64,
     pub log_filter: String,
     pub cpu_profile: Option<Vec<u8>>,
@@ -25,16 +38,16 @@ impl TraceSnapshot {
     pub fn is_closed(&self) -> bool {
         self.root().is_closed
     }
-    // pub fn has_warnings(&self) -> bool {
-    //     self.new_events
-    //         .iter()
-    //         .any(|event| event.severity == Severity::Warn)
-    // }
-    // pub fn has_errors(&self) -> bool {
-    //     self.new_events
-    //         .iter()
-    //         .any(|event| event.severity == Severity::Error)
-    // }
+    pub fn has_warnings(&self) -> bool {
+        self.spans
+            .values()
+            .any(|e| e.events.iter().any(|e| e.severity == Severity::Warn))
+    }
+    pub fn has_errors(&self) -> bool {
+        self.spans
+            .values()
+            .any(|e| e.events.iter().any(|e| e.severity == Severity::Error))
+    }
 
     pub fn root(&self) -> &Span {
         self.spans

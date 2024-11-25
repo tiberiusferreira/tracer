@@ -1,18 +1,15 @@
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use tokio::task::spawn_local;
-use tracing::{error, info, info_span, instrument, Instrument};
+use tracing::{info, info_span, instrument, Instrument};
 
 use api_structs::ServiceId;
 use tracing_config_helper::TracerConfig;
-use tracked_error::error_chain_to_pretty_formatted;
 
 use crate::api::state::AppState;
 
@@ -40,21 +37,24 @@ async fn main() {
             // load env vars so clap can use it when parsing a config
             println!("Loading env vars");
             dotenvy::dotenv().ok();
-            let config = LaunchConfig::parse();
-            let env = tracing_config_helper::Env::from(config.environment.clone());
+            let launch_config = LaunchConfig::parse();
+            let join_handle = start_api_and_background_tasks(launch_config.clone())
+                .await
+                .expect("failed to start server and tasks");
+            let env = tracing_config_helper::Env::from(launch_config.environment.clone());
             let tracer_config = TracerConfig::new(
                 ServiceId {
                     name: env!("CARGO_BIN_NAME").to_string(),
                     env,
                 },
-                format!("http://127.0.0.1:{}", config.api_listen_port),
-            );
+                format!("http://127.0.0.1:{}", launch_config.api_listen_port),
+            )
+            .with_enable_log_exporting(false)
+            .with_stdout_logging(true);
+
             let _tracer_flush_request =
                 tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)
                     .await;
-            let join_handle = start_api_and_background_tasks(config)
-                .await
-                .expect("failed to start server and tasks");
             join_handle
                 .await
                 .expect("api and background tasks shouldn't ever return");
@@ -69,10 +69,7 @@ async fn start_api_and_background_tasks(
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     info!("Using config: {:#?}", config);
     let con = connect_to_db(&config).await?;
-    let app_state = AppState {
-        con,
-        connected_instances_sse_handle: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-    };
+    let app_state = AppState { con };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
         loop {
@@ -99,7 +96,7 @@ async fn start_api_and_background_tasks(
     Ok(api_handle)
 }
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, Clone, clap::Parser)]
 pub struct LaunchConfig {
     #[clap(flatten)]
     pub db: DbConfig,
@@ -111,7 +108,7 @@ pub struct LaunchConfig {
     pub environment: String,
 }
 
-#[derive(clap::Parser)]
+#[derive(Clone, clap::Parser)]
 pub struct DbConfig {
     #[clap(long, env = "DATABASE_URL")]
     pub url: String,

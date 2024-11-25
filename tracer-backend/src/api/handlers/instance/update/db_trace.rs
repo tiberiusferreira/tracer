@@ -1,4 +1,4 @@
-use api_structs::InstanceId;
+use api_structs::InstanceGlobalId;
 use chrono::NaiveDateTime;
 use sqlx::{Postgres, Transaction};
 use std::ops::DerefMut;
@@ -16,7 +16,7 @@ pub struct DbTrace {
 #[instrument(skip_all)]
 pub async fn insert_new_trace(
     con: &mut Transaction<'static, Postgres>,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
     trace_id: i32,
     span_produced: i32,
     events_produced: i32,
@@ -46,7 +46,7 @@ pub async fn insert_new_trace(
 #[instrument(skip_all)]
 pub async fn upsert_trace_cache(
     con: &mut Transaction<'static, Postgres>,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
     trace_id: i32,
     timestamp: NaiveDateTime,
     top_level_span_name: &str,
@@ -113,25 +113,26 @@ pub async fn upsert_trace_cache(
 #[instrument(skip_all)]
 pub async fn update_trace_header(
     con: &mut Transaction<'static, Postgres>,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
     trace_id: i32,
     span_produced: i32,
     events_produced: i32,
     events_dropped_by_sampling: i32,
 ) -> Result<(), SqlxError> {
-    info!("Updating trace header information for: {:?}", instance_id);
-    sqlx::query!(
-        "update trace set spans_produced=$3::int, events_produced=$4::int, events_dropped_by_sampling=$5::int \
-        where instance_id=$1 and id=$2;",
-        instance_id.instance_id as _,
-        trace_id,
-        span_produced,
-        events_produced,
-        events_dropped_by_sampling
-    )
-    .execute(con.deref_mut())
-    .await?;
-    Ok(())
+    // info!("Updating trace header information for: {:?}", instance_id);
+    // sqlx::query!(
+    //     "update trace set spans_produced=$3::int, events_produced=$4::int, events_dropped_by_sampling=$5::int \
+    //     where instance_id=$1 and id=$2;",
+    //     instance_id.instance_id as _,
+    //     trace_id,
+    //     span_produced,
+    //     events_produced,
+    //     events_dropped_by_sampling
+    // )
+    // .execute(con.deref_mut())
+    // .await?;
+    // Ok(())
+    unimplemented!()
 }
 
 pub async fn get_trace_header(

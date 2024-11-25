@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use std::fmt::Formatter;
 use thiserror::Error;
 use tracing::{error, info, instrument};
-use tracked_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter, ReqwestError};
+use tracked_error::{error_chain_to_pretty_formatted, ReqwestError};
 
 pub mod database;
 
@@ -63,7 +63,7 @@ async fn send_slack_msg(
         .timeout(std::time::Duration::from_secs(10))
         .default_headers(default_header)
         .build()
-        .map_err(|e| ReqwestError::from_reqwest_error(e, "building reqwest client"))?;
+        .map_err(ReqwestError::from)?;
     let text_req = client
         .post("https://slack.com/api/chat.postMessage")
         .query(&[
@@ -71,17 +71,13 @@ async fn send_slack_msg(
             ("text", notification.to_string()),
         ])
         .build()
-        .map_err(|e| ReqwestError::from_reqwest_error(e, "building post request"))?;
-    let text_send_resp = client
-        .execute(text_req)
-        .await
-        .map_err(|e| ReqwestError::from_reqwest_error(e, "sending request"))?;
+        .map_err(ReqwestError::from)?;
+    let text_send_resp = client.execute(text_req).await.map_err(ReqwestError::from)?;
     check_response(text_send_resp)
         .await
         .map_err(|e| SlackResponseError {
             context: format!("Sending slack msg {}", notification),
             error: e,
-            backtrace: OptionBacktracePrettyPrinter::capture(),
         })?;
     Ok(())
 }
@@ -162,20 +158,18 @@ pub enum SlackSendError {
 }
 
 #[derive(Debug, Error)]
-#[error("Unexpected Slack Response. Context: {context}\n{error}\n{backtrace}")]
+#[error("Unexpected Slack Response. Context: {context}\n{error}")]
 pub struct SlackResponseError {
     pub context: String,
     pub error: String,
-    pub backtrace: OptionBacktracePrettyPrinter,
 }
 
 #[derive(Debug, Error)]
-#[error("InvalidHeaderError Context: {context}\n{backtrace}")]
+#[error("InvalidHeaderError Context: {context}\n")]
 pub struct InvalidHeaderError {
     #[source]
     pub source: InvalidHeaderValue,
     pub context: String,
-    pub backtrace: OptionBacktracePrettyPrinter,
 }
 
 impl InvalidHeaderError {
@@ -186,7 +180,6 @@ impl InvalidHeaderError {
         Self {
             source: e,
             context: context.into(),
-            backtrace: OptionBacktracePrettyPrinter::capture(),
         }
     }
 }

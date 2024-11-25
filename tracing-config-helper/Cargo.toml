@@ -21,9 +21,4 @@ serde_json.workspace = true
 parking_lot.workspace = true
 deepsize.workspace = true
 pprof = { version = "0.14", features = ["flamegraph", "frame-pointer", "prost-codec"] }
-uuid = { version = "1", features = ['v4'] }
-reqwest-eventsource = "0.6"
-
-[dev-dependencies]
-wiremock = "0.6.0"
 

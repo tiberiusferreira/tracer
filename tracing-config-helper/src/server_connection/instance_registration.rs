@@ -1,22 +1,23 @@
 use crate::print_if_dbg;
 use crate::server_connection::Error;
-use api_structs::instance::connect::RegistrationResponse;
+use api_structs::instance::registration::RegistrationResponse;
+use api_structs::{Endpoint, ServiceId};
 use tracked_error::{ReqwestError, SerdeJsonError};
-
-const REGISTRATION_ENDPOINT: &str = "/api/instance/register";
 
 pub async fn register_instance(
     client: &reqwest::Client,
     collector_url: &str,
+    service_id: &ServiceId,
     timeout: std::time::Duration,
 ) -> Result<RegistrationResponse, Error> {
     let context = "register_instance";
-    let registration_endpoint = format!("{}{}", collector_url, REGISTRATION_ENDPOINT);
+    let path = api_structs::instance::registration::RegistrationEndpoint::PATH;
+    let registration_endpoint = format!("{collector_url}{path}");
     print_if_dbg(
         context,
         format!("sending request to {registration_endpoint} with timeout: {timeout:?}"),
     );
-    let request = client.get(registration_endpoint);
+    let request = client.post(registration_endpoint).json(service_id);
     let response = request
         .timeout(timeout)
         .send()

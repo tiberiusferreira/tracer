@@ -1,18 +1,16 @@
-use crate::api::handlers::{db_i64_to_nanos, nanos_to_db_i64, Severity};
 use crate::api::state::AppState;
 use crate::api::ApiError;
-use api_structs::instance::update::Location;
-use api_structs::ui::orphan_events::{OrphanEvent, ServiceOrphanEventsRequest};
+use api_structs::instance::update::Event;
+use api_structs::ui::orphan_events::ServiceOrphanEventsRequest;
 use axum::extract::{Query, State};
 use axum::Json;
 use tracing::instrument;
-use tracked_error::SqlxError;
 
 #[instrument(level = "error", skip_all)]
 pub(crate) async fn ui_orphan_events_get(
     service_log_request: Query<ServiceOrphanEventsRequest>,
     State(app_state): State<AppState>,
-) -> Result<Json<Vec<OrphanEvent>>, ApiError> {
+) -> Result<Json<Vec<Event>>, ApiError> {
     //     let from_timestamp = nanos_to_db_i64(service_log_request.from_date_unix)?;
     //     let to_timestamp = nanos_to_db_i64(service_log_request.to_date_unix)?;
     //     let service_name = &service_log_request.service_id.name;

@@ -1,22 +1,13 @@
-use crate::api::handlers::instance::connect::ChangeFilterInternalRequest;
-use crate::CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS;
-use api_structs::time_conversion::time_from_nanos;
-use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
-use api_structs::{InstanceId, ServiceId, TraceName};
-use chrono::NaiveDateTime;
+use api_structs::TraceName;
 use sqlx::PgPool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::time::Instant;
-use tracing::debug;
-use uuid::Uuid;
 
 pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 
 #[derive(Clone)]
 pub struct AppState {
     pub con: PgPool,
-    pub connected_instances_sse_handle:
-        Shared<HashMap<InstanceId, tokio::sync::mpsc::Sender<ChangeFilterInternalRequest>>>,
 }
 
 #[derive(Debug, Clone)]

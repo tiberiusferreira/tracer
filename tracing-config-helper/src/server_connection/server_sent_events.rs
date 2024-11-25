@@ -37,11 +37,7 @@ pub async fn continuously_listen_for_server_sent_events<OnMessage, Fut>(
         let base_url = format!("{collector_url}{}", SSE_CONNECT_ENDPOINT);
         let url = reqwest::Url::parse_with_params(
             &base_url,
-            [
-                ("name", instance_id.service_id.name.as_str()),
-                ("env", instance_id.service_id.env.to_string().as_str()),
-                ("instance_id", instance_id.instance_id.to_string().as_str()),
-            ],
+            [("instance_id", instance_id.to_string().as_str())],
         )
         .unwrap_or_else(|e| {
             panic!(

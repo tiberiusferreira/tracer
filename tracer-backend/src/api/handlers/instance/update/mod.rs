@@ -10,12 +10,10 @@ use sqlx::{PgPool, Postgres, Transaction};
 use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 use uuid::Uuid;
 
-use api_structs::instance::update::{
-    Event, InstanceSnapshot, Sampling, SamplingState, Span, TraceSnapshot,
-};
+use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, Span, TraceSnapshot};
 use api_structs::time_conversion::{now_nanos_u64, time_from_nanos};
-use api_structs::ui::service::{OrphanEvent, ProfileData, TraceHeader};
-use api_structs::{InstanceId, ServiceId, TraceName};
+use api_structs::ui::service::{ProfileData, TraceHeader};
+use api_structs::{InstanceGlobalId, ServiceId, TraceName};
 use tracked_error::SqlxError;
 
 use crate::api::handlers::Severity;
@@ -26,12 +24,13 @@ use crate::{
     SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT,
 };
 mod db_trace;
+mod instance;
 pub struct ServiceNotRegisteredError;
 
 #[instrument(skip_all)]
 fn update_service_and_instance_data(// live_instances: &Shared<HashMap<ServiceId, crate::api::state::ServiceRuntimeData>>,
-                                    // exported_service_trace_data: &ExportedServiceTraceData,
-) -> Result<Sampling, ServiceNotRegisteredError> {
+                                     // exported_service_trace_data: &ExportedServiceTraceData,
+) -> Result<(), ServiceNotRegisteredError> {
     unimplemented!()
     // let mut w_lock = live_instances.write();
     // let service_data = match w_lock.get_mut(&exported_service_trace_data.instance_id.service_id) {
@@ -149,7 +148,7 @@ pub struct TraceDuration {
 #[instrument(skip_all)]
 async fn get_db_trace(
     con: &PgPool,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
     trace_id: u64,
 ) -> Result<Option<TraceDuration>, tracked_error::SqlxError> {
     // debug!("instance_id: {instance_id:?}, trace_id: {trace_id}");
@@ -225,7 +224,7 @@ pub async fn get_existing_span_ids(
 #[instrument(skip_all)]
 pub async fn update_trace_with_new_state(
     con: &PgPool,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
     trace_state: TraceSnapshot,
 ) -> Result<(), SqlxError> {
     trace!("fragment = {:#?}", trace_state);
@@ -235,74 +234,74 @@ pub async fn update_trace_with_new_state(
     // 2. A child with a longer duration than the parent
     // 3. More than one root span
     let trace_id = trace_state.id;
-    let mut transaction = con
-        .begin()
-        .instrument(info_span!("starting_transaction"))
-        .await?;
-    let db_trace =
-        db_trace::get_trace_header(&mut transaction, instance_id.instance_id, trace_id as i32)
-            .await?;
-    match db_trace {
-        None => {
-            db_trace::insert_new_trace(
-                &mut transaction,
-                instance_id,
-                trace_id as i32,
-                trace_state.spans_produced as i32,
-                trace_state.events_produced as i32,
-                trace_state.events_dropped_by_sampling as i32,
-            )
-            .await?
-        }
-        Some(existing) => {
-            if trace_state.events_produced < existing.events_produced as u32 {
-                error!("Events produced dropped!");
-            }
-            if trace_state.events_dropped_by_sampling < existing.events_dropped_by_sampling as u32 {
-                error!("Event dropped by sampling dropped!");
-            }
-            if trace_state.spans_produced < existing.spans_produced as u32 {
-                error!("Spans produced dropped!");
-            }
-            db_trace::update_trace_header(
-                &mut transaction,
-                instance_id,
-                trace_id as i32,
-                trace_state.spans_produced as i32,
-                trace_state.events_produced as i32,
-                trace_state.events_dropped_by_sampling as i32,
-            )
-            .await?;
-        }
-    }
-    let trace_root = trace_state.root();
-    let spans: Vec<Span> = trace_state.spans.values().into_iter().cloned().collect();
-
-    insert_spans(&mut transaction, &spans, trace_id as i32, instance_id).await?;
-
-    db_trace::upsert_trace_cache(
-        &mut transaction,
-        instance_id,
-        trace_id as i32,
-        time_from_nanos(trace_root.timestamp),
-        &trace_root.name,
-        trace_root.duration as i64,
-        0,
-        0,
-        0,
-        0,
-        false,
-        trace_root.is_closed,
-    )
-    .await?;
-
-    crate::api::database::insert_events(
-        &mut transaction,
-        &trace_state.new_events,
-        trace_id as i32,
-        &instance_id,
-    )
-    .await?;
+    // let mut transaction = con
+    //     .begin()
+    //     .instrument(info_span!("starting_transaction"))
+    //     .await?;
+    // let db_trace =
+    //     db_trace::get_trace_header(&mut transaction, instance_id.instance_id, trace_id as i32)
+    //         .await?;
+    // match db_trace {
+    //     None => {
+    //         db_trace::insert_new_trace(
+    //             &mut transaction,
+    //             instance_id,
+    //             trace_id as i32,
+    //             trace_state.spans_produced as i32,
+    //             trace_state.events_produced as i32,
+    //             trace_state.events_dropped_by_sampling as i32,
+    //         )
+    //         .await?
+    //     }
+    //     Some(existing) => {
+    //         if trace_state.events_produced < existing.events_produced as u32 {
+    //             error!("Events produced dropped!");
+    //         }
+    //         if trace_state.events_dropped_by_sampling < existing.events_dropped_by_sampling as u32 {
+    //             error!("Event dropped by sampling dropped!");
+    //         }
+    //         if trace_state.spans_produced < existing.spans_produced as u32 {
+    //             error!("Spans produced dropped!");
+    //         }
+    //         db_trace::update_trace_header(
+    //             &mut transaction,
+    //             instance_id,
+    //             trace_id as i32,
+    //             trace_state.spans_produced as i32,
+    //             trace_state.events_produced as i32,
+    //             trace_state.events_dropped_by_sampling as i32,
+    //         )
+    //         .await?;
+    //     }
+    // }
+    // let trace_root = trace_state.root();
+    // let spans: Vec<Span> = trace_state.spans.values().into_iter().cloned().collect();
+    //
+    // insert_spans(&mut transaction, &spans, trace_id as i32, instance_id).await?;
+    //
+    // db_trace::upsert_trace_cache(
+    //     &mut transaction,
+    //     instance_id,
+    //     trace_id as i32,
+    //     time_from_nanos(trace_root.timestamp),
+    //     &trace_root.name,
+    //     trace_root.duration as i64,
+    //     0,
+    //     0,
+    //     0,
+    //     0,
+    //     false,
+    //     trace_root.is_closed,
+    // )
+    // .await?;
+    //
+    // crate::api::database::insert_events(
+    //     &mut transaction,
+    //     &trace_state.new_events,
+    //     trace_id as i32,
+    //     &instance_id,
+    // )
+    // .await?;
 
     // let db_trace_duration = get_db_trace(&con, &instance_id, fragment.root_span.id).await?;
     // let trace_already_exists = db_trace_duration.is_some();
@@ -461,7 +460,7 @@ pub async fn update_trace_with_new_state(
     //     has_errors,
     // )
     // .await?;
-    transaction.commit().await?;
+    // transaction.commit().await?;
     Ok(())
 }
 
@@ -519,8 +518,8 @@ pub async fn update_trace_with_new_state(
 #[instrument(skip_all)]
 pub async fn insert_orphan_events(
     con: &PgPool,
-    instance_id: &InstanceId,
-    orphan_events: &[OrphanEvent],
+    instance_id: &InstanceGlobalId,
+    orphan_events: &[Event],
 ) {
     // info!("{} events to insert", orphan_events.len());
     // for e in orphan_events {
@@ -659,7 +658,7 @@ fn truncate_events_if_needed(events: &mut Vec<Event>) {
 }
 
 #[instrument(skip_all)]
-fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<OrphanEvent>) {
+fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<Event>) {
     for e in events {
         if let Some(msg) = &mut e.message {
             if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
@@ -674,14 +673,36 @@ fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<OrphanEvent>) {
     }
 }
 
-// #[debug_handler]
 #[instrument(level = "error", skip_all, err(Debug))]
-pub async fn instance_update_post(
+pub async fn handler(
     State(app_state): State<AppState>,
-    trace_data: Json<InstanceSnapshot>,
-) -> Result<Json<Sampling>, ApiError> {
-    unimplemented!()
-    // let con = app_state.con;
+    instance_snapshot: Json<InstanceSnapshot>,
+) -> Result<Json<ConfigChange>, ApiError> {
+    info!(instance_id=?instance_snapshot.instance_id,
+        log_filter=?instance_snapshot.log_filter, "got instance update");
+    trace!(trace_snapshots=?instance_snapshot.trace_snapshots);
+    trace!(orphan_events=?instance_snapshot.orphan_events);
+    trace!(export_buffer_size_bytes=?instance_snapshot.export_buffer_size_bytes);
+    trace!(log_filter=?instance_snapshot.log_filter);
+    let con = app_state.con;
+    let mut tx = con.begin().await.map_err(SqlxError::from)?;
+    let instance_id = instance_snapshot.instance_id;
+    let instance_db_id = instance::database::get_instance_db_id(&mut tx, instance_id)
+        .await?
+        .ok_or_else(|| {
+            error!("got update for non existing instance");
+            ApiError {
+                code: StatusCode::BAD_REQUEST,
+                message: "instance not registered".to_string(),
+            }
+        })?;
+    let instance_update_id =
+        instance::database::insert_instance_update(&mut tx, instance_db_id).await?;
+    let config_change =
+        instance::get_instance_config_change(&mut tx, instance_id, &instance_snapshot.log_filter)
+            .await?;
+    tx.commit().await.map_err(SqlxError::from)?;
+    Ok(config_change)
     // let trace_data: ExportedServiceTraceData = trace_data.0;
     // trace!("{trace_data:#?}");
     // let sampling = update_service_and_instance_data(&app_state.services_runtime_stats, &trace_data)
@@ -712,7 +733,7 @@ pub async fn instance_update_post(
 #[instrument(skip_all)]
 async fn update_trace_header(
     con: &mut Transaction<'static, Postgres>,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
     trace_id: u64,
     duration: Option<u64>,
     spans_produced: u64,
@@ -761,7 +782,7 @@ pub(crate) async fn insert_spans(
     con: &mut Transaction<'static, Postgres>,
     new_spans: &[Span],
     trace_id: i32,
-    instance_id: &InstanceId,
+    instance_id: &InstanceGlobalId,
 ) -> Result<(), SqlxError> {
     // if new_spans.is_empty() {
     //     info!("No spans to insert");

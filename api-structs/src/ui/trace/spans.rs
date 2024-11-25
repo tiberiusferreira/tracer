@@ -5,7 +5,7 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 
 use crate::instance::update::Location;
-use crate::InstanceId;
+use crate::InstanceGlobalId;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct SingleChunkTraceQuery {
@@ -19,7 +19,7 @@ pub struct SingleChunkTraceQuery {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct TraceId {
     #[serde(flatten)]
-    pub instance_id: InstanceId,
+    pub instance_id: InstanceGlobalId,
     #[serde_as(as = "DisplayFromStr")]
     pub trace_id: u32,
 }

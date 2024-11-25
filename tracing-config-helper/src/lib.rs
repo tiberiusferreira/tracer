@@ -12,9 +12,9 @@ use tracing_subscriber::{EnvFilter, Registry};
 
 use crate::server_connection::instance_update_sender::export_instance_update;
 use crate::subscriber::{ExportDataGetter, TracerTracingSubscriber};
-use api_structs::instance::connect::RegistrationResponse;
+use api_structs::instance::registration::RegistrationResponse;
 use api_structs::instance::update::InstanceSnapshot;
-pub use api_structs::{Env, InstanceId, ServiceId, Severity};
+pub use api_structs::{Env, InstanceGlobalId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
 
 mod print_debugging;
@@ -32,8 +32,9 @@ pub struct TracerConfig {
     /// export buffers to fill up. Stats are also exported on this schedule.
     pub duration_between_exports: Duration,
     pub min_duration_between_profile_exports: Duration,
-    pub log_stdout: bool,
-    pub log_stdout_json: bool,
+    pub enable_log_exporting: bool,
+    pub enable_stdout_logging: bool,
+    pub stdout_log_as_json: bool,
 }
 
 impl TracerConfig {
@@ -43,20 +44,31 @@ impl TracerConfig {
             export_timeout: Duration::from_secs(10),
             duration_between_exports: Duration::from_secs(5),
             min_duration_between_profile_exports: Duration::from_secs(60),
-            log_stdout: false,
+            enable_log_exporting: true,
+            enable_stdout_logging: true,
             service_id,
-            log_stdout_json: false,
+            stdout_log_as_json: false,
         }
     }
-    pub fn with_export_timeout(mut self, duration: Duration) {
-        self.export_timeout = duration
+    pub fn with_enable_log_exporting(mut self, enable_exporting: bool) -> Self {
+        self.enable_log_exporting = enable_exporting;
+        self
     }
-    pub fn with_sleep_between_exports(mut self, duration: Duration) {
+    pub fn with_stdout_logging(mut self, enable_stdout_logging: bool) -> Self {
+        self.enable_stdout_logging = enable_stdout_logging;
+        self
+    }
+    pub fn with_export_timeout(mut self, duration: Duration) -> Self {
+        self.export_timeout = duration;
+        self
+    }
+    pub fn with_sleep_between_exports(mut self, duration: Duration) -> Self {
         assert!(
             duration.as_secs() >= 2,
             "Sleep between exports needs to be at least 2s to not flood collector"
         );
-        self.duration_between_exports = duration
+        self.duration_between_exports = duration;
+        self
     }
 }
 
@@ -90,6 +102,7 @@ pub async fn setup_tracer_client_in_background_or_panic(config: TracerConfig) ->
         });
     });
     let export_now_requester = r.await.expect("initialization to work");
+    println!("Tracer fully initialized");
     TracerHandle {
         thread_handle,
         export_now_requester,
@@ -97,14 +110,14 @@ pub async fn setup_tracer_client_in_background_or_panic(config: TracerConfig) ->
 }
 
 struct TracerTasks {
-    sse_task: tokio::task::JoinHandle<()>,
+    // sse_task: tokio::task::JoinHandle<()>,
     trace_export_task: tokio::task::JoinHandle<()>,
     export_now_request_sender: ExportNowRequester,
 }
 
 impl TracerTasks {
     pub async fn wait_or_panic(self) {
-        let _res = futures::try_join!(self.sse_task, self.trace_export_task).unwrap();
+        let _res = futures::try_join!(self.trace_export_task).unwrap();
     }
 }
 
@@ -184,12 +197,14 @@ fn start_cpu_profiler() -> ProfilerGuard<'static> {
 async fn registration_loop(
     reqwest_client: &reqwest::Client,
     collector_url: &str,
+    service_id: ServiceId,
 ) -> RegistrationResponse {
-    let context = "registration_loop";
     loop {
+        println!("Sending tracer registration request");
         match server_connection::instance_registration::register_instance(
             &reqwest_client,
             collector_url,
+            &service_id,
             Duration::from_secs(10),
         )
         .await
@@ -197,10 +212,7 @@ async fn registration_loop(
             Ok(registration_response) => return registration_response,
             Err(err) => {
                 let sleep_seconds = 60;
-                print_if_dbg(
-                    context,
-                    format!("Registration failure: {} - sleeping {sleep_seconds}s", err),
-                );
+                println!("Registration failure: {} - sleeping {sleep_seconds}s", err);
                 tokio::time::sleep(Duration::from_secs(sleep_seconds)).await;
             }
         }
@@ -210,7 +222,12 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
     let reqwest_client = reqwest::ClientBuilder::new()
         .build()
         .expect("reqwest client to be able to be created");
-    let registration_response = registration_loop(&reqwest_client, &config.collector_url).await;
+    let registration_response = registration_loop(
+        &reqwest_client,
+        &config.collector_url,
+        config.service_id.clone(),
+    )
+    .await;
     let (export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
     let cpu_profiler_guard = start_cpu_profiler();
 
@@ -228,17 +245,6 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         .with(tracer_tracing_subscriber)
         .with(tracing_subscriber::fmt::layer());
     tracing::subscriber::set_global_default(registry).expect("no other global subscriber to exist");
-    let instance_id = InstanceId {
-        service_id: config.service_id.clone(),
-        instance_id: uuid::Uuid::new_v4(),
-    };
-    let sse_task = tokio::task::spawn_local(
-        server_connection::server_sent_events::continuously_handle_server_sent_events(
-            instance_id.clone(),
-            config.collector_url.clone(),
-            reload_tracer_handle.clone(),
-        ),
-    );
 
     let trace_export_task = tokio::task::spawn_local(trace_export_loop(
         reqwest_client,
@@ -247,11 +253,10 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         export_now_request_receiver,
         reload_tracer_handle,
         export_data_getter,
-        instance_id,
+        registration_response.instance_id,
     ));
     install_global_export_traces_on_panic_hook(export_now_request_sender.clone());
     TracerTasks {
-        sse_task,
         trace_export_task,
         export_now_request_sender,
     }
@@ -264,7 +269,7 @@ async fn trace_export_loop(
     mut flush_request_receiver: Receiver<FlushRequest>,
     reload_tracer_handle: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
     export_data_getter: ExportDataGetter,
-    instance_id: InstanceId,
+    instance_id: InstanceGlobalId,
 ) {
     let context = "trace_export_task";
     let min_wait_duration_between_profile_exports = config.min_duration_between_profile_exports;
@@ -318,9 +323,14 @@ async fn trace_export_loop(
         } else {
             None
         };
-        let traces_and_orphan_events = export_data_getter.get_data_ready_to_export();
+        let mut traces_and_orphan_events = export_data_getter.get_data_ready_to_export();
+        if !config.enable_log_exporting {
+            print_if_dbg(context, "dropping logs due to config.enable_log_exporting");
+            std::mem::take(&mut traces_and_orphan_events.traces);
+            std::mem::take(&mut traces_and_orphan_events.orphan_events);
+        }
         let export_data = InstanceSnapshot {
-            instance_id: instance_id.instance_id,
+            instance_id,
             orphan_events: traces_and_orphan_events.orphan_events,
             trace_snapshots: traces_and_orphan_events.traces,
             export_buffer_size_bytes: traces_and_orphan_events.export_buffer_size_bytes,
@@ -340,7 +350,15 @@ async fn trace_export_loop(
             )
             .await
             {
-                Ok(()) => break,
+                Ok(config_change) => {
+                    if let Some(new_log_filter) = config_change.log_filter {
+                        println!("reloading log filters using new config: {new_log_filter}");
+                        reload_tracer_handle
+                            .reload(new_log_filter)
+                            .expect("not not failed to reload filter");
+                    }
+                    break;
+                }
                 Err(err) => {
                     let err = tracked_error::error_chain_to_pretty_formatted(err);
                     println!("{context} - {err}");
@@ -364,19 +382,16 @@ async fn trace_export_loop(
     }
 }
 
-#[cfg(test)]
-mod test {
-    pub fn enable_logging_for_tests() {
-        tracing_subscriber::fmt::try_init().ok();
-        std::env::set_var("TRACER_DEBUG", "true");
-    }
-}
-
 fn install_global_export_traces_on_panic_hook(export_now_handle: ExportNowRequester) {
     let current = std::panic::take_hook();
     println!("Installing panic hook");
     std::panic::set_hook(Box::new(move |panic_info| {
         println!("Running panic hook, trying to export creating and exporting panic span.");
+        println!("{}", panic_info);
+        println!(
+            "Backtrace:\n{}.",
+            std::backtrace::Backtrace::force_capture()
+        );
         // Make sure we signal that we panic
         let panic_span = tracing::info_span!("program panicked", is_panic = true);
         panic_span.in_scope(|| {
@@ -386,6 +401,7 @@ fn install_global_export_traces_on_panic_hook(export_now_handle: ExportNowReques
             tracing::error!("Code panicked: Panic info: {}.", panic_info);
             tracing::error!("Backtrace:\n{bt}.");
         });
+        println!("trying to export it");
         if let Err(e) = export_now_handle.try_export_dont_wait_result() {
             println!("{:?}", e);
         }

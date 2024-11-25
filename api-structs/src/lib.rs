@@ -1,7 +1,6 @@
 use deepsize::DeepSizeOf;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
-use serde_with::DisplayFromStr;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -9,8 +8,16 @@ pub mod instance;
 pub mod time_conversion;
 pub mod ui;
 
+pub trait Endpoint {
+    const PATH: &'static str;
+    const METHOD: &'static str;
+    type RequestBody: Serialize + DeserializeOwned;
+    type ResponseBody: Serialize + DeserializeOwned;
+}
+
 pub type TraceName = String;
 pub type SpanId = u64;
+pub type InstanceGlobalId = uuid::Uuid;
 pub type TraceId = u64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -19,15 +26,6 @@ pub struct ServiceId {
     pub name: String,
     /// Local
     pub env: Env,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct InstanceId {
-    #[serde(flatten)]
-    pub service_id: ServiceId,
-    #[serde_as(as = "DisplayFromStr")]
-    pub instance_id: uuid::Uuid,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]

@@ -3,7 +3,7 @@ use crate::orphan_events::orphan_events_to_html;
 use crate::{PAGE_ROOT_URL, TRACE_CHUNK_PATH};
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::ui::service::{ServiceOverview, TraceHeader};
-use api_structs::InstanceId;
+use api_structs::InstanceGlobalId;
 use leptos::html::Div;
 use leptos::ReadSignal;
 use leptos::{view, SignalGet};
@@ -22,7 +22,7 @@ pub fn get_html(
         let window_nanos = window_secs * 1000_000_000;
         #[derive(Clone)]
         struct TraceHeaderWithInstance {
-            instance_id: InstanceId,
+            instance_id: InstanceGlobalId,
             trace_header: TraceHeader,
         }
         let mut active_traces = vec![];
@@ -45,7 +45,7 @@ pub fn get_html(
                                 is_closed: trace_header.is_closed,
                                 duration: trace_header.duration,
                             },
-                            instance_id: InstanceId {
+                            instance_id: InstanceGlobalId {
                                 service_id: service.service_id.clone(),
                                 instance_id: d.instance_id,
                             },
@@ -65,7 +65,7 @@ pub fn get_html(
                                 is_closed: trace_header.is_closed,
                                 duration: trace_header.duration,
                             },
-                            instance_id: InstanceId {
+                            instance_id: InstanceGlobalId {
                                 service_id: service.service_id.clone(),
                                 instance_id: d.instance_id,
                             },

@@ -9,8 +9,8 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
 
 use crate::api::state::AppState;
-use api_structs::{InstanceId, ServiceId};
-use tracked_error::{error_chain_to_pretty_formatted, OptionBacktracePrettyPrinter};
+use api_structs::{InstanceGlobalId, ServiceId};
+use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod database;
 pub mod handlers;
@@ -18,7 +18,7 @@ pub mod state;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LiveServiceInstance {
-    pub id: InstanceId,
+    pub id: InstanceGlobalId,
     pub last_seen_timestamp: u64,
     pub filters: String,
 }
@@ -49,12 +49,12 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         );
     let instance_routes = axum::Router::new()
         .route(
-            "/connect",
-            axum::routing::get(handlers::instance::connect::handler),
+            "/register",
+            axum::routing::post(handlers::instance::register::handler),
         )
         .route(
             "/update",
-            axum::routing::post(handlers::instance::update::instance_update_post),
+            axum::routing::post(handlers::instance::update::handler),
         );
     let trace_routes = axum::Router::new()
         .route(
@@ -96,15 +96,11 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             tower_http::trace::TraceLayer::new_for_http().make_span_with(
                 |request: &axum::http::Request<_>| {
                     let method = request.method();
-                    let uri = request.uri().path();
-                    let version = request.version();
-                    let new_span_name = format!("{method} {uri} {version:?}");
+                    let path = request.uri().path();
                     tracing::error_span!(
                         "request",
-                        tracer_span_rename_to = new_span_name,
-                        method = %request.method(),
-                        uri = %request.uri(),
-                        version = ?request.version(),
+                        http.request.method = %method,
+                        url.path = path,
                         headers = ?request.headers(),
                     )
                 },
@@ -157,15 +153,6 @@ pub struct ApiError {
     pub message: String,
 }
 
-impl From<handlers::instance::connect::service_initialization::Error> for ApiError {
-    fn from(value: handlers::instance::connect::service_initialization::Error) -> Self {
-        ApiError {
-            code: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "Service initialization error".to_string(),
-        }
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum AppStateError {
     #[error("AppStateError")]
@@ -173,17 +160,15 @@ pub enum AppStateError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("ServiceInAppStateButNotDBError:\n {error}\n{backtrace}")]
+#[error("ServiceInAppStateButNotDBError:\n {error}")]
 pub struct ServiceInAppStateButNotDBError {
     pub error: String,
-    pub backtrace: OptionBacktracePrettyPrinter,
 }
 
 impl ServiceInAppStateButNotDBError {
     pub fn new(service_id: &ServiceId) -> Self {
         Self {
             error: format!("Service {service_id:?} exists in memory cache, but not in DB, this should never happen"),
-            backtrace: OptionBacktracePrettyPrinter::capture(),
         }
     }
 }
