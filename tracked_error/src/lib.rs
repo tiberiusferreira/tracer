@@ -1,4 +1,3 @@
-use sqlx::Error;
 use std::panic::Location;
 use thiserror::__private::AsDynError;
 
@@ -13,14 +12,6 @@ where
         error = inner_err;
     }
     err
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("SqlxError\nat {location}")]
-pub struct SqlxError {
-    #[source]
-    pub source: sqlx::Error,
-    pub location: &'static Location<'static>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +34,7 @@ impl SerdeJsonError {
     }
 }
 
+#[cfg(feature = "reqwest")]
 #[derive(Debug, thiserror::Error)]
 #[error("ReqwestError\nat {location}")]
 pub struct ReqwestError {
@@ -51,6 +43,7 @@ pub struct ReqwestError {
     pub location: &'static Location<'static>,
 }
 
+#[cfg(feature = "reqwest")]
 impl From<reqwest::Error> for ReqwestError {
     #[track_caller]
     fn from(source: reqwest::Error) -> Self {
@@ -61,9 +54,19 @@ impl From<reqwest::Error> for ReqwestError {
     }
 }
 
+#[cfg(feature = "sqlx")]
+#[derive(Debug, thiserror::Error)]
+#[error("SqlxError\nat {location}")]
+pub struct SqlxError {
+    #[source]
+    pub source: sqlx::Error,
+    pub location: &'static Location<'static>,
+}
+
+#[cfg(feature = "sqlx")]
 impl From<sqlx::error::Error> for SqlxError {
     #[track_caller]
-    fn from(source: Error) -> Self {
+    fn from(source: sqlx::Error) -> Self {
         Self {
             source,
             location: Location::caller(),

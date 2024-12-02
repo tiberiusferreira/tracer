@@ -1,7 +1,7 @@
 use crate::services::graph_creation::{
     create_dom_el_ref_and_graph_call_action, GraphData, GraphSeries,
 };
-use api_structs::ui::service::ServiceDataOverTime;
+use api_structs::ui::r#mod::ServiceDataOverTime;
 use leptos::html::Div;
 use leptos::{Action, NodeRef, WriteSignal};
 

@@ -228,6 +228,7 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
         config.service_id.clone(),
     )
     .await;
+    println!("registered with collector");
     let (export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
     let cpu_profiler_guard = start_cpu_profiler();
 

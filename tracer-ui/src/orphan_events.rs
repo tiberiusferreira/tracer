@@ -64,7 +64,9 @@ pub fn orphan_events_to_html(
             view! {
                 <>
                     <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
-                        <p style={format!("white-space: pre-wrap; margin: 3px 0px 3px 0px; color: {color}")}>{event_msg}</p>
+                        <p style=format!(
+                            "white-space: pre-wrap; margin: 3px 0px 3px 0px; color: {color}",
+                        )>{event_msg}</p>
                     </div>
                 </>
             }
@@ -78,7 +80,7 @@ pub fn orphan_events_to_html(
     view! {
         <div style=format!("{limit_height_style} padding: 20px; color: white")>
             <p style="text-align: center">Orphan Events:</p>
-           {logs_view}
+            {logs_view}
         </div>
     }
 }
@@ -104,7 +106,7 @@ pub fn OrphanEvents() -> impl IntoView {
             None => {
                 view! {
                     <div style="padding: 20px; color: white">
-                       <p>"Loading, maybe failed, check logs"</p>
+                        <p>"Loading, maybe failed, check logs"</p>
                     </div>
                 }
             }
@@ -161,7 +163,7 @@ pub fn OrphanEvents() -> impl IntoView {
         // if request_in_progress {
         //     view! { <p style="margin: 0; background-color: yellow">{"Updating..."}</p>}
         // } else {
-        view! { <p style="margin: 0">{text}</p>}
+        view! { <p style="margin: 0">{text}</p> }
         // }
     };
 
@@ -196,45 +198,45 @@ pub fn OrphanEvents() -> impl IntoView {
 
     view! {
         <div class="main-grid">
-            <div class="main">
-                {logs_view}
-            </div>
+            <div class="main">{logs_view}</div>
             <div class="search-panel">
-                    <h1 class="traces-counter">{tracer_counter}</h1>
-                    <DatePicker
-                        label="From (local):".to_string()
-                        date_to_display=current_from_datetime
-                        on_change=Box::new(from_changed)
-                    />
-                    <DatePicker
-                        label="To (local):".to_string()
-                        date_to_display=current_to_datetime
-                        on_change=Box::new(to_changed)
-                    />
-                    <label class="search-panel__label">
-                        "Service Name:"
-                        <input on:input=service_name_changed
-                            prop:value={move || user_search_input_r.with(|r| r.search_for.service_id.name.to_string())}
-                            class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
-                            list="service-name-list"
-                        />
-                    </label>
-                    {
-                        move || {
-                            let service_name_list = service_name_list_r.get().unwrap_or_default();
-                            let spans: Vec<_> = service_name_list.iter().map(|s|{
-                             let s = s.name.clone();
-                                view!{
-                                    <option value={s}></option>
-                                }
-                            }).collect();
-                            view!{
-                                <datalist id="service-name-list">
-                                  {spans}
-                                </datalist>
-                            }
+                <h1 class="traces-counter">{tracer_counter}</h1>
+                <DatePicker
+                    label="From (local):".to_string()
+                    date_to_display=current_from_datetime
+                    on_change=Box::new(from_changed)
+                />
+                <DatePicker
+                    label="To (local):".to_string()
+                    date_to_display=current_to_datetime
+                    on_change=Box::new(to_changed)
+                />
+                <label class="search-panel__label">
+                    "Service Name:"
+                    <input
+                        on:input=service_name_changed
+                        prop:value=move || {
+                            user_search_input_r.with(|r| r.search_for.service_id.name.to_string())
                         }
-                    }
+                        class="search-panel__input"
+                        type="text"
+                        minlength="3"
+                        maxlength="50"
+                        size="20"
+                        list="service-name-list"
+                    />
+                </label>
+                {move || {
+                    let service_name_list = service_name_list_r.get().unwrap_or_default();
+                    let spans: Vec<_> = service_name_list
+                        .iter()
+                        .map(|s| {
+                            let s = s.name.clone();
+                            view! { <option value=s></option> }
+                        })
+                        .collect();
+                    view! { <datalist id="service-name-list">{spans}</datalist> }
+                }}
             </div>
         </div>
     }

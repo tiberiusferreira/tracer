@@ -13,7 +13,7 @@ members = [
 
 [workspace.dependencies]
 api-structs = { path = "./api-structs" }
-tracked_error = { path = "./tracked_error" }
+tracked_error = { path = "./tracked_error", default-features = false }
 uuid = { version = "1.8.0", features = ["serde", "v4"] }
 serde = { version = "1.0", features = ["derive"] }
 deepsize = "0.2.0"

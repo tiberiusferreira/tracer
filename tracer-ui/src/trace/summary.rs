@@ -97,9 +97,7 @@ fn create_span_summary_html(
         "position: absolute; display: flex; justify-content: center; margin-top: {margin_top}px; height: 15px; background-color: gray; border-radius: 8px",
     );
     let paragraph = if duration_percentage >= (span_name.len() as f64 / 2.) {
-        Some(view! {
-            <p style="margin: 0; font-size: x-small; text-align: center">{span_name.to_string()}</p>
-        })
+        Some(view! { <p style="margin: 0; font-size: x-small; text-align: center">{span_name.to_string()}</p> })
     } else {
         None
     };
@@ -127,25 +125,54 @@ fn create_span_summary_html(
             .min(100f64 - start_offset_percentage);
         view! {
             <>
-            <div class="summary-span" style={format!("margin-left: 0%; width: 99.6%; {}", span_style)}>
-                <span class="tooltip-text" id="top">{format!("{} ({}ms)", span_name, duration_ms)}</span>
-                {paragraph}
-            </div>
-            <div class="summary-span" style={format!("margin-left: 0%; width: {start_offset_percentage}%; {}", span_style2)}>
-                <span class="tooltip-text" id="top">{format!("{} ({}ms)", span_name, duration_ms)}</span>
-            </div>
-            <div class="summary-span" style={format!("margin-left: {end_of_window_percentage}%; width: {end_of_window_duration_percentage}%; {}", span_style2)}>
-                <span class="tooltip-text" id="top">{format!("{} ({}ms)", span_name, duration_ms)}</span>
-            </div>
+                <div
+                    class="summary-span"
+                    style=format!("margin-left: 0%; width: 99.6%; {}", span_style)
+                >
+                    <span class="tooltip-text" id="top">
+                        {format!("{} ({}ms)", span_name, duration_ms)}
+                    </span>
+                    {paragraph}
+                </div>
+                <div
+                    class="summary-span"
+                    style=format!(
+                        "margin-left: 0%; width: {start_offset_percentage}%; {}",
+                        span_style2,
+                    )
+                >
+                    <span class="tooltip-text" id="top">
+                        {format!("{} ({}ms)", span_name, duration_ms)}
+                    </span>
+                </div>
+                <div
+                    class="summary-span"
+                    style=format!(
+                        "margin-left: {end_of_window_percentage}%; width: {end_of_window_duration_percentage}%; {}",
+                        span_style2,
+                    )
+                >
+                    <span class="tooltip-text" id="top">
+                        {format!("{} ({}ms)", span_name, duration_ms)}
+                    </span>
+                </div>
             </>
         }
     } else {
         view! {
             <>
-            <div class="summary-span" style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}>
-                <span class="tooltip-text" id="top">{format!("{} ({}ms)", span_name, duration_ms)}</span>
-                {paragraph}
-            </div>
+                <div
+                    class="summary-span"
+                    style=format!(
+                        "margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}",
+                        span_style,
+                    )
+                >
+                    <span class="tooltip-text" id="top">
+                        {format!("{} ({}ms)", span_name, duration_ms)}
+                    </span>
+                    {paragraph}
+                </div>
             </>
         }
     };

@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::api::state::AppState;
+use api_structs::{Endpoint, InstanceGlobalId, ServiceId};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::ServiceExt;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
+use tower::Layer;
 use tracing::{error, info, instrument};
-
-use crate::api::state::AppState;
-use api_structs::{InstanceGlobalId, ServiceId};
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod database;
@@ -35,14 +36,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     );
     // List, Overview and Manage Services
     let service_routes = axum::Router::new()
-        .route(
-            "/list",
-            axum::routing::get(handlers::ui::service::ui_service_list_get),
-        )
-        .route(
-            "/overview",
-            axum::routing::get(handlers::ui::service::ui_service_overview_get),
-        )
+        .route("/", axum::routing::get(handlers::ui::service::get))
         .route(
             "/filter",
             axum::routing::post(handlers::ui::service::ui_service_filter_post),
@@ -77,8 +71,13 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             "/autocomplete",
             axum::routing::get(handlers::ui::trace::grid::ui_trace_autocomplete_get),
         );
+
     let app = axum::Router::new()
         .route("/api/ready", axum::routing::get(ready_get))
+        .route(
+            <api_structs::ui::series::GetSeries as Endpoint>::PATH,
+            axum::routing::get(handlers::ui::series::get_all_series),
+        )
         .nest("/api/ui/service", service_routes)
         .nest("/api/instance", instance_routes)
         .nest("/api/ui/trace", trace_routes)
@@ -106,7 +105,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                 },
             ),
         );
-
+    let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     tokio::spawn(async move {
         let listener = tokio::net::TcpListener::bind(
             &format!("0.0.0.0:{}", api_port)
@@ -115,9 +114,12 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         )
         .await
         .unwrap();
-        axum::serve(listener, app.into_make_service())
-            .await
-            .expect("http server launch to not fail")
+        axum::serve(
+            listener,
+            ServiceExt::<axum::extract::Request>::into_make_service(app),
+        )
+        .await
+        .expect("http server launch to not fail")
     })
 }
 
@@ -195,6 +197,26 @@ impl From<tracked_error::SqlxError> for ApiError {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: "DB error when handling the request".to_string(),
+        }
+    }
+}
+
+impl From<tracked_error::SerdeJsonError> for ApiError {
+    fn from(err: tracked_error::SerdeJsonError) -> Self {
+        error!("{:?}", error_chain_to_pretty_formatted(err));
+        ApiError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "Serialization error when handling the request".to_string(),
+        }
+    }
+}
+
+impl From<crate::error::SqlxOrSerdeJson> for ApiError {
+    fn from(err: crate::error::SqlxOrSerdeJson) -> Self {
+        error!("{}", error_chain_to_pretty_formatted(err));
+        ApiError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "Database or Serde error when handling the request".to_string(),
         }
     }
 }

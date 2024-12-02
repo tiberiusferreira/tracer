@@ -2,7 +2,6 @@ use api_structs::time_conversion::{time_from_nanos, NANOS_IN_1_MS, NANOS_IN_1_SE
 use chrono::{Duration, NaiveDateTime};
 use std::ops::Deref;
 use std::sync::RwLock;
-use tracing::info;
 
 pub static PAGE_LOAD_TIMESTAMP: RwLock<Option<u64>> = RwLock::new(None);
 
@@ -25,7 +24,7 @@ pub fn get_page_load_timestamp_nanos() -> u64 {
 
 pub fn set_page_load_timestamp() {
     let timestamp_ms = js_sys::Date::now() as u64;
-    let nanos = (timestamp_ms * NANOS_IN_1_MS);
+    let nanos = timestamp_ms * NANOS_IN_1_MS;
     *PAGE_LOAD_TIMESTAMP.write().unwrap() = Some(nanos);
 }
 

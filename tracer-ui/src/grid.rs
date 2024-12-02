@@ -353,17 +353,17 @@ pub fn TraceBrowser() -> impl IntoView {
     let tracer_counter = move || {
         let request_in_progress = request_in_progress.get();
         if request_in_progress {
-            view! { <p style="margin: 0; background-color: yellow">{"Updating..."}</p>}
+            view! { <p style="margin: 0; background-color: yellow">{"Updating..."}</p> }
         } else {
             let traces_count = api_response_r.with(|e| e.count);
-            view! { <p style="margin: 0">{format!("{} traces", traces_count)}</p>}
+            view! { <p style="margin: 0">{format!("{} traces", traces_count)}</p> }
         }
     };
 
     view! {
         <div class="main-grid">
             <div class="main">
-                <TraceTable rows={api_response_with_search_data}/>
+                <TraceTable rows=api_response_with_search_data />
             </div>
             <div class="search-panel">
                 <h1 class="traces-counter">{tracer_counter}</h1>
@@ -379,83 +379,114 @@ pub fn TraceBrowser() -> impl IntoView {
                 />
                 <label class="search-panel__label">
                     "Service Name:"
-                    <input on:input=service_name_changed
-                        prop:value={move || user_search_input_r.with(|r| r.search_for.service_name.to_string())}
-                        class="search-panel__input" type="text"  minlength="3" maxlength="50" size="30"
-                        list="service-name-list"
-
-                    />
-                </label>
-                {
-                    move || {
-                        let auto_complete_data = api_autocomplete_r.get();
-                        let spans: Vec<_> = auto_complete_data.service_names.iter().map(|s|{
-                            view!{
-                                <option value={s}></option>
-                            }
-                        }).collect();
-                        view!{
-                            <datalist id="service-name-list">
-                              {spans}
-                            </datalist>
+                    <input
+                        on:input=service_name_changed
+                        prop:value=move || {
+                            user_search_input_r.with(|r| r.search_for.service_name.to_string())
                         }
-                    }
-                }
+                        class="search-panel__input"
+                        type="text"
+                        minlength="3"
+                        maxlength="50"
+                        size="30"
+                        list="service-name-list"
+                    />
+
+                </label>
+                {move || {
+                    let auto_complete_data = api_autocomplete_r.get();
+                    let spans: Vec<_> = auto_complete_data
+                        .service_names
+                        .iter()
+                        .map(|s| {
+                            view! { <option value=s></option> }
+                        })
+                        .collect();
+                    view! { <datalist id="service-name-list">{spans}</datalist> }
+                }}
                 <label class="search-panel__label">
                     "Top Level Span:"
-                    <input on:input=top_level_span_changed
-                        prop:value={move || user_search_input_r.with(|r| r.search_for.top_level_span.to_string())}
-                        class="search-panel__input" type="text"  minlength="3" maxlength="50" size="30"
-                        list="top-level-span-list"
-
-                    />
-                </label>
-                {
-                    move || {
-                        let auto_complete_data = api_autocomplete_r.get();
-                        let spans: Vec<_> = auto_complete_data.top_level_spans.iter().map(|s|{
-                            view!{
-                                <option value={s}></option>
-                            }
-                        }).collect();
-                        view!{
-                            <datalist id="top-level-span-list">
-                              {spans}
-                            </datalist>
+                    <input
+                        on:input=top_level_span_changed
+                        prop:value=move || {
+                            user_search_input_r.with(|r| r.search_for.top_level_span.to_string())
                         }
-                    }
-                }
+                        class="search-panel__input"
+                        type="text"
+                        minlength="3"
+                        maxlength="50"
+                        size="30"
+                        list="top-level-span-list"
+                    />
+
+                </label>
+                {move || {
+                    let auto_complete_data = api_autocomplete_r.get();
+                    let spans: Vec<_> = auto_complete_data
+                        .top_level_spans
+                        .iter()
+                        .map(|s| {
+                            view! { <option value=s></option> }
+                        })
+                        .collect();
+                    view! { <datalist id="top-level-span-list">{spans}</datalist> }
+                }}
                 <label class="search-panel__label">
-                    "Duration:"
-                    <div class="search-panel__input-flex-container">
+                    "Duration:" <div class="search-panel__input-flex-container">
                         <p>"From"</p>
-                        <input on:input=min_duration_changed
-                            prop:value={move || user_search_input_r.with(|r| (r.search_for.min_duration/1000_000).to_string())}
-                            class="search-panel__input" type="text" maxlength="7" size="4"
+                        <input
+                            on:input=min_duration_changed
+                            prop:value=move || {
+                                user_search_input_r
+                                    .with(|r| (r.search_for.min_duration / 1000_000).to_string())
+                            }
+                            class="search-panel__input"
+                            type="text"
+                            maxlength="7"
+                            size="4"
                         />
                         <p>"to"</p>
-                        <input on:input=max_duration_changed
-                            prop:value={move || user_search_input_r.with(|r|
-                                r.search_for.max_duration.map(|e| (e/1000_000).to_string()).unwrap_or("".to_string()))
+                        <input
+                            on:input=max_duration_changed
+                            prop:value=move || {
+                                user_search_input_r
+                                    .with(|r| {
+                                        r.search_for
+                                            .max_duration
+                                            .map(|e| (e / 1000_000).to_string())
+                                            .unwrap_or("".to_string())
+                                    })
                             }
-                            class="search-panel__input" type="text" maxlength="7" size="4"
+                            class="search-panel__input"
+                            type="text"
+                            maxlength="7"
+                            size="4"
                         />
                         <p>"ms"</p>
                     </div>
                 </label>
                 <label class="search-panel__label">
                     "Errors Only:"
-                    <input class="search-panel__input search-panel__input__inline" type="checkbox" checked=false
+                    <input
+                        class="search-panel__input search-panel__input__inline"
+                        type="checkbox"
+                        checked=false
                         _ref=only_errors_checkbox_ref
                         on:click=only_errors_changed
                     />
                 </label>
                 <label class="search-panel__label">
                     "Min Warns:"
-                    <input on:input=min_warns_changed
-                            prop:value={move || user_search_input_r.with(|r| (r.search_for.min_warns).to_string())}
-                            class="search-panel__input search-panel__input__inline" type="text" maxlength="5" size="2"
-                        />
+                    <input
+                        on:input=min_warns_changed
+                        prop:value=move || {
+                            user_search_input_r.with(|r| (r.search_for.min_warns).to_string())
+                        }
+                        class="search-panel__input search-panel__input__inline"
+                        type="text"
+                        maxlength="5"
+                        size="2"
+                    />
                 </label>
             </div>
         </div>
@@ -499,39 +530,43 @@ pub fn DatePicker(
     };
     view! {
         <label class="search-panel__label">
-                {label}
-                <div>
-                    <button on:click=minus_button_clicked_event style="width: 3em; font-size: medium; margin: 5px;">"-1h"</button>
-                    <button on:click=plus_button_clicked_event style="width: 3em; font-size: medium; margin: 5px;">"+1h"</button>
-                </div>
-                <input
-                    on:change=on_date_changed_event
-                    prop:value={move || {
-                        let date = date_to_display.get().format("%Y-%m-%dT%H:%M:%S").to_string();
-                        log!("Showing: {}", date);
-                        date
-                    }}
-                    class="search-panel__input" type="datetime-local"
-                />
+            {label} <div>
+                <button
+                    on:click=minus_button_clicked_event
+                    style="width: 3em; font-size: medium; margin: 5px;"
+                >
+                    "-1h"
+                </button>
+                <button
+                    on:click=plus_button_clicked_event
+                    style="width: 3em; font-size: medium; margin: 5px;"
+                >
+                    "+1h"
+                </button>
+            </div>
+            <input
+                on:change=on_date_changed_event
+                prop:value=move || {
+                    let date = date_to_display.get().format("%Y-%m-%dT%H:%M:%S").to_string();
+                    log!("Showing: {}", date);
+                    date
+                }
+                class="search-panel__input"
+                type="datetime-local"
+            />
         </label>
     }
 }
 
 fn highlight(original: String, term: String) -> Fragment {
     return if term.is_empty() {
-        view! { <>{original}</>}
+        view! { <>{original}</> }
     } else {
         let o = original.to_lowercase();
         let Some((l, r)) = o.split_once(&term.to_lowercase()) else {
-            return view! { <>{original}</>};
+            return view! { <>{original}</> };
         };
-        view! {
-            <>
-            {l.to_string()}
-            <span style="color: red"> {term} </span>
-            {r.to_string()}
-            </>
-        }
+        view! { <>{l.to_string()} <span style="color: red">{term}</span> {r.to_string()}</> }
     };
 }
 
@@ -604,26 +639,57 @@ pub fn TraceTable(rows: Signal<(UiTraceGridResponse, UserSearchInput)>) -> impl 
                         "row-container".to_string()
                     };
                     let node = view! {
-
-                <tr class={row_container_class}>
-                        <td class="trace-table__cell">{highlight( row.trace_id.instance_id.service_id.name.clone(), user_search.search_for.service_name.clone())}</td>
-                        <td class="trace-table__cell">{row.top_level_span_name.to_string()}</td>
-                        <td class="trace-table__cell">{(row.duration.map(|e| (e/1000_000).to_string())).unwrap_or_default()}</td>
-                        <td class="trace-table__cell">
-                            {
-                                printable_local_date(row.started_at)
-                            }
-                        </td>
-                        <td class="trace-table__cell">{format!("{} - {} s ago", printable_local_date(row.updated_at), secs_since(row.updated_at))}</td>
-                        <td class="trace-table__cell">{format!("{} / {}", row.original_span_count, row.original_span_count as i64 - row.stored_span_count as i64)}</td>
-                        <td class="trace-table__cell">{format!("{} / {}", row.original_event_count, row.original_event_count as i64 - row.stored_event_count as i64)}</td>
-                        <td class="trace-table__cell">{row.event_bytes_count/1000}</td>
-                        <td class="trace-table__cell">{row.warning_count}</td>
-                        <td class="trace-table__cell">
-                            <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, row.trace_id.instance_id.service_id.env, row.trace_id.instance_id.service_id.name, row.trace_id.instance_id.instance_id, row.trace_id.trace_id, row.started_at)}>{"➔"}</a>                        
-                        </td>
-                </tr>
-            };
+                        <tr class=row_container_class>
+                            <td class="trace-table__cell">
+                                {highlight(
+                                    row.trace_id.instance_id.service_id.name.clone(),
+                                    user_search.search_for.service_name.clone(),
+                                )}
+                            </td>
+                            <td class="trace-table__cell">{row.top_level_span_name.to_string()}</td>
+                            <td class="trace-table__cell">
+                                {(row.duration.map(|e| (e / 1000_000).to_string()))
+                                    .unwrap_or_default()}
+                            </td>
+                            <td class="trace-table__cell">
+                                {printable_local_date(row.started_at)}
+                            </td>
+                            <td class="trace-table__cell">
+                                {format!(
+                                    "{} - {} s ago",
+                                    printable_local_date(row.updated_at),
+                                    secs_since(row.updated_at),
+                                )}
+                            </td>
+                            <td class="trace-table__cell">
+                                {format!(
+                                    "{} / {}",
+                                    row.original_span_count,
+                                    row.original_span_count as i64 - row.stored_span_count as i64,
+                                )}
+                            </td>
+                            <td class="trace-table__cell">
+                                {format!(
+                                    "{} / {}",
+                                    row.original_event_count,
+                                    row.original_event_count as i64 - row.stored_event_count as i64,
+                                )}
+                            </td>
+                            <td class="trace-table__cell">{row.event_bytes_count / 1000}</td>
+                            <td class="trace-table__cell">{row.warning_count}</td>
+                            <td class="trace-table__cell">
+                                <a href=format!(
+                                    "{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}",
+                                    PAGE_ROOT_URL,
+                                    row.trace_id.instance_id.service_id.env,
+                                    row.trace_id.instance_id.service_id.name,
+                                    row.trace_id.instance_id.instance_id,
+                                    row.trace_id.trace_id,
+                                    row.started_at,
+                                )>{"➔"}</a>
+                            </td>
+                        </tr>
+                    };
                     node
                 })
                 .collect::<Vec<HtmlElement<_>>>()
@@ -631,9 +697,7 @@ pub fn TraceTable(rows: Signal<(UiTraceGridResponse, UserSearchInput)>) -> impl 
     };
     view! {
         <table class="trace-table">
-            <tr class="row-container">
-                    {html_headers}
-            </tr>
+            <tr class="row-container">{html_headers}</tr>
             {move || html_rows(rows.get())}
         </table>
     }

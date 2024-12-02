@@ -10,32 +10,26 @@ serde_json.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
 
-axum = { version = "0.7.4", features = ['query', 'macros'] }
-tower-http = { version = "0.5.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br'] }
+axum = { version = "0.7.5", features = ['query', 'macros'] }
+tower-http = { version = "0.6.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
 
-frankenstein = "0.30"
+frankenstein = { version = "0.35", default-features = false, features = ['async-http-client'] }
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenvy.workspace = true
 thiserror = { workspace = true }
 sqlx.workspace = true
 futures = "0.3"
-anyhow = "1.0.80"
-brotli.workspace = true
 serde.workspace = true
-tokio-util = "0.7"
-indexmap = "2.2"
+
 reqwest.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 chrono.workspace = true
 
 api-structs = { path = "../api-structs" }
 tracked_error = { path = "../tracked_error" }
-tokio-stream = "0.1"
+tower = "0.4.13"
 [dependencies.tracing-config-helper]
 version = "0.1.0"
 path = "../tracing-config-helper"
 
-[dev-dependencies]
-insta = "1"

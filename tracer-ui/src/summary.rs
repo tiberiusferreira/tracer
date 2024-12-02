@@ -21,7 +21,7 @@ pub fn TracesSummary(root_path: String) -> impl IntoView {
             </th>
         },
         view! {
-            <th class="trace-table__cell" style="cursor: pointer" >
+            <th class="trace-table__cell" style="cursor: pointer">
                 <a>"Total Traces"</a>
             </th>
         },
@@ -45,17 +45,20 @@ pub fn TracesSummary(root_path: String) -> impl IntoView {
     let html_rows = move |rows: Vec<Summary>| {
         let res: Vec<HtmlElement<_>> = rows.into_iter().map(|r|{
                 view! {
-
-                <tr class="row_container_class">
+                    <tr class="row_container_class">
                         <td class="trace-table__cell">{r.service_name.clone()}</td>
                         <td class="trace-table__cell">{r.top_level_span_name.clone()}</td>
                         <td class="trace-table__cell">{r.total_traces}</td>
                         <td class="trace-table__cell">{r.total_traces_with_error}</td>
-                        <td class="trace-table__cell">{r.longest_trace_duration/1000_000}</td>
+                        <td class="trace-table__cell">{r.longest_trace_duration / 1000_000}</td>
                         <td class="trace-table__cell">
-                    <a href={format!("{}trace/?trace_id={}", root_path, r.longest_trace_id)}>{"➔"}</a>
+                            <a href=format!(
+                                "{}trace/?trace_id={}",
+                                root_path,
+                                r.longest_trace_id,
+                            )>{"➔"}</a>
                         </td>
-                </tr>
+                    </tr>
                 }
             }).collect();
         res
@@ -65,9 +68,7 @@ pub fn TracesSummary(root_path: String) -> impl IntoView {
         <div class="main-grid">
             <div class="main">
                 <table class="trace-table">
-                    <tr class="row-container">
-                            {html_headers}
-                    </tr>
+                    <tr class="row-container">{html_headers}</tr>
                     {move || html_rows(trace_spans_r.get())}
                 </table>
             </div>
@@ -75,7 +76,12 @@ pub fn TracesSummary(root_path: String) -> impl IntoView {
                 <label class="search-panel__label">
                     "Containing:"
                     <input
-                        class="search-panel__input" type="text" required=true minlength="3" maxlength="20" size="20"
+                        class="search-panel__input"
+                        type="text"
+                        required=true
+                        minlength="3"
+                        maxlength="20"
+                        size="20"
                     />
                 </label>
             </div>

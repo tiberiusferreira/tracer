@@ -40,10 +40,22 @@ fn span_detail(
     let trace_header_and_spans = trace_header_and_spans.get();
     let trace_header_and_spans = match trace_header_and_spans {
         None => {
-            return view! { <><p style="color: white">{format!("Empty, crashed or still loading trace 😅. Check the network tab.")}</p></>};
+            return view! {
+                <>
+                    <p style="color: white">
+                        {format!(
+                            "Empty, crashed or still loading trace 😅. Check the network tab.",
+                        )}
+                    </p>
+                </>
+            };
         }
         Some(spans) if spans.spans.is_empty() => {
-            return view! { <><p style="color: white">{format!("Empty trace 😅.")}</p></>};
+            return view! {
+                <>
+                    <p style="color: white">{format!("Empty trace 😅.")}</p>
+                </>
+            };
         }
         Some(spans) => spans,
     };
@@ -168,7 +180,12 @@ fn span_detail(
 
         view! {
             <>
-                <div  _ref=container_ref style=format!("background-color: rgba(255,255,255,0.05); margin: 15px 0 15px 0; height: {height}px; position: relative")>
+                <div
+                    _ref=container_ref
+                    style=format!(
+                        "background-color: rgba(255,255,255,0.05); margin: 15px 0 15px 0; height: {height}px; position: relative",
+                    )
+                >
                     {html_span_and_children_summary}
                 </div>
                 {events_html}
@@ -394,9 +411,7 @@ pub fn TraceChunk() -> impl IntoView {
     let a = move || {
         let header_and_spans = match trace_header_and_spans_r.get() {
             None => {
-                return view! {
-                    <p style="margin: 5px; color: white">{"Loading"}</p>
-                };
+                return view! { <p style="margin: 5px; color: white">{"Loading"}</p> };
             }
             Some(header_and_spans) => header_and_spans,
         };
@@ -405,16 +420,16 @@ pub fn TraceChunk() -> impl IntoView {
         let duration_ms = nanos_to_millis(header_and_spans.duration);
 
         view! {
-            <p style="margin: 5px; color: white">{format!("{} at {} - {name} ({duration_ms}ms)", service_name, env)}</p>
+            <p style="margin: 5px; color: white">
+                {format!("{} at {} - {name} ({duration_ms}ms)", service_name, env)}
+            </p>
         }
     };
     view! {
         <div class="main-grid">
             <div class="main">
-                {a}
-                <div class="trace-chunk-list">
-                    // {html_chunk_list}
-                </div>
+                // {html_chunk_list}
+                {a} <div class="trace-chunk-list"></div>
                 <div class="trace-details">
 
                     {html_spans}
@@ -422,71 +437,120 @@ pub fn TraceChunk() -> impl IntoView {
             </div>
             <div>
                 <div class="search-panel">
-                    <label class="search-panel__label">
-                        {event_count_message}
-                    </label>
+                    <label class="search-panel__label">{event_count_message}</label>
                     <label class="search-panel__label">
                         "Event Message:"
                         <input
                             on:input=substring_changed
-                            prop:value={move || trace_events_search_for_r.with(|e| e.as_ref().map(|e| e.substring.clone())).flatten().unwrap_or_default()}
-                            class="search-panel__input" type="text" required=true minlength="3" maxlength="20" size="20"
+                            prop:value=move || {
+                                trace_events_search_for_r
+                                    .with(|e| e.as_ref().map(|e| e.substring.clone()))
+                                    .flatten()
+                                    .unwrap_or_default()
+                            }
+                            class="search-panel__input"
+                            type="text"
+                            required=true
+                            minlength="3"
+                            maxlength="20"
+                            size="20"
                         />
                     </label>
                     <label class="search-panel__label">
                         "Severity:"
-                       <select on:change=severity_changed class="search-panel__input" size=5 multiple>
-                             <option value="trace">trace</option>
-                             <option value="debug">debug</option>
-                             <option value="info">info</option>
-                             <option value="warn">warn</option>
-                             <option value="error">error</option>
+                        <select
+                            on:change=severity_changed
+                            class="search-panel__input"
+                            size=5
+                            multiple
+                        >
+                            <option value="trace">trace</option>
+                            <option value="debug">debug</option>
+                            <option value="info">info</option>
+                            <option value="warn">warn</option>
+                            <option value="error">error</option>
                         </select>
                     </label>
                     <label class="search-panel__label">
                         "Key:"
-                        <input on:input=key_0_changed
-                            prop:value={move || trace_events_search_for_r.with(|e| e.as_ref().map(|e| e.key_0.clone())).flatten().unwrap_or_default()}
-                            class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                        <input
+                            on:input=key_0_changed
+                            prop:value=move || {
+                                trace_events_search_for_r
+                                    .with(|e| e.as_ref().map(|e| e.key_0.clone()))
+                                    .flatten()
+                                    .unwrap_or_default()
+                            }
+                            class="search-panel__input"
+                            type="text"
+                            minlength="3"
+                            maxlength="50"
+                            size="20"
                             list="trace-key-list"
                         />
                     </label>
                     <label class="search-panel__label">
                         "Val:"
-                        <input on:input=val_0_changed
-                            prop:value={move || trace_events_search_for_r.with(|e| e.as_ref().map(|e| e.value_0.clone())).flatten().unwrap_or_default()}
-                            class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                        <input
+                            on:input=val_0_changed
+                            prop:value=move || {
+                                trace_events_search_for_r
+                                    .with(|e| e.as_ref().map(|e| e.value_0.clone()))
+                                    .flatten()
+                                    .unwrap_or_default()
+                            }
+                            class="search-panel__input"
+                            type="text"
+                            minlength="3"
+                            maxlength="50"
+                            size="20"
                         />
                     </label>
                     <label class="search-panel__label">
                         "Key:"
-                        <input on:input=key_1_changed
-                            prop:value={move || trace_events_search_for_r.with(|e| e.as_ref().map(|e| e.key_1.clone())).flatten().unwrap_or_default()}
-                            class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                        <input
+                            on:input=key_1_changed
+                            prop:value=move || {
+                                trace_events_search_for_r
+                                    .with(|e| e.as_ref().map(|e| e.key_1.clone()))
+                                    .flatten()
+                                    .unwrap_or_default()
+                            }
+                            class="search-panel__input"
+                            type="text"
+                            minlength="3"
+                            maxlength="50"
+                            size="20"
                             list="trace-key-list"
                         />
                     </label>
                     <label class="search-panel__label">
                         "Val:"
-                        <input on:input=val_1_changed
-                            prop:value={move || trace_events_search_for_r.with(|e| e.as_ref().map(|e| e.value_1.clone())).flatten().unwrap_or_default()}
-                            class="search-panel__input" type="text"  minlength="3" maxlength="50" size="20"
+                        <input
+                            on:input=val_1_changed
+                            prop:value=move || {
+                                trace_events_search_for_r
+                                    .with(|e| e.as_ref().map(|e| e.value_1.clone()))
+                                    .flatten()
+                                    .unwrap_or_default()
+                            }
+                            class="search-panel__input"
+                            type="text"
+                            minlength="3"
+                            maxlength="50"
+                            size="20"
                         />
                     </label>
-                   {move || {
-                            let keys = trace_keys_r.get();
-                            let spans: Vec<_> = keys.iter().map(|s|{
-                                view!{
-                                    <option value={s}></option>
-                                }
-                            }).collect();
-                            view!{
-                                <datalist id="trace-key-list">
-                                  {spans}
-                                </datalist>
-                            }
-                        }
-                       }
+                    {move || {
+                        let keys = trace_keys_r.get();
+                        let spans: Vec<_> = keys
+                            .iter()
+                            .map(|s| {
+                                view! { <option value=s></option> }
+                            })
+                            .collect();
+                        view! { <datalist id="trace-key-list">{spans}</datalist> }
+                    }}
                 </div>
                 <div style="margin-top: 20px">
                     <div class="search-panel" style="font-size: small">
@@ -495,9 +559,7 @@ pub fn TraceChunk() -> impl IntoView {
                             <div style="border: 1px solid #CCCCCC; width: 100px; max-height: 2em; overflow-x: scroll;">
                                 <p style="margin: 0">{"Some Big "}</p>
                             </div>
-                            <div style="display: grid; align-items: center">
-                                "=>"
-                            </div>
+                            <div style="display: grid; align-items: center">"=>"</div>
                             <div style="border: 1px solid #CCCCCC; width: 100px; max-height: 2em; overflow-x: scroll;">
                                 <p style="margin: 0">{"VAl! "}</p>
                             </div>
@@ -691,8 +753,18 @@ fn events_to_html(events: &[Event], trace_start: u64, trace_end: u64) -> Vec<Htm
             let event_percentage_into_trace_duration = event_percentage_into_trace_duration.min(99.6);
             view! {
                 <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
-                    <p style={format!("margin-left: {event_percentage_into_trace_duration}%")} class="trace-details__event-timestamp">{"|"}</p>
-                    <p class="trace-details__event" style={"white-space: pre-wrap; color: white"}><span>{event_date}</span><span>"  "</span><span style={event_color}>{event_severity_str}</span>{event_msg}</p>
+                    <p
+                        style=format!("margin-left: {event_percentage_into_trace_duration}%")
+                        class="trace-details__event-timestamp"
+                    >
+                        {"|"}
+                    </p>
+                    <p class="trace-details__event" style="white-space: pre-wrap; color: white">
+                        <span>{event_date}</span>
+                        <span>"  "</span>
+                        <span style=event_color>{event_severity_str}</span>
+                        {event_msg}
+                    </p>
                 </div>
             }
         })
@@ -742,8 +814,16 @@ fn create_html_span(
     let span_duration_ms_string = format!("{}ms", span_duration / 1000_000);
     let span_html = view! {
         <>
-            <p class="trace-details__span-name" style="white-space: pre-wrap">{format!("{} - {span_duration_ms_string} {span_key_vals}", span_with_code_namespace)}</p>
-            <div style={format!("margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}", span_style)}></div>
+            <p class="trace-details__span-name" style="white-space: pre-wrap">
+                {format!(
+                    "{} - {span_duration_ms_string} {span_key_vals}",
+                    span_with_code_namespace,
+                )}
+            </p>
+            <div style=format!(
+                "margin-left: {start_offset_percentage}%; width: {duration_percentage}%; {}",
+                span_style,
+            )></div>
         </>
     };
     Some(span_html)

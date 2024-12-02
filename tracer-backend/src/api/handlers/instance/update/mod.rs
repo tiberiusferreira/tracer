@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, Span, TraceSnapshot};
 use api_structs::time_conversion::{now_nanos_u64, time_from_nanos};
-use api_structs::ui::service::{ProfileData, TraceHeader};
+use api_structs::ui::service::ProfileData;
 use api_structs::{InstanceGlobalId, ServiceId, TraceName};
 use tracked_error::SqlxError;
 
@@ -696,8 +696,19 @@ pub async fn handler(
                 message: "instance not registered".to_string(),
             }
         })?;
-    let instance_update_id =
-        instance::database::insert_instance_update(&mut tx, instance_db_id).await?;
+    let instance_update_id = instance::database::insert_instance_update(
+        &mut tx,
+        instance_db_id,
+        instance_snapshot.export_buffer_size_bytes,
+    )
+    .await?;
+    instance::database::insert_instance_latest_log_filter_and_cpu_profile(
+        &mut tx,
+        instance_db_id,
+        &instance_snapshot.log_filter,
+        &instance_snapshot.cpu_profile,
+    )
+    .await?;
     let config_change =
         instance::get_instance_config_change(&mut tx, instance_id, &instance_snapshot.log_filter)
             .await?;

@@ -29,7 +29,11 @@ pub async fn get_instance_config_change(
         }
         Some(log_filter) => log_filter,
     };
-    let log_filter_request = if current_instance_log_filter != service_log_filter {
+    let mut current: Vec<char> = current_instance_log_filter.chars().collect();
+    let mut new: Vec<char> = service_log_filter.chars().collect();
+    current.sort();
+    new.sort();
+    let log_filter_request = if current != new {
         info!(instance_id = instance_id.to_string(), "got log filter");
         Some(service_log_filter)
     } else {

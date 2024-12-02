@@ -1,14 +1,15 @@
-use leptos::*;
+use leptos::prelude::*;
+use leptos_router::components::*;
+use leptos_router::path;
 use tracing::Level;
 
-mod datetime;
-mod grid;
-mod orphan_events;
+pub mod datetime;
+// mod grid;
+// mod orphan_events;
+mod dashboard;
 mod services;
-mod trace;
+// mod trace;
 
-use crate::datetime::set_page_load_timestamp;
-use leptos_router::*;
 use tracing_subscriber::fmt;
 use tracing_subscriber_wasm::MakeConsoleWriter;
 
@@ -17,6 +18,7 @@ pub const PAGE_ROOT_URL: &str = "/";
 pub const TRACE_BROWSER_PATH: &str = "trace/browser";
 pub const TRACE_CHUNK_PATH: &str = "trace/chunk";
 pub const ORPHAN_EVENTS_PATH: &str = "orphan_events";
+pub const DASHBOARD_PATH: &str = "dashboard";
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -28,69 +30,68 @@ fn main() {
         // a runtime error.
         .without_time()
         .init();
-    mount_to_body(|| view! {   <App/> });
+    mount_to_body(|| view! { <App /> });
 }
 
 #[component]
 pub fn App() -> impl IntoView {
     view! {
         <>
-            <header>
-                <nav class="navigation">
-                    <div class="navigation__button"></div>
-                    <a class="navigation__button" href={PAGE_ROOT_URL}>"Services"</a>
-                    <a class="navigation__button" href=format!("{PAGE_ROOT_URL}{TRACE_BROWSER_PATH}")>"Trace Browser"</a>
-                    <a class="navigation__button" href=format!("{PAGE_ROOT_URL}{ORPHAN_EVENTS_PATH}")>"Orphan Events"</a>
-                </nav>
-            </header>
-                <Router>
-                    <Routes>
-                        <Route
-                            path=PAGE_ROOT_URL
-                              view={
-                                move || {
-                                    set_page_load_timestamp();
-                                    view! {
-                                        <services::Services/>
-                                    }
-                                }
-                              }
-                            />
-                        <Route
-                              path=format!("{PAGE_ROOT_URL}{TRACE_CHUNK_PATH}")
-                              view={
-                                move || {
-                                    set_page_load_timestamp();
-                                    view! {
-                                        <trace::TraceChunk/>
-                                    }
-                                 }
-                              }
-                            />
-                        <Route
-                              path=format!("{PAGE_ROOT_URL}{TRACE_BROWSER_PATH}")
-                              view={
-                                    move ||{
-                                        set_page_load_timestamp();
-                                        view! {
-                                              <grid::TraceBrowser/>
-                                        }
-                                    }
-                                }
-                            />
-                        <Route
-                              path=format!("{PAGE_ROOT_URL}{ORPHAN_EVENTS_PATH}", )
-                              view={
-                                move || {
-                                    set_page_load_timestamp();
-                                    view! {
-                                        <orphan_events::OrphanEvents/>
-                                    }
-                                }
-                              }
-                            />
-                    </Routes>
-                </Router>
+            <Router>
+                <header>
+                    <nav class="navigation">
+                        // just a spacer
+                        <div class="navigation__button"></div>
+                        <a class="navigation__button" href=PAGE_ROOT_URL>
+                            "Services"
+                        </a>
+                        <a
+                            class="navigation__button"
+                            href=format!("{PAGE_ROOT_URL}{DASHBOARD_PATH}")
+                        >
+                            "Dashboard"
+                        </a>
+                        <a
+                            class="navigation__button"
+                            href=format!("{PAGE_ROOT_URL}{TRACE_BROWSER_PATH}")
+                        >
+                            "Trace Browser"
+                        </a>
+                        <a
+                            class="navigation__button"
+                            href=format!("{PAGE_ROOT_URL}{ORPHAN_EVENTS_PATH}")
+                        >
+                            "Orphan Events"
+                        </a>
+                    </nav>
+                </header>
+                <Routes fallback=|| view!{<p style="color: white">"Not found."</p>} >
+                    <Route path=path!("/") view=services::Services />
+                    <Route path=(
+                        leptos_router::StaticSegment("/"),
+                        leptos_router::StaticSegment(DASHBOARD_PATH)
+                    )
+                        view=dashboard::Dashboard />
+                </Routes>
+            </Router>
         </>
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("TrackedGlooError at {location}")]
+pub struct TrackedGlooError {
+    location: &'static std::panic::Location<'static>,
+    #[source]
+    source: std::sync::Arc<gloo_net::Error>,
+}
+
+impl From<gloo_net::Error> for TrackedGlooError {
+    #[track_caller]
+    fn from(err: gloo_net::Error) -> Self {
+        Self {
+            location: std::panic::Location::caller(),
+            source: std::sync::Arc::new(err),
+        }
     }
 }

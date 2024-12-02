@@ -2,7 +2,7 @@ use crate::datetime::secs_since;
 use crate::orphan_events::orphan_events_to_html;
 use crate::{PAGE_ROOT_URL, TRACE_CHUNK_PATH};
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::ui::service::{ServiceOverview, TraceHeader};
+use api_structs::ui::r#mod::{ServiceOverview, TraceHeader};
 use api_structs::InstanceGlobalId;
 use leptos::html::Div;
 use leptos::ReadSignal;
@@ -84,14 +84,28 @@ pub fn get_html(
                 "row-container".to_string()
             };
             active_trace_els.push(view! {
-                <tr class={row_container_class}>
+                <tr class=row_container_class>
                     <td class="trace-table__cell">{active.trace_header.trace_name}</td>
                     <td class="trace-table__cell">{active.instance_id.instance_id.to_string()}</td>
-                    <td class="trace-table__cell">{secs_since(active.trace_header.trace_timestamp)}</td>
-                    <td class="trace-table__cell">{format!("{:.2}", active.trace_header.fragment_bytes as f32/100.)}</td>
-                    <td class="trace-table__cell">{(active.trace_header.duration/1000_000).to_string()}</td>
                     <td class="trace-table__cell">
-                        <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, active.instance_id.service_id.env, active.instance_id.service_id.name, active.instance_id.instance_id, active.trace_header.trace_id, active.trace_header.trace_timestamp)}>{"➔"}</a>
+                        {secs_since(active.trace_header.trace_timestamp)}
+                    </td>
+                    <td class="trace-table__cell">
+                        {format!("{:.2}", active.trace_header.fragment_bytes as f32 / 100.)}
+                    </td>
+                    <td class="trace-table__cell">
+                        {(active.trace_header.duration / 1000_000).to_string()}
+                    </td>
+                    <td class="trace-table__cell">
+                        <a href=format!(
+                            "{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}",
+                            PAGE_ROOT_URL,
+                            active.instance_id.service_id.env,
+                            active.instance_id.service_id.name,
+                            active.instance_id.instance_id,
+                            active.trace_header.trace_id,
+                            active.trace_header.trace_timestamp,
+                        )>{"➔"}</a>
                     </td>
                 </tr>
             });
@@ -107,14 +121,28 @@ pub fn get_html(
                 "row-container".to_string()
             };
             finished_trace_els.push(view! {
-                <tr class={row_container_class}>
+                <tr class=row_container_class>
                     <td class="trace-table__cell">{finished.trace_header.trace_name}</td>
-                    <td class="trace-table__cell">{finished.instance_id.instance_id.to_string()}</td>
-                    <td class="trace-table__cell">{secs_since(finished.trace_header.trace_timestamp)}</td>
-                    <td class="trace-table__cell">{format!("{:.2}", finished.trace_header.fragment_bytes as f32/1_000.)}</td>
-                    <td class="trace-table__cell">{finished.trace_header.duration/1000_000}</td>
                     <td class="trace-table__cell">
-                        <a href={format!("{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}", PAGE_ROOT_URL, finished.instance_id.service_id.env, finished.instance_id.service_id.name, finished.instance_id.instance_id, finished.trace_header.trace_id, finished.trace_header.trace_timestamp)}>{"➔"}</a>
+                        {finished.instance_id.instance_id.to_string()}
+                    </td>
+                    <td class="trace-table__cell">
+                        {secs_since(finished.trace_header.trace_timestamp)}
+                    </td>
+                    <td class="trace-table__cell">
+                        {format!("{:.2}", finished.trace_header.fragment_bytes as f32 / 1_000.)}
+                    </td>
+                    <td class="trace-table__cell">{finished.trace_header.duration / 1000_000}</td>
+                    <td class="trace-table__cell">
+                        <a href=format!(
+                            "{}{TRACE_CHUNK_PATH}/?env={}&service_name={}&instance_id={}&trace_id={}&start_timestamp={}",
+                            PAGE_ROOT_URL,
+                            finished.instance_id.service_id.env,
+                            finished.instance_id.service_id.name,
+                            finished.instance_id.instance_id,
+                            finished.trace_header.trace_id,
+                            finished.trace_header.trace_timestamp,
+                        )>{"➔"}</a>
                     </td>
                 </tr>
             });
@@ -124,7 +152,9 @@ pub fn get_html(
         view! {
             <>
                 <div style="max-height: 450px; overflow: auto; padding: 20px; color: white">
-                    <p style="text-align: center">{format!("Active Traces {:?} sec ago (+- 3s)   ", secs_since(timestamp))}</p>
+                    <p style="text-align: center">
+                        {format!("Active Traces {:?} sec ago (+- 3s)   ", secs_since(timestamp))}
+                    </p>
                     <table class="trace-table">
                         <tr class="row-container">
                             <th style="text-align: center" colspan="6" class="trace-table__cell">
@@ -161,13 +191,8 @@ pub fn get_html(
                     </table>
                 </div>
                 {orphan_events_html}
-
             </>
         }
     };
-    view! {
-        <div>
-          {view}
-        </div>
-    }
+    view! { <div>{view}</div> }
 }

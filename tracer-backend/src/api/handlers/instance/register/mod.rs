@@ -1,19 +1,13 @@
-use crate::api::handlers::instance::register::service_initialization::{Error, ServiceDbId};
+use crate::api::handlers::instance::register::service_initialization::ServiceDbId;
 use crate::api::state::AppState;
-use crate::api::{state, ApiError, LiveServiceInstance};
+use crate::api::ApiError;
 use api_structs::instance::registration::RegistrationResponse;
-use api_structs::instance::update::ConfigChange;
 use api_structs::{InstanceGlobalId, ServiceId};
 use axum::extract::State;
 use axum::Json;
-use futures::StreamExt;
 use sqlx::{Postgres, Transaction};
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, instrument, trace, warn};
-use tracked_error::{error_chain_to_pretty_formatted, SqlxError};
+use tracing::{info, instrument};
+use tracked_error::SqlxError;
 
 pub mod service_initialization;
 

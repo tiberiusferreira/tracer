@@ -1,16 +1,9 @@
-use chrono::NaiveDateTime;
-use std::ops::DerefMut;
-
 use sqlx::{Postgres, Transaction};
-use tracing::{error, info, instrument, trace};
-use uuid::Uuid;
+use tracing::instrument;
 
 use api_structs::instance::update::Event;
-use api_structs::time_conversion::time_from_nanos;
 use api_structs::InstanceGlobalId;
 use tracked_error::SqlxError;
-
-use crate::api::handlers::Severity;
 
 #[instrument(skip_all)]
 pub(crate) async fn insert_events(

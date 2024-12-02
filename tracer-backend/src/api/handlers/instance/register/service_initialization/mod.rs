@@ -1,13 +1,6 @@
-use api_structs::ui::service::alerts::{
-    AlertConfig, ServiceWideAlertConfig, TraceWideAlertConfig, TraceWideAlertOverwriteConfig,
-};
-use api_structs::{InstanceGlobalId, ServiceId, TraceName};
-use serde::Deserialize;
-use sqlx::{PgPool, Postgres, Transaction};
-use std::collections::HashMap;
-use std::ops::DerefMut;
-use std::panic::Location;
-use tracing::{instrument, warn};
+use api_structs::ServiceId;
+use sqlx::{Postgres, Transaction};
+use tracing::instrument;
 use tracked_error::SqlxError;
 
 #[derive(Debug, thiserror::Error)]
