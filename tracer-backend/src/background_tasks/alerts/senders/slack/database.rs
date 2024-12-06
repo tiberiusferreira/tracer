@@ -1,8 +1,6 @@
 use crate::background_tasks::alerts::senders::slack::SlackConfig;
-use crate::DB_INTERNAL_ERROR_CHAR_LIMIT;
-use chrono::NaiveDateTime;
 use sqlx::PgPool;
-use tracing::{debug, instrument};
+use tracing::instrument;
 use tracked_error::SqlxError;
 
 #[instrument(skip_all)]

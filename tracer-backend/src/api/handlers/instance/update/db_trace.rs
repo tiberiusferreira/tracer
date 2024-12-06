@@ -1,8 +1,7 @@
 use api_structs::InstanceGlobalId;
 use chrono::NaiveDateTime;
 use sqlx::{Postgres, Transaction};
-use std::ops::DerefMut;
-use tracing::{info, instrument};
+use tracing::instrument;
 use tracked_error::SqlxError;
 use uuid::Uuid;
 

@@ -1,17 +1,17 @@
 use crate::print_if_dbg;
-use crate::subscriber::attribute_visitor::AttributesVisitor;
 use crate::subscriber::state::{State, TracesAndOrphanEvents};
 use api_structs::instance::update::{Location, Severity};
 use api_structs::time_conversion::now_nanos_u64;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::span::{Attributes, Record};
 use tracing::{Event, Id, Metadata, Subscriber};
+use tracing_serde::AsSerde;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 use tracing_subscriber::Layer;
 
-pub mod attribute_visitor;
 // pub mod sampler;
 pub mod state;
 
@@ -50,23 +50,6 @@ impl TracerTracingSubscriber {
         let root = ctx.span(&span_id)?.scope().from_root().next()?;
         Some(root)
     }
-
-    fn extract_event_information(event: &Event) -> EventData {
-        let mut event_visitor = AttributesVisitor::new();
-        event.record(&mut event_visitor);
-        let level = match event.metadata().level() {
-            &tracing::metadata::Level::TRACE => Severity::Trace,
-            &tracing::metadata::Level::DEBUG => Severity::Debug,
-            &tracing::metadata::Level::INFO => Severity::Info,
-            &tracing::metadata::Level::WARN => Severity::Warn,
-            &tracing::metadata::Level::ERROR => Severity::Error,
-        };
-        EventData {
-            message: event_visitor.message,
-            level,
-            key_vals: event_visitor.key_vals,
-        }
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -91,37 +74,77 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         let root_span = Self::span_root(id.clone(), &ctx).expect("root span to exist");
         let span = ctx.span(id).expect("created span to exist!");
         let location = location_from_metadata(span.metadata());
-        let mut attributes_visitor = AttributesVisitor::new();
-        attrs.record(&mut attributes_visitor);
-        let key_vals = attributes_visitor.key_vals;
+
+        let attributes_as_serde = &attrs.as_serde();
+        let attributes = serde_json::to_value(attributes_as_serde).unwrap();
+        let mut attributes = match attributes {
+            Value::Object(map) => map,
+            x => unreachable!("should always be a map: {x}"),
+        };
+        attributes.remove("metadata").unwrap();
+        attributes.remove("parent").unwrap();
+        attributes.remove("is_root").unwrap();
+        let attributes: HashMap<String, serde_json::Value> = attributes.into_iter().collect();
         print_if_dbg(
             context,
-            format!("span {} had {:#?} key-val", span.name(), key_vals),
+            format!("span {} had {:#?} key-val", span.name(), attributes),
         );
         if root_span.id() == *id {
             self.state
                 .write()
-                .insert_new_trace(id, span.name().to_string(), key_vals, location);
+                .insert_new_trace(id, span.name().to_string(), attributes, location);
         } else {
             self.state.write().insert_new_span(
                 root_span.id(),
                 span.id(),
                 span.parent().expect("non root span to have a parent").id(),
                 span.name().to_string(),
-                key_vals,
+                attributes,
                 location,
             );
         }
     }
-    fn on_record(&self, _span: &Id, _values: &Record<'_>, _ctx: Context<'_, S>) {
+    fn on_record(&self, span_id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let context = "on_record";
-        print_if_dbg(context, "on record");
+        let attributes_as_serde = values.as_serde();
+        let attributes = serde_json::to_value(attributes_as_serde).unwrap();
+        print_if_dbg(context, format!("recording attributes {attributes}"));
+        let attributes = match attributes {
+            Value::Object(map) => map,
+            x => unreachable!("should always be a map: {x}"),
+        };
+        let attributes: HashMap<String, serde_json::Value> = attributes.into_iter().collect();
+        let root_span = Self::span_root(span_id.clone(), &ctx).expect("root span to exist");
+        self.state
+            .write()
+            .insert_span_attributes(root_span.id(), span_id.clone(), attributes)
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let context = "on_event";
         let span = ctx.event_span(event);
-        let event_data = Self::extract_event_information(event);
+
+        let event_as_serde = &event.as_serde();
+        let event_as_json_value = serde_json::to_value(event_as_serde).unwrap();
+        let mut attributes = match event_as_json_value {
+            Value::Object(map) => map,
+            x => unreachable!("should always be a map: {x}"),
+        };
+        let message = attributes
+            .remove("message")
+            .map(|e| e.as_str().expect("message to be string").to_string());
+        attributes
+            .remove("metadata")
+            .expect("event to always have metadata");
+        let attributes: HashMap<String, serde_json::Value> = attributes.into_iter().collect();
+
+        let level = match event.metadata().level() {
+            &tracing::metadata::Level::TRACE => Severity::Trace,
+            &tracing::metadata::Level::DEBUG => Severity::Debug,
+            &tracing::metadata::Level::INFO => Severity::Info,
+            &tracing::metadata::Level::WARN => Severity::Warn,
+            &tracing::metadata::Level::ERROR => Severity::Error,
+        };
 
         let span = match span {
             None => {
@@ -130,10 +153,10 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
                 self.state
                     .write()
                     .insert_orphan_event(api_structs::instance::update::Event {
-                        message: event_data.message,
+                        message,
                         timestamp: now_nanos_u64(),
-                        severity: event_data.level,
-                        key_vals: event_data.key_vals,
+                        severity: level,
+                        attributes,
                         location: location_from_metadata(event.metadata()),
                     });
                 return;
@@ -149,9 +172,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for TracerTracingSubscribe
         self.state.write().insert_span_event(
             root.id(),
             span.id(),
-            event_data.message,
-            event_data.level,
-            event_data.key_vals,
+            message,
+            level,
+            attributes,
             location_from_metadata(event.metadata()),
         );
     }

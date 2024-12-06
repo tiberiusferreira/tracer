@@ -163,6 +163,7 @@ dependencies = [
  "chrono",
  "deepsize",
  "serde",
+ "serde_json",
  "serde_with",
  "uuid",
 ]
@@ -1023,9 +1024,9 @@ dependencies = [
 
 [[package]]
 name = "frankenstein"
-version = "0.35.0"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e25099af98a3c9fc81a754761987db1574687c31f24fb258a34f49a26a679efd"
+checksum = "71dc411778bfb1ed51ad1f57ea291075da8cf0846cb6a2665bc2c10ac168d6b1"
 dependencies = [
  "async-trait",
  "bon",
@@ -4155,11 +4156,16 @@ version = "0.1.0"
 dependencies = [
  "api-structs",
  "axum",
+ "base64",
+ "bytes",
  "chrono",
  "clap",
+ "deepsize",
  "dotenvy",
  "frankenstein",
  "futures",
+ "http 1.1.0",
+ "http-body-util",
  "parking_lot",
  "reqwest",
  "serde",
@@ -4173,6 +4179,8 @@ dependencies = [
  "tracing-config-helper",
  "tracked_error",
  "uuid",
+ "valuable",
+ "valuable-derive",
 ]
 
 [[package]]
@@ -4239,6 +4247,7 @@ name = "tracing-config-helper"
 version = "0.1.0"
 dependencies = [
  "api-structs",
+ "base64",
  "brotli 7.0.0",
  "deepsize",
  "futures",
@@ -4251,8 +4260,10 @@ dependencies = [
  "thiserror 2.0.3",
  "tokio",
  "tracing",
+ "tracing-serde",
  "tracing-subscriber",
  "tracked_error",
+ "valuable",
 ]
 
 [[package]]
@@ -4284,6 +4295,8 @@ checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
 dependencies = [
  "serde",
  "tracing-core",
+ "valuable",
+ "valuable-serde",
 ]
 
 [[package]]
@@ -4465,6 +4478,27 @@ name = "valuable"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
+
+[[package]]
+name = "valuable-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d44690c645190cfce32f91a1582281654b2338c6073fa250b0949fd25c55b32"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "valuable-serde"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5285cfff30cdabe26626736a54d989687dd9cab84f51f4048b61d6d0ae8b0907"
+dependencies = [
+ "serde",
+ "valuable",
+]
 
 [[package]]
 name = "vcpkg"

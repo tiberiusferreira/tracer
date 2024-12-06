@@ -1,7 +1,5 @@
-use sqlx::postgres::PgQueryResult;
 use sqlx::PgPool;
-use tracing::{error, info, info_span, instrument, Instrument};
-use tracked_error::{error_chain_to_pretty_formatted, SqlxError};
+use tracing::instrument;
 
 #[instrument(skip_all)]
 pub async fn delete_old_traces_logging_error(con: &PgPool) {

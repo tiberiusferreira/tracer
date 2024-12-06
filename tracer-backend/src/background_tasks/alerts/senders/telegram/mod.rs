@@ -1,12 +1,11 @@
-use crate::background_tasks::alerts::AlertingError;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use frankenstein::{AsyncApi, AsyncTelegramApi, SendMessageParams};
 use sqlx::PgPool;
-use std::fmt::Formatter;
-use std::time::Duration;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument};
-use tracked_error::{error_chain_to_pretty_formatted, SqlxError};
+use tracked_error::SqlxError;
+use valuable::{Valuable, Visit};
+use valuable_derive::Valuable;
 mod database;
 
 #[derive(Debug, Error)]
@@ -21,8 +20,8 @@ pub enum Error {
 struct UnsentAlerts {
     id: i32,
     alert_message: String,
+    #[allow(unused)]
     created_at: DateTime<Utc>,
-    /*series_alert_check.id, series_alert_check.alert_message, series_alert_check.created_at*/
 }
 
 #[instrument(skip_all)]
@@ -35,12 +34,19 @@ from series_alert_check
 where alert_message is not null
   and notification_sent = false
 order by created_at desc limit $1;", max_alerts_to_send as i64)
-    .fetch_all(&mut *tx)
-    .await.map_err(SqlxError::from)?;
+        .fetch_all(&mut *tx)
+        .await.map_err(SqlxError::from)?;
     let telegram_configs = database::load_telegram_configs(&con).await?;
-    info!(?telegram_configs, "loaded telegram configs");
+    info!(
+        telegram_configs = telegram_configs.as_value(),
+        "loaded telegram configs"
+    );
     for telegram_config in telegram_configs {
-        info!(?telegram_config, "sending alerts to using telegram config");
+        info!(
+            telegram_config = telegram_config.as_value(),
+            alert_count = last_unsent_alerts.len(),
+            "sending alerts to using telegram config"
+        );
         let client = frankenstein::AsyncApi::new(&telegram_config.api_key);
         for unsent_alert in &last_unsent_alerts {
             info!(?unsent_alert, "sending alert");
@@ -56,7 +62,12 @@ order by created_at desc limit $1;", max_alerts_to_send as i64)
                     .map_err(SqlxError::from)?;
                 }
                 Err(e) => {
-                    error!(?telegram_config, ?unsent_alert, ?e, "failed to send alert");
+                    error!(
+                        telegram_config = telegram_config.as_value(),
+                        ?unsent_alert,
+                        ?e,
+                        "failed to send alert"
+                    );
                 }
             }
         }
@@ -71,21 +82,17 @@ async fn send_telegram_alert(
     telegram_client: &AsyncApi,
     telegram_config: &TelegramConfig,
 ) -> Result<(), Error> {
-    info!(?telegram_config, notification, "sending notification");
-    send_telegram_msg(
-        &telegram_client,
-        &telegram_config.api_key,
-        &telegram_config.chat_id,
-        notification,
-    )
-    .await?;
+    info!(
+        telegram_config = telegram_config.as_value(),
+        notification, "sending notification"
+    );
+    send_telegram_msg(&telegram_client, &telegram_config.chat_id, notification).await?;
 
     Ok(())
 }
 
 async fn send_telegram_msg(
     client: &AsyncApi,
-    api_key: &str,
     chat_id: &str,
     notification: &str,
 ) -> Result<(), frankenstein::Error> {
@@ -101,19 +108,9 @@ async fn send_telegram_msg(
     Ok(())
 }
 
-#[derive(Clone)]
+#[derive(Clone, Valuable)]
 pub struct TelegramConfig {
     pub id: i32,
     pub api_key: String,
     pub chat_id: String,
-}
-
-impl std::fmt::Debug for TelegramConfig {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TelegramConfig")
-            .field("id", &self.id)
-            .field("api_key", &self.api_key.chars().take(5).collect::<String>())
-            .field("chat_id", &self.chat_id.chars().take(5).collect::<String>())
-            .finish()
-    }
 }

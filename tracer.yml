@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: postgres:17.2
     volumes:
       - ./postgres/cascading_id_schema.sql:/docker-entrypoint-initdb.d/schema.sql
     environment:

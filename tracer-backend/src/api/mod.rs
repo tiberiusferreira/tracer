@@ -3,16 +3,23 @@ use std::net::SocketAddr;
 
 use crate::api::state::AppState;
 use api_structs::{Endpoint, InstanceGlobalId, ServiceId};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::ServiceExt;
+use bytes::Bytes;
 use chrono::NaiveDateTime;
+use http::{HeaderMap, Request, Response, StatusCode};
+use http_body_util::Full;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower::Layer;
+use tower::ServiceBuilder;
+use tower_http::trace::{DefaultOnResponse, OnResponse};
+use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
+use tracing::field::{display, Empty};
+use tracing::Span;
 use tracing::{error, info, instrument};
 use tracked_error::error_chain_to_pretty_formatted;
-
 pub mod database;
 pub mod handlers;
 pub mod state;
@@ -92,8 +99,8 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
         .layer(
-            tower_http::trace::TraceLayer::new_for_http().make_span_with(
-                |request: &axum::http::Request<_>| {
+            tower_http::trace::TraceLayer::new_for_http()
+                .make_span_with(|request: &Request<_>| {
                     let method = request.method();
                     let path = request.uri().path();
                     tracing::error_span!(
@@ -101,9 +108,28 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                         http.request.method = %method,
                         url.path = path,
                         headers = ?request.headers(),
+                        http.response.status_code = Empty
                     )
-                },
-            ),
+                })
+                // .on_request(|request, _span: &Span| {
+                // tracing::debug!("started {} {}", request, request.uri().path())
+                // })
+                .on_response(
+                    |response: &Response<axum::body::Body>, latency: Duration, span: &Span| {
+                        let status_code = response.status().as_u16();
+                        span.record("http.response.status_code", status_code);
+                    },
+                ), // .on_body_chunk(|chunk: &bytes::Bytes, latency, _span: &Span| {
+                   //     tracing::debug!("sending {} bytes", chunk.len())
+                   // })
+                   // .on_eos(|trailers, stream_duration, _span: &Span| {
+                   //     tracing::debug!("stream closed after {:?}", stream_duration)
+                   // })
+                   // .on_failure(
+                   //     |error: ServerErrorsFailureClass, latency: Duration, _span: &Span| {
+                   //         tracing::debug!("something went wrong")
+                   //     },
+                   // ),
         );
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     tokio::spawn(async move {
@@ -186,7 +212,7 @@ impl From<AppStateError> for ApiError {
 }
 
 impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
+    fn into_response(self) -> axum::response::Response {
         (self.code, self.message).into_response()
     }
 }

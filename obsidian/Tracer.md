@@ -239,3 +239,16 @@ Traces can also be Deep Searched, which is a slower search looking at their indi
 
 
 
+
+## Tracer Self Tracing Problem
+
+
+Tracer Received Data from Instance A.
+
+It ingests it and emits a trace about ingesting A's Trace.
+
+Tracer Received Data from itself. 
+
+It ingests it and emits a trace about ingesting its own Trace. <- should not emit this trace
+
+When ingesting traces from an instance of service Tracer, it should not emit a new trace.

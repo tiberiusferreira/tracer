@@ -4,27 +4,28 @@ use tracked_error::{SerdeJsonError, SqlxError};
 
 pub async fn get_all_series(con: PgPool) -> Result<Vec<Series>, crate::error::SqlxOrSerdeJson> {
     let series: Vec<serde_json::Value> = sqlx::query_scalar!(
-        "select
-       json_object(
-           'id': series.id,
-           'name': name,
-           'sql': sql,
-           'check_window': check_window,
-           'max_missing_data_points': max_missing_data_points,
-           'max_value_threshold': max_value_threshold,
-           'min_value_threshold': min_value_threshold,
-           'alert_checks': json_agg(
-                   json_object(
-                           'id' : series_alert_check.id,
-                           'alert_message' : alert_message,
-                           'notification_sent' : notification_sent,
-                           'created_at' : series_alert_check.created_at
-                   )
-           )
+        "select json_object(
+               'id' : series.id,
+               'name' : name,
+               'sql' : sql,
+               'check_window' : check_window,
+               'max_missing_data_points' : max_missing_data_points,
+               'max_value_threshold' : max_value_threshold,
+               'min_value_threshold' : min_value_threshold,
+               'alert_checks' :
+               coalesce(json_agg(
+                        json_object(
+                                'id' : series_alert_check.id,
+                                'alert_message' : series_alert_check.alert_message,
+                                'notification_sent' : series_alert_check.notification_sent,
+                                'created_at' : series_alert_check.created_at
+                        )
+                                ) filter (where series_alert_check.id is not null), json_array())
        ) as \"value!\"
 from series
          left join series_alert_check on series_alert_check.series_id = series.id
-group by series.id;"
+group by series.id;
+"
     )
     .fetch_all(&con)
     .await

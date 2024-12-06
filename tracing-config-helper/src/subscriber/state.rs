@@ -51,7 +51,7 @@ impl State {
         &mut self,
         id: &Id,
         name: String,
-        key_vals: HashMap<String, String>,
+        key_vals: HashMap<String, serde_json::Value>,
         location: Location,
     ) {
         let new_tracer_trace_id = self.data.insert_new_trace(name, key_vals, location);
@@ -85,7 +85,7 @@ impl State {
         span_id: Id,
         parent_id: Id,
         name: String,
-        key_vals: HashMap<String, String>,
+        key_vals: HashMap<String, serde_json::Value>,
         location: Location,
     ) {
         let tracer_trace_id = self
@@ -119,7 +119,7 @@ impl State {
         span_id: Id,
         message: Option<String>,
         severity: Severity,
-        key_vals: HashMap<String, String>,
+        key_vals: HashMap<String, serde_json::Value>,
         location: Location,
     ) {
         let tracer_trace_id = *self
@@ -135,6 +135,20 @@ impl State {
             key_vals,
             location,
         );
+    }
+    pub fn insert_span_attributes(
+        &mut self,
+        trace_id: Id,
+        span_id: Id,
+        attributes: HashMap<String, serde_json::Value>,
+    ) {
+        let tracer_trace_id = *self
+            .registry_to_tracer_id_mapping
+            .get(&trace_id)
+            .expect("trace id to exist if has new span attribute");
+        let tracer_span_id = self.span_to_tracer_span_id(trace_id, span_id);
+        self.data
+            .add_attributes_to_span(tracer_trace_id, tracer_span_id, attributes);
     }
     pub fn insert_orphan_event(&mut self, orphan_event: Event) {
         self.data.insert_orphan_event(orphan_event);

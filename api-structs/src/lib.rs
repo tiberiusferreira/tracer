@@ -19,6 +19,7 @@ pub type TraceName = String;
 pub type SpanId = u64;
 pub type InstanceGlobalId = uuid::Uuid;
 pub type TraceId = u64;
+pub type InstanceUpdateId = u64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct ServiceId {

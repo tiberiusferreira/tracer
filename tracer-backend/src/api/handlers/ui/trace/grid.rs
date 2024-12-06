@@ -1,9 +1,7 @@
 use crate::api::state::AppState;
-use crate::api::{handlers, u64_nanos_to_db_i64, ApiError};
-use api_structs::time_conversion::{time_from_nanos, time_to_nanos_u64};
-use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse, TraceGridRow};
-use api_structs::ui::trace::spans::TraceId;
-use api_structs::{Env, InstanceGlobalId, ServiceId};
+use crate::api::ApiError;
+use api_structs::time_conversion::time_from_nanos;
+use api_structs::ui::trace::grid::{Autocomplete, SearchFor, TraceGridResponse};
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -12,8 +10,7 @@ use futures::TryFutureExt;
 use sqlx::{FromRow, PgPool};
 use tokio::task::JoinHandle;
 use tracing::instrument::Instrumented;
-use tracing::{error, info, info_span, instrument, Instrument};
-use tracked_error::SqlxError;
+use tracing::{error, info, instrument, Instrument};
 use uuid::Uuid;
 
 #[instrument(level = "error", skip_all)]

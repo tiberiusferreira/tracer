@@ -1,21 +1,10 @@
-use crate::api::handlers::ui::trace::{RawDbEvent, RawDbSpan};
 use crate::api::state::AppState;
-use crate::api::{u64_nanos_to_db_i64, ApiError};
-use api_structs::instance::update::Location;
-use api_structs::time_conversion::{time_from_nanos, time_to_nanos_u64};
-use api_structs::ui::trace::search::event::{Event, TraceEventSearch, TraceEventSearchUrlEncoded};
+use crate::api::ApiError;
+use api_structs::ui::trace::search::event::{Event, TraceEventSearchUrlEncoded};
 use api_structs::ui::trace::spans::TraceId;
-use api_structs::Severity;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
 use axum::Json;
-use futures::TryFutureExt;
-use sqlx::PgPool;
-use std::collections::HashMap;
-use std::io::Read;
-use std::str::FromStr;
-use tracing::{info, instrument};
-use tracked_error::SqlxError;
+use tracing::instrument;
 
 #[instrument(skip_all)]
 pub async fn trace_keys(

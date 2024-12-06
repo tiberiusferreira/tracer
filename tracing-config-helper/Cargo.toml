@@ -15,10 +15,13 @@ brotli.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 api-structs.workspace = true
-tracked_error.workspace = true
+tracked_error = { workspace = true, features = ["reqwest"] }
 futures.workspace = true
 serde_json.workspace = true
+valuable.workspace = true
 parking_lot.workspace = true
 deepsize.workspace = true
 pprof = { version = "0.14", features = ["flamegraph", "frame-pointer", "prost-codec"] }
+base64.workspace = true
+tracing-serde = { version = "0.2.0", features = ["valuable"] }
 

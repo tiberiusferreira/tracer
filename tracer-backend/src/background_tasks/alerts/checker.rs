@@ -1,5 +1,4 @@
 use crate::series::SeriesDataPoint;
-use chrono::{NaiveDateTime, Utc};
 use sqlx::PgPool;
 use tracing::{debug, error, info, instrument};
 use tracked_error::{error_chain_to_pretty_formatted, SqlxError};

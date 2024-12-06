@@ -1,9 +1,7 @@
 use crate::api::state::AppState;
-use crate::api::{ApiError, AppStateError, ServiceInAppStateButNotDBError};
-use api_structs::ui::service::Instance;
-use api_structs::{Endpoint, ServiceId};
-use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use crate::api::ApiError;
+use api_structs::Endpoint;
+use axum::extract::State;
 use axum::Json;
 use tracing::instrument;
 use tracked_error::{SerdeJsonError, SqlxError};

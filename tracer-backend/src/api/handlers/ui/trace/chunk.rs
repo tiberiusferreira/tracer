@@ -1,26 +1,14 @@
-use std::collections::HashMap;
-use std::io::Read;
-use std::str::FromStr;
 
-use api_structs::instance::update::Location;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::Json;
-use chrono::NaiveDateTime;
-use futures::TryFutureExt;
 use sqlx::PgPool;
-use tracing::{info, instrument};
+use tracing::instrument;
 
-use api_structs::time_conversion::time_to_nanos_u64;
-use api_structs::ui::trace::spans::{SingleChunkTraceQuery, Span, TraceId};
+use api_structs::ui::trace::spans::TraceId;
 use api_structs::ui::trace::TraceHeaderAndSpans;
-use api_structs::Severity;
-use tracked_error::SqlxError;
 
-use crate::api::handlers::ui::trace::{RawDbEvent, RawDbSpan};
 use crate::api::state::AppState;
-use crate::api::{handlers, u64_nanos_to_db_i64, ApiError};
+use crate::api::ApiError;
 
 #[instrument(skip_all, fields(trace_id=trace_id.trace_id))]
 pub async fn get_trace_timestamp_chunks(

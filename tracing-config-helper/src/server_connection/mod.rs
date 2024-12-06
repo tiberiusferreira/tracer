@@ -5,7 +5,6 @@ use tracked_error::{ReqwestError, SerdeJsonError};
 pub mod instance_registration;
 pub mod instance_update_sender;
 pub mod request_compression;
-// pub mod server_sent_events;
 
 #[derive(Debug, Error)]
 pub enum Error {

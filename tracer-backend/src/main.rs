@@ -2,14 +2,13 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
 
+use crate::api::state::AppState;
+use api_structs::ServiceId;
 use clap::Parser;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use tokio::task::spawn_local;
 use tracing::{error, info, info_span, instrument, Instrument};
-
-use crate::api::state::AppState;
-use api_structs::ServiceId;
 use tracing_config_helper::TracerConfig;
 use tracked_error::error_chain_to_pretty_formatted;
 mod api;
@@ -50,7 +49,7 @@ async fn main() {
                 },
                 format!("http://127.0.0.1:{}", launch_config.api_listen_port),
             )
-            .with_enable_log_exporting(false)
+            .with_enable_log_exporting(true)
             .with_stdout_logging(true);
 
             let _tracer_flush_request =
@@ -75,6 +74,7 @@ async fn start_api_and_background_tasks(
         // Sleep before tasks so they start after tracer is setup and we dont lose any traces
         tokio::time::sleep(Duration::from_secs(3)).await;
         info!("Using config: {:#?}", config);
+
         loop {
             async {
                 let state = app_state.clone();

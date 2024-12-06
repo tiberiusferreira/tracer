@@ -1,30 +1,22 @@
-use std::collections::hash_map::ValuesMut;
-use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
+use std::collections::HashMap;
 
+use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, Span, TraceSnapshot};
+use api_structs::InstanceGlobalId;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use chrono::NaiveDateTime;
+use base64::Engine;
 use sqlx::{PgPool, Postgres, Transaction};
-use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
-use uuid::Uuid;
-
-use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, Span, TraceSnapshot};
-use api_structs::time_conversion::{now_nanos_u64, time_from_nanos};
-use api_structs::ui::service::ProfileData;
-use api_structs::{InstanceGlobalId, ServiceId, TraceName};
+use tracing::{error, info, instrument, trace};
 use tracked_error::SqlxError;
 
-use crate::api::handlers::Severity;
-use crate::api::state::{AppState, BytesBudgetUsage, Shared};
+use crate::api::state::AppState;
 use crate::api::ApiError;
-use crate::{
-    MAX_STATS_HISTORY_DATA_COUNT, SINGLE_KEY_VALUE_KEY_CHARS_LIMIT,
-    SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT,
-};
+use crate::{SINGLE_KEY_VALUE_KEY_CHARS_LIMIT, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT};
+
 mod db_trace;
 mod instance;
+mod trace;
 pub struct ServiceNotRegisteredError;
 
 #[instrument(skip_all)]
@@ -233,7 +225,7 @@ pub async fn update_trace_with_new_state(
     // 1. A parent closed with an open child
     // 2. A child with a longer duration than the parent
     // 3. More than one root span
-    let trace_id = trace_state.id;
+    let trace_id = trace_state.trace_id;
     // let mut transaction = con
     //     .begin()
     //     .instrument(info_span!("starting_transaction"))
@@ -602,143 +594,107 @@ pub async fn insert_orphan_events(
     unimplemented!()
 }
 
-fn truncate_string(string: &str, max_chars: usize) -> String {
-    string.chars().take(max_chars).collect::<String>()
-}
-
-fn truncate_key_values(key_vals: &mut HashMap<String, String>) {
-    let keys_too_big: HashMap<String, String> = key_vals
-        .keys()
-        .filter_map(|k| {
-            if k.len() > SINGLE_KEY_VALUE_KEY_CHARS_LIMIT {
-                let new_key = truncate_string(&k, SINGLE_KEY_VALUE_KEY_CHARS_LIMIT);
-                info!(
-                    "Truncating key (too big), starts with: {}",
-                    truncate_string(&new_key, 100)
-                );
-                Some((k.clone(), new_key))
-            } else {
-                None
-            }
-        })
-        .collect();
-    for (key, replacement_key) in keys_too_big {
-        let val = key_vals.remove(&key).unwrap();
-        key_vals.insert(replacement_key, val);
-    }
-    for (key, val) in key_vals {
-        if val.len() > SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT {
-            *val = truncate_string(val, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT);
-            info!(
-                "Truncating value (too big) for key {key} value: {}",
-                truncate_string(val, 100)
-            );
-        }
+pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
+    // this is bytes, not chars, but close enough for debugging
+    if text.len() > max_len {
+        let first: String = text.chars().take(max_len / 2).collect();
+        // we just got the chars in reverse order
+        let last: String = text.chars().rev().take(max_len / 2).collect();
+        let last = last.chars().rev().collect::<String>();
+        format!("{first}\n...\n{last}")
+    } else {
+        text.to_string()
     }
 }
-
-#[instrument(skip_all)]
-fn truncate_span_key_values_if_needed(spans: &mut ValuesMut<u32, Span>) {
-    for s in spans {
-        truncate_key_values(&mut s.key_vals);
-    }
-}
-
-#[instrument(skip_all)]
-fn truncate_events_if_needed(events: &mut Vec<Event>) {
-    for e in events {
-        if let Some(msg) = &mut e.message {
-            if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
-                info!("Truncating event (too big): {}", truncate_string(&msg, 100));
-                *msg = truncate_string(msg, crate::SINGLE_EVENT_CHARS_LIMIT);
-            }
-        }
-        truncate_key_values(&mut e.key_vals);
-    }
-}
-
-#[instrument(skip_all)]
-fn truncate_orphan_events_and_kv_if_needed(events: &mut Vec<Event>) {
-    for e in events {
-        if let Some(msg) = &mut e.message {
-            if msg.len() > crate::SINGLE_EVENT_CHARS_LIMIT {
-                info!(
-                    "Truncating orphan event (too big): {}",
-                    truncate_string(&msg, 100)
-                );
-                *msg = truncate_string(msg, crate::SINGLE_EVENT_CHARS_LIMIT);
-            }
-        }
-        truncate_key_values(&mut e.key_vals);
-    }
-}
-
 #[instrument(level = "error", skip_all, err(Debug))]
 pub async fn handler(
     State(app_state): State<AppState>,
     instance_snapshot: Json<InstanceSnapshot>,
 ) -> Result<Json<ConfigChange>, ApiError> {
-    info!(instance_id=?instance_snapshot.instance_id,
-        log_filter=?instance_snapshot.log_filter, "got instance update");
-    trace!(trace_snapshots=?instance_snapshot.trace_snapshots);
-    trace!(orphan_events=?instance_snapshot.orphan_events);
-    trace!(export_buffer_size_bytes=?instance_snapshot.export_buffer_size_bytes);
-    trace!(log_filter=?instance_snapshot.log_filter);
+    info!(
+        instance_id=%instance_snapshot.instance_id,
+        log_filter=instance_snapshot.log_filter,
+        export_buffer_size_bytes=instance_snapshot.export_buffer_size_bytes,
+        "got instance update"
+    );
+
     let con = app_state.con;
     let mut tx = con.begin().await.map_err(SqlxError::from)?;
     let instance_id = instance_snapshot.instance_id;
     let instance_db_id = instance::database::get_instance_db_id(&mut tx, instance_id)
         .await?
         .ok_or_else(|| {
-            error!("got update for non existing instance");
+            error!(%instance_id, "got update for non existing instance");
             ApiError {
                 code: StatusCode::BAD_REQUEST,
                 message: "instance not registered".to_string(),
             }
         })?;
-    let instance_update_id = instance::database::insert_instance_update(
+    info!(instance_db_id);
+    let last_update_id =
+        instance::database::get_last_instance_update_id(&mut tx, instance_db_id).await?;
+    info!(last_update_id = last_update_id);
+    let expected_value = match last_update_id {
+        None => 0u64,
+        Some(last_update_id) => (last_update_id + 1) as u64,
+    };
+    info!(expected_value);
+    if instance_snapshot.id != expected_value {
+        error!(
+            received = instance_snapshot.id,
+            expected = expected_value,
+            last_update_id = last_update_id,
+            "unexpected instance update id"
+        );
+        return Err(ApiError {
+            code: StatusCode::BAD_REQUEST,
+            message: format!(
+                "unexpected instance update id, expected={expected_value} got {}",
+                instance_snapshot.id
+            ),
+        });
+    }
+    let instance_update_id = instance_snapshot.id;
+    instance::database::insert_instance_update(
         &mut tx,
         instance_db_id,
+        instance_update_id,
         instance_snapshot.export_buffer_size_bytes,
     )
     .await?;
+    for t in instance_snapshot.trace_snapshots.values() {
+        trace::insert_or_update_trace(&mut tx, instance_db_id, instance_update_id, t).await?;
+    }
+    let cpu_profile_bytes = instance_snapshot
+        .cpu_profile_base64
+        .as_ref()
+        .map(|profile| {
+            base64::engine::general_purpose::STANDARD_NO_PAD
+                .decode(profile)
+                .map_err(|e| {
+                    let sample = shorten_for_logging(profile, 128);
+                    error!(sample = sample, "Bad base64 profile");
+                    ApiError {
+                        code: StatusCode::BAD_REQUEST,
+                        message: "Could not decode profile data as base64".to_string(),
+                    }
+                })
+        })
+        .transpose()?;
+
     instance::database::insert_instance_latest_log_filter_and_cpu_profile(
         &mut tx,
         instance_db_id,
         &instance_snapshot.log_filter,
-        &instance_snapshot.cpu_profile,
+        cpu_profile_bytes,
     )
     .await?;
     let config_change =
         instance::get_instance_config_change(&mut tx, instance_id, &instance_snapshot.log_filter)
             .await?;
     tx.commit().await.map_err(SqlxError::from)?;
+    info!("instance update fully processed");
     Ok(config_change)
-    // let trace_data: ExportedServiceTraceData = trace_data.0;
-    // trace!("{trace_data:#?}");
-    // let sampling = update_service_and_instance_data(&app_state.services_runtime_stats, &trace_data)
-    //     .map_err(|_e| {
-    //         error!("Tried to update instance, but was not registered!");
-    //         ApiError {
-    //             code: StatusCode::BAD_REQUEST,
-    //             message: "Instance not registered by SSE".to_string(),
-    //         }
-    //     })?;
-    // let instance_id = trace_data.instance_id;
-    // info!("Got {} new fragments", trace_data.traces_state.len());
-    // for mut fragment in trace_data.traces_state.into_values() {
-    //     truncate_span_key_values_if_needed(&mut fragment.spans.values_mut());
-    //     truncate_events_if_needed(&mut fragment.new_events);
-    //     if let Err(db_error) = update_trace_with_new_state(&con, &instance_id, fragment).await {
-    //         error!("DB error when inserting fragment: {:#?}", db_error);
-    //     }
-    // }
-    //
-    // let mut orphan_events = trace_data.orphan_events;
-    // truncate_orphan_events_and_kv_if_needed(&mut orphan_events);
-    // insert_orphan_events(&con, &instance_id, &orphan_events).await;
-    //
-    // Ok(Json(sampling))
 }
 
 #[instrument(skip_all)]
@@ -784,132 +740,6 @@ async fn update_trace_header(
     // .execute(con.deref_mut())
     // .await
     // .map_err(|e| SqlxError::from_sqlx_error(e, "updating trace header"))?;
-    // Ok(())
-    unimplemented!()
-}
-
-#[instrument(skip_all)]
-pub(crate) async fn insert_spans(
-    con: &mut Transaction<'static, Postgres>,
-    new_spans: &[Span],
-    trace_id: i32,
-    instance_id: &InstanceGlobalId,
-) -> Result<(), SqlxError> {
-    // if new_spans.is_empty() {
-    //     info!("No spans to insert");
-    //     return Ok(());
-    // } else {
-    //     info!("Inserting {} spans", new_spans.len());
-    // }
-    // let span_ids: Vec<i32> = new_spans.iter().map(|s| s.id as i32).collect();
-    // let instance_ids: Vec<Uuid> = new_spans.iter().map(|_s| instance_id.instance_id).collect();
-    // let trace_ids: Vec<i32> = new_spans.iter().map(|_s| trace_id).collect();
-    // let timestamp: Vec<NaiveDateTime> = new_spans
-    //     .iter()
-    //     .map(|s| time_from_nanos(s.timestamp))
-    //     .collect();
-    // let modules: Vec<Option<String>> = new_spans
-    //     .iter()
-    //     .map(|s| s.location.module.clone())
-    //     .collect();
-    // let filenames: Vec<Option<String>> = new_spans
-    //     .iter()
-    //     .map(|s| s.location.filename.clone())
-    //     .collect();
-    // let lines: Vec<Option<i32>> = new_spans
-    //     .iter()
-    //     .map(|s| s.location.line.map(|l| l as i32))
-    //     .collect();
-    // let parent_id: Vec<Option<i32>> = new_spans
-    //     .iter()
-    //     .map(|s| s.parent_id.map(|e| e as i32))
-    //     .collect();
-    // let duration: Vec<i64> = new_spans.iter().map(|s| s.duration as i64).collect();
-    // let name: Vec<String> = new_spans.iter().map(|s| s.name.clone()).collect();
-    // let closed: Vec<bool> = new_spans.iter().map(|s| s.closed).collect();
-    // // on conflict can happen if the span was active and open (so exists), but now is closed
-    // match sqlx::query!(
-    //         "insert into span (id, instance_id, trace_id, timestamp, parent_id, duration_nanos, name, module, filename, line, closed)
-    //         select * from unnest($1::INT[], $2::UUID[], $3::INT[], $4::TIMESTAMP[], $5::BIGINT[], $6::BIGINT[], $7::TEXT[], $8::TEXT[], $9::TEXT[], $10::INT[], $11::boolean[])
-    //          on conflict (instance_id, trace_id, id) do update set duration_nanos=excluded.duration_nanos, closed=excluded.closed;",
-    //         &span_ids,
-    //         &instance_ids,
-    //         &trace_ids,
-    //         &timestamp,
-    //         &parent_id as &Vec<Option<i32>>,
-    //         &duration as &Vec<i64>,
-    //         &name,
-    //         &modules as &Vec<Option<String>>,
-    //         &filenames as &Vec<Option<String>>,
-    //         &lines as &Vec<Option<i32>>,
-    //         &closed as &Vec<bool>,
-    //     )
-    //     .execute(con.deref_mut())
-    //     .await {
-    //     Ok(_) => {
-    //         info!("Inserted spans");
-    //     }
-    //     Err(e) => {
-    //         error!("Error when inserting spans");
-    //         error!("Span Ids: {:?}", span_ids);
-    //         error!("Instance Ids: {:?}", instance_ids);
-    //         error!("Trace Ids: {:?}", trace_id);
-    //         error!("Timestamp: {:?}", timestamp);
-    //         error!("parent_id: {:?}", parent_id);
-    //         error!("duration: {:?}", duration);
-    //         error!("name: {:?}", name);
-    //         return Err(SqlxError::from_sqlx_error(e, "inserting spans"));
-    //
-    //     }
-    // };
-    // let mut kv_instance_id = vec![];
-    // let mut kv_trace_id = vec![];
-    // let mut kv_span_id = vec![];
-    // let mut kv_key = vec![];
-    // let mut kv_value = vec![];
-    // for (_idx, span) in new_spans.iter().enumerate() {
-    //     for (key, val) in &span.key_vals {
-    //         kv_instance_id.push(instance_id.instance_id);
-    //         kv_trace_id.push(trace_id as i32);
-    //         kv_span_id.push(span.id as i32);
-    //         kv_key.push(key.as_str());
-    //         kv_value.push(val.as_str());
-    //     }
-    // }
-    // if kv_instance_id.is_empty() {
-    //     info!("No span key-values to insert");
-    //     return Ok(());
-    // } else {
-    //     info!("Inserting {} span key-values", kv_instance_id.len());
-    // }
-    // // conflicts can happen for the same reason span conflicts can
-    // match sqlx::query!(
-    //     "insert into span_key_value (instance_id, trace_id, span_id,  key, value)
-    //         select * from unnest($1::UUID[], $2::INT[], $3::INT[], $4::TEXT[], $5::TEXT[])
-    //         on conflict (instance_id, trace_id, span_id, key) do update set value=excluded.value;",
-    //     &kv_instance_id,
-    //     &kv_trace_id,
-    //     &kv_span_id,
-    //     &kv_key as &Vec<&str>,
-    //     &kv_value as &Vec<&str>
-    // )
-    // .execute(con.deref_mut())
-    // .await
-    // {
-    //     Ok(_) => {
-    //         info!("Inserted span key-values");
-    //     }
-    //     Err(e) => {
-    //         error!("Error when inserting span key-values");
-    //         error!("kv_instance_id: {:?}", kv_instance_id);
-    //         error!("kv_trace_id: {:?}", kv_trace_id);
-    //         error!("kv_span_id: {:?}", kv_span_id);
-    //         error!("kv_key: {:?}", kv_key);
-    //         error!("kv_value: {:?}", kv_value);
-    //         return Err(SqlxError::from_sqlx_error(e, "inserting spans kvs"));
-    //     }
-    // };
-    //
     // Ok(())
     unimplemented!()
 }
