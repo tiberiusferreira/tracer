@@ -276,7 +276,7 @@ async fn trace_export_loop(
     let context = "trace_export_task";
     let min_wait_duration_between_profile_exports = config.min_duration_between_profile_exports;
     let mut time_last_profile_export = std::time::Instant::now();
-    let mut update_id = 0;
+    let mut update_count = 1;
     loop {
         let period_time_secs = config.duration_between_exports;
         print_if_dbg(
@@ -335,7 +335,7 @@ async fn trace_export_loop(
             std::mem::take(&mut traces_and_orphan_events.orphan_events);
         }
         let export_data = InstanceSnapshot {
-            id: update_id,
+            update_count,
             instance_id,
             orphan_events: traces_and_orphan_events.orphan_events,
             trace_snapshots: traces_and_orphan_events.traces,
@@ -357,7 +357,7 @@ async fn trace_export_loop(
             .await
             {
                 Ok(config_change) => {
-                    update_id += 1;
+                    update_count += 1;
                     if let Some(new_log_filter) = config_change.log_filter {
                         println!("reloading log filters using new config: {new_log_filter}");
                         reload_tracer_handle

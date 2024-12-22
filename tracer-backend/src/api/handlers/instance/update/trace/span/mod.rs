@@ -1,4 +1,3 @@
-use crate::api::handlers::instance::update::instance::database::InstanceDbId;
 use api_structs::instance::update::Span;
 use api_structs::time_conversion::time_from_nanos;
 use api_structs::InstanceUpdateId;
@@ -6,12 +5,13 @@ use sqlx::{Postgres, Transaction};
 use tracing::{info, info_span, instrument, Instrument};
 use tracked_error::SqlxError;
 
+pub type InstanceDbId = i32;
 #[instrument(skip_all)]
 pub async fn insert_spans_and_events(
     con: &mut Transaction<'static, Postgres>,
     instance_db_id: InstanceDbId,
     instance_update_id: InstanceUpdateId,
-    trace_id: api_structs::TraceId,
+    trace_id: api_structs::TraceCountId,
     new_spans: impl Iterator<Item = &Span>,
 ) -> Result<(), SqlxError> {
     let mut instance_id_list = vec![];

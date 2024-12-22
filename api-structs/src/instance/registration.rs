@@ -6,6 +6,7 @@ impl crate::Endpoint for RegistrationEndpoint {
     const PATH: &'static str = "/api/instance/register";
     const METHOD: &'static str = "POST";
     type RequestBody = crate::ServiceId;
+    type QueryParameters = ();
     type ResponseBody = RegistrationResponse;
 }
 

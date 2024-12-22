@@ -8,6 +8,7 @@ pub type Shared<T> = std::sync::Arc<parking_lot::RwLock<T>>;
 #[derive(Clone)]
 pub struct AppState {
     pub con: PgPool,
+    pub edgedb_client: edgedb_tokio::Client,
 }
 
 #[derive(Debug, Clone)]

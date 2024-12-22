@@ -6,16 +6,16 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use base64::Engine;
+use edgedb_codegen::edgedb_query;
 use sqlx::{PgPool, Postgres, Transaction};
 use tracing::{error, info, instrument, trace};
-use tracked_error::SqlxError;
+use tracked_error::{EdgeDBError, SqlxError};
 
 use crate::api::state::AppState;
 use crate::api::ApiError;
 use crate::{SINGLE_KEY_VALUE_KEY_CHARS_LIMIT, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT};
 
 mod db_trace;
-mod instance;
 mod trace;
 pub struct ServiceNotRegisteredError;
 
@@ -225,7 +225,7 @@ pub async fn update_trace_with_new_state(
     // 1. A parent closed with an open child
     // 2. A child with a longer duration than the parent
     // 3. More than one root span
-    let trace_id = trace_state.trace_id;
+    let trace_id = trace_state.trace_count_id;
     // let mut transaction = con
     //     .begin()
     //     .instrument(info_span!("starting_transaction"))
@@ -606,95 +606,161 @@ pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
         text.to_string()
     }
 }
+
+edgedb_query!(
+    instance_update_result,
+    "
+with service_instance := (
+  update ServiceInstance filter .id=<uuid>$instance_id
+  set {
+    received_update_count := .received_update_count + 1
+  }
+)
+select {
+  received_update_count := service_instance.received_update_count,
+  log_filter := service_instance.service.log_filter.log_filter,
+};
+"
+);
+
+edgedb_query!(
+    instance_update_insertion,
+    "
+with
+instance_update := (
+  insert ServiceInstanceUpdate {
+    service_instance := (
+      select ServiceInstance filter .id=<uuid>$instance_id
+    ),
+    export_buffer_size_bytes := <int64>$export_buffer_size_bytes
+  }
+)
+select {
+  instance_update_id := instance_update.id
+};
+"
+);
+
 #[instrument(level = "error", skip_all, err(Debug))]
 pub async fn handler(
     State(app_state): State<AppState>,
     instance_snapshot: Json<InstanceSnapshot>,
 ) -> Result<Json<ConfigChange>, ApiError> {
     info!(
-        instance_id=%instance_snapshot.instance_id,
-        log_filter=instance_snapshot.log_filter,
-        export_buffer_size_bytes=instance_snapshot.export_buffer_size_bytes,
+        instance.id=%instance_snapshot.instance_id,
+        instance.log_filter=instance_snapshot.log_filter,
+        instance.export_buffer_size_bytes=instance_snapshot.export_buffer_size_bytes,
         "got instance update"
     );
-
-    let con = app_state.con;
-    let mut tx = con.begin().await.map_err(SqlxError::from)?;
-    let instance_id = instance_snapshot.instance_id;
-    let instance_db_id = instance::database::get_instance_db_id(&mut tx, instance_id)
-        .await?
-        .ok_or_else(|| {
-            error!(%instance_id, "got update for non existing instance");
-            ApiError {
-                code: StatusCode::BAD_REQUEST,
-                message: "instance not registered".to_string(),
-            }
-        })?;
-    info!(instance_db_id);
-    let last_update_id =
-        instance::database::get_last_instance_update_id(&mut tx, instance_db_id).await?;
-    info!(last_update_id = last_update_id);
-    let expected_value = match last_update_id {
-        None => 0u64,
-        Some(last_update_id) => (last_update_id + 1) as u64,
+    let edgedb_client = app_state.edgedb_client;
+    let mut tx = edgedb_client
+        .transaction()
+        .await
+        .map_err(|e| EdgeDBError::from(e))?;
+    let instance_update_result = instance_update_result::transaction(
+        &mut tx,
+        &instance_update_result::Input {
+            instance_id: instance_snapshot.instance_id,
+        },
+    )
+    .await
+    .map_err(|e| EdgeDBError::from(e))?;
+    let (Some(received_update_count), Some(service_log_filter)) = (
+        instance_update_result.received_update_count,
+        instance_update_result.log_filter,
+    ) else {
+        error!(instance.id=%instance_snapshot.instance_id, "got update for non existing instance");
+        return Err(ApiError {
+            code: StatusCode::BAD_REQUEST,
+            message: "instance not registered".to_string(),
+        });
     };
-    info!(expected_value);
-    if instance_snapshot.id != expected_value {
+    let expected_update_count = received_update_count as u64;
+
+    info!(instance.expected_update_count = expected_update_count);
+    if instance_snapshot.update_count != expected_update_count {
         error!(
-            received = instance_snapshot.id,
-            expected = expected_value,
-            last_update_id = last_update_id,
+            instance.received_update_count = instance_snapshot.update_count,
+            instance.expected_update_count = expected_update_count,
             "unexpected instance update id"
         );
         return Err(ApiError {
             code: StatusCode::BAD_REQUEST,
             message: format!(
-                "unexpected instance update id, expected={expected_value} got {}",
-                instance_snapshot.id
+                "unexpected instance update id, expected={expected_update_count} got {}",
+                instance_snapshot.update_count
             ),
         });
     }
-    let instance_update_id = instance_snapshot.id;
-    instance::database::insert_instance_update(
+    let instance_update_id = instance_update_insertion::transaction(
         &mut tx,
-        instance_db_id,
-        instance_update_id,
-        instance_snapshot.export_buffer_size_bytes,
+        &instance_update_insertion::Input {
+            instance_id: instance_snapshot.instance_id,
+            export_buffer_size_bytes: instance_snapshot.export_buffer_size_bytes as i64,
+        },
     )
-    .await?;
-    for t in instance_snapshot.trace_snapshots.values() {
-        trace::insert_or_update_trace(&mut tx, instance_db_id, instance_update_id, t).await?;
-    }
-    let cpu_profile_bytes = instance_snapshot
-        .cpu_profile_base64
-        .as_ref()
-        .map(|profile| {
-            base64::engine::general_purpose::STANDARD_NO_PAD
-                .decode(profile)
-                .map_err(|e| {
-                    let sample = shorten_for_logging(profile, 128);
-                    error!(sample = sample, "Bad base64 profile");
-                    ApiError {
-                        code: StatusCode::BAD_REQUEST,
-                        message: "Could not decode profile data as base64".to_string(),
-                    }
-                })
-        })
-        .transpose()?;
+    .await
+    .map_err(|e| EdgeDBError::from(e))?
+    .instance_update_id;
 
-    instance::database::insert_instance_latest_log_filter_and_cpu_profile(
-        &mut tx,
-        instance_db_id,
-        &instance_snapshot.log_filter,
-        cpu_profile_bytes,
-    )
-    .await?;
-    let config_change =
-        instance::get_instance_config_change(&mut tx, instance_id, &instance_snapshot.log_filter)
-            .await?;
-    tx.commit().await.map_err(SqlxError::from)?;
+    for t in instance_snapshot.trace_snapshots.values() {
+        trace::insert_or_update_trace(&mut tx, instance_update_id, t).await?;
+    }
+    // let cpu_profile_bytes = instance_snapshot
+    //     .cpu_profile_base64
+    //     .as_ref()
+    //     .map(|profile| {
+    //         base64::engine::general_purpose::STANDARD_NO_PAD
+    //             .decode(profile)
+    //             .map_err(|e| {
+    //                 let sample = shorten_for_logging(profile, 128);
+    //                 error!(sample = sample, "Bad base64 profile");
+    //                 ApiError {
+    //                     code: StatusCode::BAD_REQUEST,
+    //                     message: "Could not decode profile data as base64".to_string(),
+    //                 }
+    //             })
+    //     })
+    //     .transpose()?;
+
+    // instance::database::insert_instance_latest_log_filter_and_cpu_profile(
+    //     &mut tx,
+    //     instance_db_id,
+    //     &instance_snapshot.log_filter,
+    //     cpu_profile_bytes,
+    // )
+    // .await?;
+    // let config_change =
+    //     instance::get_instance_config_change(&mut tx, instance_id, &instance_snapshot.log_filter)
+    //         .await?;
+    // tx.commit().await.map_err(SqlxError::from)?;
+
+    tx.commit().await.map_err(|e| EdgeDBError::from(e))?;
+    let mut current: Vec<char> = instance_snapshot
+        .log_filter
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let mut new: Vec<char> = service_log_filter
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    current.sort();
+    new.sort();
+    let log_filter_request = if current != new {
+        info!(
+            instance.log_filter = instance_snapshot.log_filter,
+            service.log_filter = service_log_filter,
+            "log filter change needed"
+        );
+        Some(service_log_filter)
+    } else {
+        None
+    };
     info!("instance update fully processed");
-    Ok(config_change)
+    Ok(Json(ConfigChange {
+        log_filter: log_filter_request,
+    }))
 }
 
 #[instrument(skip_all)]

@@ -13,6 +13,12 @@ members = [
 
 [workspace.dependencies]
 api-structs = { path = "./api-structs" }
+
+
+#edgedb-tokio = "0.5.1"
+edgedb-tokio = { git = "https://github.com/tiberiusferreira/edgedb-rust", branch = "StandaloneTransactions" }
+
+
 tracked_error = { path = "./tracked_error", default-features = false }
 base64 = "0.22.1"
 valuable = "0.1.0"

@@ -1,3 +1,4 @@
+pub mod chart;
 pub mod orphan_events;
 pub mod series;
 pub mod service;

@@ -41,11 +41,10 @@ async fn main() {
             let join_handle = start_api_and_background_tasks(launch_config.clone())
                 .await
                 .expect("failed to start server and tasks");
-            let env = tracing_config_helper::Env::from(launch_config.environment.clone());
             let tracer_config = TracerConfig::new(
                 ServiceId {
                     name: env!("CARGO_BIN_NAME").to_string(),
-                    env,
+                    env: launch_config.environment.clone(),
                 },
                 format!("http://127.0.0.1:{}", launch_config.api_listen_port),
             )
@@ -68,7 +67,8 @@ async fn start_api_and_background_tasks(
     config: LaunchConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let con = connect_to_db(&config).await?;
-    let app_state = AppState { con };
+    let edgedb_client = edgedb_tokio::create_client().await.unwrap();
+    let app_state = AppState { con, edgedb_client };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
         // Sleep before tasks so they start after tracer is setup and we dont lose any traces

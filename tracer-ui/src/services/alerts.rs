@@ -1,4 +1,4 @@
-use api_structs::ui::r#mod::alerts::AlertConfig;
+use api_structs::ui::trace::alerts::AlertConfig;
 use leptos::html::Div;
 use leptos::view;
 

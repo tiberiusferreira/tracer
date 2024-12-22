@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use tracing::Id;
 
 use crate::subscriber::state::tracer_storage::DataInTracerFormatTrackingStorage;
-use api_structs::instance::update::{Event, Location, TraceSnapshot, ROOT_SPAN_ID};
+use api_structs::instance::update::{Event, Location, TraceSnapshot, ROOT_SPAN_COUNT_ID};
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::{Severity, SpanId};
+use api_structs::{Severity, SpanCountId};
 
 mod tracer_storage;
 #[derive(Debug, Clone)]
@@ -65,13 +65,13 @@ impl State {
             .expect("id to exist if used");
         self.data.close_trace(tracer_trace_id);
     }
-    fn span_to_tracer_span_id(&self, trace_id: Id, span_id: Id) -> SpanId {
+    fn span_to_tracer_span_id(&self, trace_id: Id, span_id: Id) -> SpanCountId {
         // in Tracing land, there are only spans, but in Tracer land, there are spans and traces.
         // When inserting a trace in our mapping, we map the Root Span to the TraceId.
         // When we get that Id back, we know it for the Trace and its root span, but there is no mapping from the Id
         // to the Trace Root span
         if trace_id == span_id {
-            ROOT_SPAN_ID
+            ROOT_SPAN_COUNT_ID
         } else {
             *self
                 .registry_to_tracer_id_mapping

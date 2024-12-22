@@ -29,3 +29,10 @@ pub struct SeriesDataPoint {
     pub data: Option<i64>,
     pub series_id: Option<String>,
 }
+
+#[derive(sqlx::FromRow, Serialize)]
+pub struct SeriesDataPoint2 {
+    pub time: chrono::DateTime<Utc>,
+    pub data: i64,
+    pub category_name: String,
+}

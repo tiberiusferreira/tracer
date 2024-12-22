@@ -1,15 +1,51 @@
-use crate::api::handlers::instance::register::service_initialization::ServiceDbId;
 use crate::api::state::AppState;
 use crate::api::ApiError;
 use api_structs::instance::registration::RegistrationResponse;
 use api_structs::{InstanceGlobalId, ServiceId};
 use axum::extract::State;
 use axum::Json;
+use edgedb_codegen::edgedb_query;
 use sqlx::{Postgres, Transaction};
 use tracing::{info, instrument};
-use tracked_error::SqlxError;
+use tracked_error::{EdgeDBError, SqlxError};
 
-pub mod service_initialization;
+edgedb_query!(
+    insert_service,
+    "
+with
+  env := <str>$env,
+  name := <str>$name,
+  service := (
+      insert Service{
+              env := env,
+              name := name,
+              log_filter := (
+                insert LogFilter {
+                  log_filter := 'info'
+                }
+              )
+            }
+      unless conflict on (.env, .name)
+      else
+        (select Service)
+  ),
+  service_instance := (
+    insert ServiceInstance{
+      service := service,
+      latest_log_filter := (
+        insert LogFilter {
+                  log_filter := 'info'
+            }
+      )
+    }
+  )
+select {
+  service := service{log_filter: {log_filter}},
+  service_existed := (service not in Service),
+  service_instance := service_instance
+};
+"
+);
 
 #[instrument(skip_all)]
 pub async fn handler(
@@ -17,46 +53,33 @@ pub async fn handler(
     service_id: Json<ServiceId>,
 ) -> Result<Json<RegistrationResponse>, ApiError> {
     let service_id = service_id.0;
-    info!(service_name=service_id.name, service_env=?service_id.env,  "registration request for service");
-    let mut transaction = app_state.con.begin().await.map_err(SqlxError::from)?;
-    let instance_id =
-        match service_initialization::get_service_db_id(&mut transaction, &service_id).await? {
-            None => {
-                let service_db_id = service_initialization::insert_service(
-                    &mut transaction,
-                    &service_id,
-                    "info".to_string(),
-                )
-                .await?;
-                insert_new_instance(&mut transaction, service_db_id).await?
-            }
-            Some(service_db_id) => insert_new_instance(&mut transaction, service_db_id).await?,
-        };
+    info!(service.name=service_id.name, service.env=?service_id.env,  "registration request for service");
+    let mut tx = app_state
+        .edgedb_client
+        .transaction()
+        .await
+        .map_err(|e| EdgeDBError::from(e))?;
 
-    let log_filter = crate::api::handlers::instance::database::get_instance_service_log_filter(
-        &mut transaction,
-        instance_id,
+    let service = insert_service::transaction(
+        &mut tx,
+        &insert_service::Input {
+            env: service_id.env.to_string(),
+            name: service_id.name.clone(),
+        },
     )
-    .await?
-    .expect("log filter to exist, we just created the instance");
-    transaction.commit().await.map_err(SqlxError::from)?;
+    .await
+    .map_err(|e| EdgeDBError::from(e))?;
+    tx.commit().await.map_err(|e| EdgeDBError::from(e))?;
+    let service_instance_id = service.service_instance.id;
+    let log_filter = service.service.log_filter.log_filter;
+    info!(
+        service.already_existed = service.service_existed,
+        instance.id = service_instance_id.to_string(),
+        log_filter = log_filter,
+        "instance registered"
+    );
     Ok(Json(RegistrationResponse {
-        instance_id,
+        instance_id: service_instance_id,
         log_filter,
     }))
-}
-
-#[instrument(skip_all)]
-pub async fn insert_new_instance(
-    con: &mut Transaction<'static, Postgres>,
-    service_db_id: ServiceDbId,
-) -> Result<InstanceGlobalId, SqlxError> {
-    let global_id: uuid::Uuid = sqlx::query_scalar!(
-        "insert into instance (service_id, global_id) values ($1, $2) returning global_id;",
-        service_db_id,
-        uuid::Uuid::new_v4()
-    )
-    .fetch_one(&mut **con)
-    .await?;
-    Ok(global_id)
 }

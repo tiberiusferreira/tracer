@@ -1,14 +1,14 @@
 use leptos::prelude::*;
-use leptos_router::components::*;
-use leptos_router::path;
+use leptos_router::components::{Route, Router, Routes};
 use tracing::Level;
 
 pub mod datetime;
 // mod grid;
 // mod orphan_events;
+mod chart;
 mod dashboard;
 mod services;
-// mod trace;
+mod trace;
 
 use tracing_subscriber::fmt;
 use tracing_subscriber_wasm::MakeConsoleWriter;
@@ -66,13 +66,28 @@ pub fn App() -> impl IntoView {
                     </nav>
                 </header>
                 <Routes fallback=|| view!{<p style="color: white">"Not found."</p>} >
-                    <Route path=path!("/") view=services::Services />
+                    <Route path=leptos_router::StaticSegment("/") view=services::Services />
                     <Route path=(
                         leptos_router::StaticSegment("/"),
                         leptos_router::StaticSegment(DASHBOARD_PATH)
                     )
-                        view=dashboard::Dashboard />
+                        view=dashboard::Dashboard
+                    />
+                    <Route path=(
+                        leptos_router::StaticSegment("/"),
+                        leptos_router::StaticSegment("trace"),
+                        leptos_router::StaticSegment("browser")
+                    )
+                        view=trace::TraceBrowserPage
+                    />
                 </Routes>
+
+                // </Routes>
+                    // <ParentRoute
+                    //       path=path!("")
+                    //       view=view! {"dawda"}
+                    //     >
+                    // </ParentRoute>
             </Router>
         </>
     }

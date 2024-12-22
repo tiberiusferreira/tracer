@@ -5,10 +5,8 @@ use crate::api::state::AppState;
 use api_structs::{Endpoint, InstanceGlobalId, ServiceId};
 use axum::response::IntoResponse;
 use axum::ServiceExt;
-use bytes::Bytes;
 use chrono::NaiveDateTime;
-use http::{HeaderMap, Request, Response, StatusCode};
-use http_body_util::Full;
+use http::{Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -87,6 +85,10 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         )
         .nest("/api/ui/service", service_routes)
         .nest("/api/instance", instance_routes)
+        .route(
+            api_structs::ui::trace::time_series::TraceSummary::PATH,
+            axum::routing::get(handlers::ui::trace::time_series::handler),
+        )
         .nest("/api/ui/trace", trace_routes)
         .route(
             "/api/ui/orphan_events",
@@ -243,6 +245,16 @@ impl From<crate::error::SqlxOrSerdeJson> for ApiError {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: "Database or Serde error when handling the request".to_string(),
+        }
+    }
+}
+
+impl From<tracked_error::EdgeDBError> for ApiError {
+    fn from(err: tracked_error::EdgeDBError) -> Self {
+        error!("{:?}", error_chain_to_pretty_formatted(err));
+        ApiError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "EdgeDB error when handling the request".to_string(),
         }
     }
 }

@@ -7,6 +7,7 @@ impl Endpoint for GetService {
     const PATH: &'static str = "/api/ui/service/";
     const METHOD: &'static str = "GET";
     type RequestBody = ();
+    type QueryParameters = ();
     type ResponseBody = Vec<Service>;
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]

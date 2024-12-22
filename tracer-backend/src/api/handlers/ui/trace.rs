@@ -4,6 +4,7 @@ use sqlx::types::JsonValue;
 pub mod chunk;
 pub mod event_search;
 pub mod grid;
+pub mod time_series;
 
 struct RawDbSpan {
     id: i32,

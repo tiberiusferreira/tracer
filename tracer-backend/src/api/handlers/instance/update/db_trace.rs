@@ -1,5 +1,6 @@
 use api_structs::InstanceGlobalId;
 use chrono::NaiveDateTime;
+use edgedb_codegen::edgedb_query;
 use sqlx::{Postgres, Transaction};
 use tracing::instrument;
 use tracked_error::SqlxError;
@@ -12,6 +13,7 @@ pub struct DbTrace {
     pub events_produced: i32,
     pub events_dropped_by_sampling: i32,
 }
+
 #[instrument(skip_all)]
 pub async fn insert_new_trace(
     con: &mut Transaction<'static, Postgres>,

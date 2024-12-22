@@ -73,3 +73,23 @@ impl From<sqlx::error::Error> for SqlxError {
         }
     }
 }
+
+#[cfg(feature = "edgedb-tokio")]
+#[derive(Debug, thiserror::Error)]
+#[error("EdgeDBError at {location}")]
+pub struct EdgeDBError {
+    #[source]
+    pub source: edgedb_tokio::Error,
+    pub location: &'static Location<'static>,
+}
+
+#[cfg(feature = "edgedb-tokio")]
+impl From<edgedb_tokio::Error> for EdgeDBError {
+    #[track_caller]
+    fn from(source: edgedb_tokio::Error) -> Self {
+        Self {
+            source,
+            location: Location::caller(),
+        }
+    }
+}

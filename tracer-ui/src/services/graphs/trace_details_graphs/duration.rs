@@ -2,7 +2,7 @@ use crate::services::graph_creation::{
     create_dom_el_ref_and_graph_call_action, GraphData, GraphSeries,
 };
 use api_structs::time_conversion::nanos_to_millis;
-use api_structs::ui::r#mod::{Instance, ServiceDataOverTime};
+use api_structs::ui::trace::{Instance, ServiceDataOverTime};
 use leptos::html::Div;
 use leptos::{Action, NodeRef, WriteSignal};
 

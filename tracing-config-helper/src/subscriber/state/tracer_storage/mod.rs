@@ -1,7 +1,7 @@
 use crate::subscriber::state::{TraceStateWithSpanCount, TracesAndOrphanEvents};
-use api_structs::instance::update::{Event, Location, Span, TraceSnapshot, ROOT_SPAN_ID};
+use api_structs::instance::update::{Event, Location, Span, TraceSnapshot, ROOT_SPAN_COUNT_ID};
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::{Severity, SpanId, TraceId};
+use api_structs::{Severity, SpanCountId, TraceCountId};
 use deepsize::DeepSizeOf;
 use maplit::hashmap;
 use std::collections::HashMap;
@@ -41,11 +41,11 @@ impl DataInTracerFormatTrackingStorage {
         // key_vals:  HashMap<String, String>,
         key_vals: HashMap<String, serde_json::Value>,
         location: Location,
-    ) -> TraceId {
-        let trace_id: TraceId = self.trace_count;
+    ) -> TraceCountId {
         self.trace_count += 1;
+        let trace_count_id: TraceCountId = self.trace_count;
         let span = Span {
-            id: ROOT_SPAN_ID,
+            id: ROOT_SPAN_COUNT_ID,
             name,
             created_at_timestamp: now_nanos_u64(),
             duration: 0,
@@ -57,26 +57,26 @@ impl DataInTracerFormatTrackingStorage {
             is_closed: false,
         };
         let new_trace = TraceSnapshot {
-            trace_id: trace_id,
+            trace_count_id,
             spans: hashmap! {span.id => span},
         };
         self.insert_trace(new_trace);
-        trace_id
+        trace_count_id
     }
     pub fn insert_new_span(
         &mut self,
-        trace_id: TraceId,
-        parent_id: SpanId,
+        trace_id: TraceCountId,
+        parent_id: SpanCountId,
         name: String,
         key_vals: HashMap<String, serde_json::Value>,
         location: Location,
-    ) -> SpanId {
+    ) -> SpanCountId {
         let trace = self
             .traces
             .get_mut(&trace_id)
             .expect("trace to exist if it has a new span");
-        let new_span_id = trace.span_count;
         trace.span_count += 1;
+        let new_span_id = trace.span_count;
         assert!(
             trace.trace_snapshot.spans.get(&parent_id).is_some(),
             "span parent must be valid"
@@ -96,7 +96,7 @@ impl DataInTracerFormatTrackingStorage {
         Self::insert_span(trace, new_span);
         new_span_id
     }
-    pub fn close_span(&mut self, trace_id: TraceId, span_id: SpanId) {
+    pub fn close_span(&mut self, trace_id: TraceCountId, span_id: SpanCountId) {
         let trace = self
             .traces
             .get_mut(&trace_id)
@@ -109,7 +109,7 @@ impl DataInTracerFormatTrackingStorage {
             .expect("span to exist in if closing");
         span.close_refreshing_duration(now_nanos_u64());
     }
-    pub fn close_trace(&mut self, trace_id: TraceId) {
+    pub fn close_trace(&mut self, trace_id: TraceCountId) {
         let trace = self
             .traces
             .get_mut(&trace_id)
@@ -130,17 +130,17 @@ impl DataInTracerFormatTrackingStorage {
         let orphan_events = self.remove_all_orphan_events();
         let traces = self.traces.clone();
         let mut trace_ids_to_remove = vec![];
-        let mut trace_spans_to_remove: Vec<(TraceId, SpanId)> = vec![];
-        let mut trace_spans_to_prune: Vec<(TraceId, SpanId)> = vec![];
+        let mut trace_spans_to_remove: Vec<(TraceCountId, SpanCountId)> = vec![];
+        let mut trace_spans_to_prune: Vec<(TraceCountId, SpanCountId)> = vec![];
         for trace in &mut self.traces.values_mut() {
             if trace.trace_snapshot.is_closed() {
-                trace_ids_to_remove.push(trace.trace_snapshot.trace_id);
+                trace_ids_to_remove.push(trace.trace_snapshot.trace_count_id);
             } else {
                 for span in trace.trace_snapshot.spans.values_mut() {
                     if span.is_closed {
-                        trace_spans_to_remove.push((trace.trace_snapshot.trace_id, span.id));
+                        trace_spans_to_remove.push((trace.trace_snapshot.trace_count_id, span.id));
                     } else {
-                        trace_spans_to_prune.push((trace.trace_snapshot.trace_id, span.id));
+                        trace_spans_to_prune.push((trace.trace_snapshot.trace_count_id, span.id));
                     }
                 }
             }
@@ -168,7 +168,7 @@ impl DataInTracerFormatTrackingStorage {
         let span_count = new_trace.spans.len() as u64;
         assert_eq!(span_count, 1, "new trace should have 1 span");
         let existing = self.traces.insert(
-            new_trace.trace_id,
+            new_trace.trace_count_id,
             TraceStateWithSpanCount {
                 trace_snapshot: new_trace,
                 span_count,
@@ -176,7 +176,7 @@ impl DataInTracerFormatTrackingStorage {
         );
         assert!(existing.is_none());
     }
-    fn remove_span(&mut self, trace_id: TraceId, span_id: SpanId) {
+    fn remove_span(&mut self, trace_id: TraceCountId, span_id: SpanCountId) {
         let trace = self
             .traces
             .get_mut(&trace_id)
@@ -187,7 +187,11 @@ impl DataInTracerFormatTrackingStorage {
             .remove(&span_id)
             .expect("span being removed to exist");
     }
-    fn prune_span_truncating_events_and_key_vals(&mut self, trace_id: TraceId, span_id: SpanId) {
+    fn prune_span_truncating_events_and_key_vals(
+        &mut self,
+        trace_id: TraceCountId,
+        span_id: SpanCountId,
+    ) {
         let trace = self
             .traces
             .get_mut(&trace_id)
@@ -200,7 +204,7 @@ impl DataInTracerFormatTrackingStorage {
         let _events = std::mem::take(&mut span.events);
         let _key_vals = std::mem::take(&mut span.attributes);
     }
-    fn remove_trace(&mut self, trace_id: TraceId) {
+    fn remove_trace(&mut self, trace_id: TraceCountId) {
         let _trace = self
             .traces
             .remove(&trace_id)
@@ -218,8 +222,8 @@ impl DataInTracerFormatTrackingStorage {
     }
     pub fn add_attributes_to_span(
         &mut self,
-        trace_id: TraceId,
-        span_id: SpanId,
+        trace_id: TraceCountId,
+        span_id: SpanCountId,
         attributes: HashMap<String, serde_json::Value>,
     ) {
         let trace = self
@@ -235,8 +239,8 @@ impl DataInTracerFormatTrackingStorage {
     }
     pub fn create_and_insert_span_event(
         &mut self,
-        trace_id: TraceId,
-        span_id: SpanId,
+        trace_id: TraceCountId,
+        span_id: SpanCountId,
         message: Option<String>,
         severity: Severity,
         key_vals: HashMap<String, serde_json::Value>,

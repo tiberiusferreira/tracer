@@ -12,13 +12,14 @@ pub trait Endpoint {
     const PATH: &'static str;
     const METHOD: &'static str;
     type RequestBody: Serialize + DeserializeOwned;
+    type QueryParameters: Serialize + DeserializeOwned;
     type ResponseBody: Serialize + DeserializeOwned;
 }
 
 pub type TraceName = String;
-pub type SpanId = u64;
+pub type SpanCountId = u64;
 pub type InstanceGlobalId = uuid::Uuid;
-pub type TraceId = u64;
+pub type TraceCountId = u64;
 pub type InstanceUpdateId = u64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -26,7 +27,7 @@ pub struct ServiceId {
     /// tracer-backend
     pub name: String,
     /// Local
-    pub env: Env,
+    pub env: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]

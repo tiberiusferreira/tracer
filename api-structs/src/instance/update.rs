@@ -7,10 +7,11 @@ impl crate::Endpoint for InstanceUpdateEndpoint {
     const PATH: &'static str = "/api/instance/update";
     const METHOD: &'static str = "POST";
     type RequestBody = InstanceSnapshot;
+    type QueryParameters = ();
     type ResponseBody = ConfigChange;
 }
 
-pub const ROOT_SPAN_ID: u64 = 0;
+pub const ROOT_SPAN_COUNT_ID: u64 = 1;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConfigChange {
@@ -23,9 +24,9 @@ pub struct InstanceSnapshot {
     /// The client is required to retry sending the update until it receives an OK response back
     /// but it could accidentally send it twice, due to a timeout that would eventually be an OK
     /// This id helps the Collector discard duplicate updates
-    pub id: u64,
+    pub update_count: u64,
     pub instance_id: uuid::Uuid,
-    pub trace_snapshots: HashMap<crate::TraceId, TraceSnapshot>,
+    pub trace_snapshots: HashMap<crate::TraceCountId, TraceSnapshot>,
     pub orphan_events: Vec<Event>,
     pub export_buffer_size_bytes: u64,
     pub log_filter: String,
@@ -35,8 +36,8 @@ pub struct InstanceSnapshot {
 /// The first span, with id=0 will always be the root
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, DeepSizeOf)]
 pub struct TraceSnapshot {
-    pub trace_id: crate::TraceId,
-    pub spans: HashMap<crate::SpanId, Span>,
+    pub trace_count_id: crate::TraceCountId,
+    pub spans: HashMap<crate::SpanCountId, Span>,
 }
 
 impl TraceSnapshot {
@@ -57,12 +58,12 @@ impl TraceSnapshot {
 
     pub fn root(&self) -> &Span {
         self.spans
-            .get(&ROOT_SPAN_ID)
+            .get(&ROOT_SPAN_COUNT_ID)
             .expect("trace_state should always have root")
     }
     pub fn root_mut(&mut self) -> &mut Span {
         self.spans
-            .get_mut(&ROOT_SPAN_ID)
+            .get_mut(&ROOT_SPAN_COUNT_ID)
             .expect("trace_state should always have root")
     }
 }
@@ -84,12 +85,12 @@ impl DeepSizeOf for GlobalSpanId {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Span {
-    pub id: crate::SpanId,
+    pub id: crate::SpanCountId,
     pub name: String,
     pub created_at_timestamp: u64,
     pub duration: u64,
     pub events: Vec<Event>,
-    pub parent_id: Option<crate::SpanId>,
+    pub parent_id: Option<crate::SpanCountId>,
     pub attributes: HashMap<String, serde_json::Value>,
     pub location: Location,
     pub links_to: Option<GlobalSpanId>,

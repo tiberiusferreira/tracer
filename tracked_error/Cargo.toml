@@ -10,7 +10,7 @@ thiserror.workspace = true
 serde_json.workspace = true
 sqlx = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
-
+edgedb-tokio = { workspace = true, optional = true }
 
 [features]
-default = ["reqwest", "sqlx"]
+default = ["reqwest", "sqlx", "edgedb-tokio"]

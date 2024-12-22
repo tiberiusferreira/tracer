@@ -2,7 +2,7 @@ use crate::datetime::secs_since;
 use crate::orphan_events::orphan_events_to_html;
 use crate::{PAGE_ROOT_URL, TRACE_CHUNK_PATH};
 use api_structs::time_conversion::now_nanos_u64;
-use api_structs::ui::r#mod::{ServiceOverview, TraceHeader};
+use api_structs::ui::trace::{ServiceOverview, TraceHeader};
 use api_structs::InstanceGlobalId;
 use leptos::html::Div;
 use leptos::ReadSignal;

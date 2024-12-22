@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub mod grid;
 pub mod search;
 pub mod spans;
+pub mod time_series;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceHeaderAndSpans {

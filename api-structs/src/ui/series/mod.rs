@@ -8,6 +8,7 @@ impl Endpoint for GetSeries {
     const PATH: &'static str = "/api/ui/series";
     const METHOD: &'static str = "GET";
     type RequestBody = ();
+    type QueryParameters = ();
     type ResponseBody = Vec<SeriesWithData>;
 }
 

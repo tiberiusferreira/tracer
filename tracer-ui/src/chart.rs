@@ -1,5 +1,4 @@
-use crate::datetime::secs_since;
-use charming::component::{Axis, DataZoom, DataZoomType, Legend, LegendType};
+use charming::component::{Axis, Legend, LegendType};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
     AxisPointer, AxisPointerAxis, AxisType, Color, ItemStyle, NameLocation, TextStyle, Tooltip,
@@ -8,44 +7,39 @@ use charming::element::{
 use charming::{Chart, WasmRenderer};
 use leptos::html::Div;
 use leptos::prelude::*;
-use tracing::info;
-#[derive(Debug, Clone)]
-pub struct GraphSeries {
-    pub name: String,
-    pub original_x_values: Vec<u64>,
-    pub x_values: Vec<f64>,
-    pub y_values: Vec<f64>,
-}
-impl GraphSeries {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            original_x_values: vec![],
-            x_values: vec![],
-            y_values: vec![],
-        }
-    }
-    pub fn push_data(&mut self, timestamp: u64, data: f64) {
-        self.original_x_values.push(timestamp);
-        let minutes_since = secs_since(timestamp) as f64 / 60.;
-        self.x_values.push(minutes_since);
-        self.y_values.push(data);
-    }
-}
 
 #[derive(Debug, Clone)]
-pub struct GraphData {
+pub struct StackedBarGraphData {
     pub dom_id_to_render_to: String,
-    pub y_name: String,
-    pub x_name: String,
-    pub series: Vec<GraphSeries>,
+    pub x_axis_label: String,
+    pub y_axis_label: String,
+    pub series: Vec<CategoryGraphSeries>,
     #[allow(unused)]
     pub click_event_timestamp_receiver: Option<WriteSignal<Option<u64>>>,
 }
+#[derive(Debug, Clone)]
+pub struct CategoryGraphSeries {
+    pub name: String,
+    pub category_values: Vec<String>,
+    pub y_values: Vec<f64>,
+}
+impl CategoryGraphSeries {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            category_values: vec![],
+            y_values: vec![],
+        }
+    }
+    pub fn push_data(&mut self, x_value: String, y_value: f64) {
+        self.category_values.push(x_value);
+        self.y_values.push(y_value);
+    }
+}
 
 pub fn create_dom_el_ref_and_graph_call_action(
-    data: GraphData,
-    create_chart_action: Action<GraphData, ()>,
+    data: StackedBarGraphData,
+    create_chart_action: Action<StackedBarGraphData, ()>,
 ) -> (NodeRef<Div>, String) {
     let active_traces_graph = NodeRef::<Div>::new();
     let dom_id_to_render_to = data.dom_id_to_render_to.clone();
@@ -57,35 +51,28 @@ pub fn create_dom_el_ref_and_graph_call_action(
     (active_traces_graph, dom_id_to_render_to)
 }
 
-pub fn create_create_chart_action() -> Action<GraphData, ()> {
-    Action::new(move |graph_data: &GraphData| {
-        let el_id = graph_data.dom_id_to_render_to.clone();
+pub fn create_create_chart_action() -> Action<StackedBarGraphData, ()> {
+    Action::new(move |graph_data: &StackedBarGraphData| {
+        let dom_element_id = graph_data.dom_id_to_render_to.clone();
         let mut graph_data = graph_data.clone();
         async move {
             let mut chart = Chart::new()
                 .x_axis(
                     Axis::new()
-                        .type_(AxisType::Value)
+                        .type_(AxisType::Category)
                         .name_location(NameLocation::Middle)
                         .name_text_style(TextStyle::new().font_size(18.))
-                        .name(&graph_data.x_name)
+                        .name(&graph_data.x_axis_label)
                         .axis_pointer(AxisPointer::new().axis(AxisPointerAxis::X).show(true))
-                        .inverse(true)
-                        .name_gap(20.),
+                        .name_gap(30.),
                 )
                 .y_axis(
                     Axis::new()
                         .type_(AxisType::Value)
-                        .name(&graph_data.y_name)
+                        .name(&graph_data.y_axis_label)
                         .name_text_style(TextStyle::new().font_size(18.))
                         .name_gap(30.)
                         .name_location(NameLocation::Middle),
-                )
-                .data_zoom(
-                    DataZoom::new()
-                        .type_(DataZoomType::Slider)
-                        .start_value(0.)
-                        .end_value(15.),
                 )
                 .color(vec![
                     Color::Value("rgb(20, 255, 255)".to_string()),
@@ -112,18 +99,18 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 );
             for series in &graph_data.series {
                 chart = chart.series(
-                    charming::series::Line::new()
-                        .symbol_size(6.5)
+                    charming::series::Bar::new()
+                        .stack("total")
                         .item_style(ItemStyle::new().opacity(1.0))
                         .data(
                             series
-                                .x_values
+                                .category_values
                                 .iter()
                                 .zip(series.y_values.iter())
-                                .map(|(a, b)| {
+                                .map(|(x, y)| {
                                     CompositeValue::Array(vec![
-                                        CompositeValue::Number(NumericValue::Float(*a)),
-                                        CompositeValue::Number(NumericValue::Float(*b)),
+                                        CompositeValue::String(x.clone()),
+                                        CompositeValue::Number(NumericValue::Float(*y)),
                                     ])
                                 })
                                 .collect::<Vec<CompositeValue>>(),
@@ -133,7 +120,18 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
             }
 
             let renderer = WasmRenderer::new(825, 500);
-            let chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
+            let chart_instance = renderer
+                .render(dom_element_id.to_string().as_str(), &chart)
+                .unwrap();
+            // let js_value: wasm_bindgen::JsValue = chart_instance.into();
+            // let js_string = js_sys::JSON::stringify(&js_value).unwrap();
+            //
+            // info!(js_string = ?js_string, "value");
+            // let value = js_sys::Reflect::get(&js_value, &"series".into()).unwrap();
+            // info!(value=?value, "value");
+            // js_value.
+            // js_value
+
             // let listener = graph_data.click_event_timestamp_receiver.take();
             // let series = graph_data.series;
             // WasmRenderer::on_event(&chart_instance, "click", move |c| {

@@ -1,5 +1,5 @@
 use crate::datetime::{printable_local_date, printable_local_date_ms};
-use crate::trace::summary::create_summary_html_span_and_children_single_layer;
+use crate::r#mod::summary::create_summary_html_span_and_children_single_layer;
 use crate::TRACE_CHUNK_PATH;
 use crate::{API_SERVER_URL_NO_TRAILING_SLASH, PAGE_ROOT_URL};
 use api_structs::instance::update::Location;
@@ -724,33 +724,27 @@ fn events_to_html(events: &[Event], trace_start: u64, trace_end: u64) -> Vec<Htm
         .iter()
         .map(|e| {
             let (event_severity_str, event_color) = match e.severity {
-                Severity::Warn => {
-                    ("WARN: ", "color: rgb(229, 234, 157)")
-                }
-                Severity::Error => {
-                    ("ERROR: ", "color: rgb(236,103,93)")
-                }
-                Severity::Trace => {
-                    ("TRACE: ", "color: white")
-                }
-                Severity::Debug => {
-                    ("DEBUG: ", "color: white")
-                }
-                Severity::Info => {
-                    ("INFO: ", "color: rgb(137,244,151)")
-                }
+                Severity::Warn => ("WARN: ", "color: rgb(229, 234, 157)"),
+                Severity::Error => ("ERROR: ", "color: rgb(236,103,93)"),
+                Severity::Trace => ("TRACE: ", "color: white"),
+                Severity::Debug => ("DEBUG: ", "color: white"),
+                Severity::Info => ("INFO: ", "color: rgb(137,244,151)"),
             };
             let key_values = format_kv(&e.key_values);
             let event_date = printable_local_date_ms(e.timestamp);
-            let event_msg = format!(" {}  {}", e.message.as_ref().unwrap_or(&"null".to_string()), key_values);
+            let event_msg = format!(
+                " {}  {}",
+                e.message.as_ref().unwrap_or(&"null".to_string()),
+                key_values
+            );
             // event offset % calculation
             let trace_duration = trace_end - trace_start;
-            let event_nanos_after_trace_start = e.timestamp
-                .checked_sub(trace_start).unwrap();
+            let event_nanos_after_trace_start = e.timestamp.checked_sub(trace_start).unwrap();
             let event_percentage_into_trace_duration =
                 100. * event_nanos_after_trace_start as f64 / trace_duration as f64;
             // don't got over 99.6 because we need to display the character itself too
-            let event_percentage_into_trace_duration = event_percentage_into_trace_duration.min(99.6);
+            let event_percentage_into_trace_duration =
+                event_percentage_into_trace_duration.min(99.6);
             view! {
                 <div style="width: 100%; background-color: rgba(255,255,255,0.05)">
                     <p
