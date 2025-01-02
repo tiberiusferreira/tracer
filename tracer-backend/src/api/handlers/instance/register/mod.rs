@@ -1,13 +1,12 @@
 use crate::api::state::AppState;
 use crate::api::ApiError;
 use api_structs::instance::registration::RegistrationResponse;
-use api_structs::{InstanceGlobalId, ServiceId};
+use api_structs::ServiceId;
 use axum::extract::State;
 use axum::Json;
 use edgedb_codegen::edgedb_query;
-use sqlx::{Postgres, Transaction};
 use tracing::{info, instrument};
-use tracked_error::{EdgeDBError, SqlxError};
+use tracked_error::EdgeDBError;
 
 edgedb_query!(
     insert_service,
@@ -41,7 +40,7 @@ with
   )
 select {
   service := service{log_filter: {log_filter}},
-  service_existed := (service not in Service),
+  service_existed := (service in Service),
   service_instance := service_instance
 };
 "
@@ -78,6 +77,7 @@ pub async fn handler(
         log_filter = log_filter,
         "instance registered"
     );
+    println!("service.already_existed = {} service_instance_id = {}", service.service_existed, service_instance_id);
     Ok(Json(RegistrationResponse {
         instance_id: service_instance_id,
         log_filter,

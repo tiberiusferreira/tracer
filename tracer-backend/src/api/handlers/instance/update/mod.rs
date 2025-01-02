@@ -1,11 +1,9 @@
-use std::collections::HashMap;
 
-use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, Span, TraceSnapshot};
+use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, TraceFragment};
 use api_structs::InstanceGlobalId;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use base64::Engine;
 use edgedb_codegen::edgedb_query;
 use sqlx::{PgPool, Postgres, Transaction};
 use tracing::{error, info, instrument, trace};
@@ -13,7 +11,6 @@ use tracked_error::{EdgeDBError, SqlxError};
 
 use crate::api::state::AppState;
 use crate::api::ApiError;
-use crate::{SINGLE_KEY_VALUE_KEY_CHARS_LIMIT, SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT};
 
 mod db_trace;
 mod trace;
@@ -217,7 +214,7 @@ pub async fn get_existing_span_ids(
 pub async fn update_trace_with_new_state(
     con: &PgPool,
     instance_id: &InstanceGlobalId,
-    trace_state: TraceSnapshot,
+    trace_state: TraceFragment,
 ) -> Result<(), SqlxError> {
     trace!("fragment = {:#?}", trace_state);
     info!("fragment for: {}", trace_state.root().name);
@@ -704,7 +701,7 @@ pub async fn handler(
     .instance_update_id;
 
     for t in instance_snapshot.trace_snapshots.values() {
-        trace::insert_or_update_trace(&mut tx, instance_update_id, t).await?;
+        trace::insert_or_update_trace(&mut tx, instance_snapshot.instance_id, instance_update_id, t).await?;
     }
     // let cpu_profile_bytes = instance_snapshot
     //     .cpu_profile_base64

@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use tracing::Id;
 
 use crate::subscriber::state::tracer_storage::DataInTracerFormatTrackingStorage;
-use api_structs::instance::update::{Event, Location, TraceSnapshot, ROOT_SPAN_COUNT_ID};
+use api_structs::instance::update::{Event, Location, TraceFragment, ROOT_SPAN_COUNT_ID};
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::{Severity, SpanCountId};
 
 mod tracer_storage;
 #[derive(Debug, Clone)]
 struct TraceStateWithSpanCount {
-    trace_snapshot: TraceSnapshot,
+    trace_snapshot: TraceFragment,
     span_count: u64,
 }
 
@@ -21,7 +21,7 @@ pub struct State {
 
 #[derive(Debug, Clone)]
 pub struct TracesAndOrphanEvents {
-    pub traces: HashMap<u64, TraceSnapshot>,
+    pub traces: HashMap<u64, TraceFragment>,
     pub orphan_events: Vec<Event>,
     pub export_buffer_size_bytes: u64,
 }
@@ -38,7 +38,7 @@ impl State {
         for trace in traces_and_orphan_events.traces.values_mut() {
             if !trace.is_closed() {
                 for span in trace.spans.values_mut() {
-                    if !span.is_closed {
+                    if !span.has_ended {
                         span.refresh_duration(now_nanos_u64());
                     }
                 }

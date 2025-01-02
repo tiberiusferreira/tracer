@@ -1,6 +1,5 @@
 use api_structs::InstanceGlobalId;
 use chrono::NaiveDateTime;
-use edgedb_codegen::edgedb_query;
 use sqlx::{Postgres, Transaction};
 use tracing::instrument;
 use tracked_error::SqlxError;

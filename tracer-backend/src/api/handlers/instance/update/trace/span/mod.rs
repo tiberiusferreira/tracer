@@ -59,9 +59,9 @@ pub async fn insert_spans_and_events(
         instance_update_id_list.push(instance_update_id as i32);
         parent_id_list.push(s.parent_id.map(|e| e as i32));
         name_list.push(s.name.clone());
-        created_at_list.push(time_from_nanos(s.created_at_timestamp));
-        duration_nanos_list.push(s.duration as i64);
-        duration_is_final_list.push(s.is_closed);
+        created_at_list.push(time_from_nanos(s.started_at_nanos));
+        duration_nanos_list.push(s.duration_nanos as i64);
+        duration_is_final_list.push(s.has_ended);
         module_list.push(s.location.module.clone());
         filename_list.push(s.location.filename.clone());
         line_list.push(s.location.line.map(|e| e as i32));

@@ -89,7 +89,7 @@ async fn w(
     categories.extend(required_categories);
     let categories = categories;
     let mut series_by_name: HashMap<String, SeriesData2> = HashMap::new();
-    let mut data_points_index = 0;
+    let data_points_index = 0;
     loop {
         x_points.push(current);
         while let Some(a) = data_points.get(data_points_index) {}
@@ -108,7 +108,7 @@ async fn w(
             break;
         }
     }
-    let mut time_bucket_chart = api_structs::ui::chart::TimeBucketChart {
+    let time_bucket_chart = api_structs::ui::chart::TimeBucketChart {
         x_axis_label: "time [90s]".to_string(),
         y_axis_label: "Traces".to_string(),
         x_time_buckets: vec![],

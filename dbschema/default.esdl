@@ -59,25 +59,31 @@ module default {
 
     # Attributes are repeated over and over
     type AttributeName{
-        required name: str { constraint max_len_value(1024) };
+        required name: str { constraint max_len_value(1024); constraint exclusive; };
     }
     # Attributes are repeated over and over
     type AttributeContent{
-        required content: json { constraint max_len_value(10_000_000) };
+        required content: json {
+            constraint expression on (
+                len(to_str(__subject__)) < 10_000_000
+            );
+            constraint exclusive;
+        };
     }
 
     type Attribute{
         required name: AttributeName;
         required content: AttributeContent;
+        constraint exclusive on ((.name, .content));
     }
 
     # Span name are repeated on each trace for the most part
     type SpanName{
-        required name: str { constraint max_len_value(1024) };
+        required name: str { constraint exclusive; constraint max_len_value(1024) };
     }
 
     type EventMessage{
-        required message: str { constraint max_len_value(10_000_000) };
+        required message: str { constraint exclusive; constraint max_len_value(10_000_000) };
     }
 
     type Span {
@@ -85,10 +91,13 @@ module default {
       required trace: Trace;
       required name: SpanName;
       parent: Span;
+      required started_at_nanos: int64 {
+            constraint min_value(0)
+      };
       required duration_nanos: int64 {
             constraint min_value(0)
       };
-      required is_closed: bool {
+      required has_ended: bool {
         default := false
       };
       multi attributes: Attribute;
@@ -104,7 +113,7 @@ module default {
               do (
                     assert(
                          __new__.span_count_id = 1,
-                        message := "root span span_count_id must be 1, its the first span",
+                        message := "root span span_count_id must be 1, its the first span, but was " ++ to_str(__new__.span_count_id),
                     )
             );
       trigger span_count_id_has_no_gaps after insert, update for each

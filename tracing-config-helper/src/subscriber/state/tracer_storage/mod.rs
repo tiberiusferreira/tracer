@@ -1,5 +1,5 @@
 use crate::subscriber::state::{TraceStateWithSpanCount, TracesAndOrphanEvents};
-use api_structs::instance::update::{Event, Location, Span, TraceSnapshot, ROOT_SPAN_COUNT_ID};
+use api_structs::instance::update::{Event, Location, Span, TraceFragment, ROOT_SPAN_COUNT_ID};
 use api_structs::time_conversion::now_nanos_u64;
 use api_structs::{Severity, SpanCountId, TraceCountId};
 use deepsize::DeepSizeOf;
@@ -47,16 +47,16 @@ impl DataInTracerFormatTrackingStorage {
         let span = Span {
             id: ROOT_SPAN_COUNT_ID,
             name,
-            created_at_timestamp: now_nanos_u64(),
-            duration: 0,
+            started_at_nanos: now_nanos_u64(),
+            duration_nanos: 0,
             events: vec![],
             parent_id: None,
             attributes: key_vals,
             location,
             links_to: None,
-            is_closed: false,
+            has_ended: false,
         };
-        let new_trace = TraceSnapshot {
+        let new_trace = TraceFragment {
             trace_count_id,
             spans: hashmap! {span.id => span},
         };
@@ -84,14 +84,14 @@ impl DataInTracerFormatTrackingStorage {
         let new_span = Span {
             id: new_span_id,
             name,
-            created_at_timestamp: now_nanos_u64(),
-            duration: 0,
+            started_at_nanos: now_nanos_u64(),
+            duration_nanos: 0,
             events: vec![],
             parent_id: Some(parent_id),
             attributes: key_vals,
             location,
             links_to: None,
-            is_closed: false,
+            has_ended: false,
         };
         Self::insert_span(trace, new_span);
         new_span_id
@@ -116,7 +116,7 @@ impl DataInTracerFormatTrackingStorage {
             .expect("trace to exist when closing");
         let root = trace.trace_snapshot.root_mut();
         root.close_refreshing_duration(now_nanos_u64());
-        if trace.trace_snapshot.spans.values().any(|s| !s.is_closed) {
+        if trace.trace_snapshot.spans.values().any(|s| !s.has_ended) {
             panic!("trace closed before all spans had closed!");
         }
     }
@@ -137,7 +137,7 @@ impl DataInTracerFormatTrackingStorage {
                 trace_ids_to_remove.push(trace.trace_snapshot.trace_count_id);
             } else {
                 for span in trace.trace_snapshot.spans.values_mut() {
-                    if span.is_closed {
+                    if span.has_ended {
                         trace_spans_to_remove.push((trace.trace_snapshot.trace_count_id, span.id));
                     } else {
                         trace_spans_to_prune.push((trace.trace_snapshot.trace_count_id, span.id));
@@ -164,7 +164,7 @@ impl DataInTracerFormatTrackingStorage {
         }
     }
 
-    fn insert_trace(&mut self, new_trace: TraceSnapshot) {
+    fn insert_trace(&mut self, new_trace: TraceFragment) {
         let span_count = new_trace.spans.len() as u64;
         assert_eq!(span_count, 1, "new trace should have 1 span");
         let existing = self.traces.insert(
