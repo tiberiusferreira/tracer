@@ -145,7 +145,7 @@ module default {
       do (
         # if this a root span (no parent), there must be no existing root span
         assert_single(
-            (select Span filter not exists Span.parent),
+            (select Span filter .trace = __new__.trace and not exists Span.parent),
             message := "a trace can not have more than one root span",
         )
       );
@@ -155,6 +155,9 @@ module default {
       required span: Span;
       message: EventMessage;
       required service_instance_update: ServiceInstanceUpdate;
+      required timestamp: int64 {
+        constraint min_value(0)
+      };
       multi attributes: Attribute;
       trigger same_instance_as_trace after insert, update for each do (
         assert(

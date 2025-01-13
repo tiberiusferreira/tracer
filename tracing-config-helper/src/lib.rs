@@ -338,7 +338,7 @@ async fn trace_export_loop(
             update_count,
             instance_id,
             orphan_events: traces_and_orphan_events.orphan_events,
-            trace_snapshots: traces_and_orphan_events.traces,
+            trace_fragments: traces_and_orphan_events.traces,
             export_buffer_size_bytes: traces_and_orphan_events.export_buffer_size_bytes,
             log_filter: current_filters,
             cpu_profile_base64,

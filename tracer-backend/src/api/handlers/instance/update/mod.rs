@@ -1,4 +1,3 @@
-
 use api_structs::instance::update::{ConfigChange, Event, InstanceSnapshot, TraceFragment};
 use api_structs::InstanceGlobalId;
 use axum::extract::State;
@@ -700,8 +699,14 @@ pub async fn handler(
     .map_err(|e| EdgeDBError::from(e))?
     .instance_update_id;
 
-    for t in instance_snapshot.trace_snapshots.values() {
-        trace::insert_or_update_trace(&mut tx, instance_snapshot.instance_id, instance_update_id, t).await?;
+    for trace_fragment in instance_snapshot.trace_fragments.values() {
+        trace::insert_or_update_trace(
+            &mut tx,
+            instance_snapshot.instance_id,
+            instance_update_id,
+            trace_fragment,
+        )
+        .await?;
     }
     // let cpu_profile_bytes = instance_snapshot
     //     .cpu_profile_base64

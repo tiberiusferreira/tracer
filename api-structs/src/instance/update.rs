@@ -26,7 +26,7 @@ pub struct InstanceSnapshot {
     /// This id helps the Collector discard duplicate updates
     pub update_count: u64,
     pub instance_id: uuid::Uuid,
-    pub trace_snapshots: HashMap<crate::TraceCountId, TraceFragment>,
+    pub trace_fragments: HashMap<crate::TraceCountId, TraceFragment>,
     pub orphan_events: Vec<Event>,
     pub export_buffer_size_bytes: u64,
     pub log_filter: String,
@@ -125,7 +125,10 @@ impl Span {
             let new_duration = now_nanos
                 .checked_sub(self.started_at_nanos)
                 .expect("duration to never be negative");
-            assert!(new_duration >= self.duration_nanos, "duration should only go up");
+            assert!(
+                new_duration >= self.duration_nanos,
+                "duration should only go up"
+            );
             self.duration_nanos = new_duration;
         }
     }
