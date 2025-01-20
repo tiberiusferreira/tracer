@@ -4,7 +4,7 @@ use tracing::instrument;
 use tracked_error::SqlxError;
 
 #[instrument(skip_all)]
-pub async fn load_slack_configs(con: &PgPool) -> Result<Vec<SlackConfig>, SqlxError> {
+pub async fn load_slack_configs(_con: &PgPool) -> Result<Vec<SlackConfig>, SqlxError> {
     //     #[derive(Debug, Clone)]
     //     struct RawSlackConfig {
     //         id: i32,
@@ -45,10 +45,10 @@ pub async fn load_slack_configs(con: &PgPool) -> Result<Vec<SlackConfig>, SqlxEr
 
 #[instrument(skip_all)]
 pub async fn insert_notification_in_db(
-    con: &PgPool,
-    slack_config_id: i32,
-    notification: &str,
-    send_error: Option<String>,
+    _con: &PgPool,
+    _slack_config_id: i32,
+    _notification: &str,
+    _send_error: Option<String>,
 ) -> Result<(), SqlxError> {
     // debug!("updating update_last_notification_time");
     // let send_error = send_error.map(|e| {

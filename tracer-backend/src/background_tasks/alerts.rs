@@ -1,6 +1,5 @@
-use crate::api::AppStateError;
 use thiserror::Error;
-use tracked_error::SqlxError;
+use tracked_error::EdgeDBError;
 
 pub mod checker;
 pub mod senders;
@@ -8,8 +7,7 @@ pub mod senders;
 #[derive(Debug, Error)]
 #[error("AlertError")]
 pub enum AlertingError {
-    Db(#[from] SqlxError),
-    AppStateError(#[from] AppStateError),
+    Db(#[from] EdgeDBError),
 }
 
 // pub struct ServiceRuntimeDataWithAlert {

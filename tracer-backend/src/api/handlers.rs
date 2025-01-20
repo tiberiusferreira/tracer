@@ -22,6 +22,7 @@ pub enum Severity {
 // }
 
 impl Severity {
+    #[allow(unused)]
     pub fn to_api(&self) -> api_structs::Severity {
         match self {
             Severity::Trace => api_structs::Severity::Trace,
@@ -60,6 +61,7 @@ impl TryFrom<&str> for Severity {
     }
 }
 
+#[allow(unused)]
 pub fn nanos_to_db_i64(nanos: u64) -> Result<i64, ApiError> {
     i64::try_from(nanos).map_err(|_| ApiError {
         code: StatusCode::INTERNAL_SERVER_ERROR,
@@ -67,6 +69,7 @@ pub fn nanos_to_db_i64(nanos: u64) -> Result<i64, ApiError> {
     })
 }
 
+#[allow(unused)]
 pub fn db_i64_to_nanos(db_i64: i64) -> Result<u64, ApiError> {
     u64::try_from(db_i64).map_err(|_| ApiError {
         code: StatusCode::INTERNAL_SERVER_ERROR,

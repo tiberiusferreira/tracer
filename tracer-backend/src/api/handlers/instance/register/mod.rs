@@ -6,7 +6,7 @@ use axum::extract::State;
 use axum::Json;
 use edgedb_codegen::edgedb_query;
 use tracing::{info, instrument};
-use tracked_error::EdgeDBError;
+use tracked_error::{error_chain_to_pretty_formatted, EdgeDBError};
 
 edgedb_query!(
     insert_service,
@@ -20,7 +20,7 @@ with
               name := name,
               log_filter := (
                 insert LogFilter {
-                  log_filter := 'info'
+                  _value := 'info'
                 }
               )
             }
@@ -33,13 +33,15 @@ with
       service := service,
       latest_log_filter := (
         insert LogFilter {
-                  log_filter := 'info'
+                  _value := 'info'
             }
       )
     }
   )
 select {
-  service := service{log_filter: {log_filter}},
+  service := service {
+    log_filter_value:= service.log_filter._value
+  },
   service_existed := (service in Service),
   service_instance := service_instance
 };
@@ -57,7 +59,8 @@ pub async fn handler(
         .edgedb_client
         .transaction()
         .await
-        .map_err(|e| EdgeDBError::from(e))?;
+        .map_err(|e| EdgeDBError::from(e))
+        .inspect_err(|e| println!("{}", error_chain_to_pretty_formatted(e)))?;
 
     let service = insert_service::transaction(
         &mut tx,
@@ -67,17 +70,24 @@ pub async fn handler(
         },
     )
     .await
-    .map_err(|e| EdgeDBError::from(e))?;
-    tx.commit().await.map_err(|e| EdgeDBError::from(e))?;
+    .map_err(|e| EdgeDBError::from(e))
+    .inspect_err(|e| println!("{}", error_chain_to_pretty_formatted(e)))?;
+    tx.commit()
+        .await
+        .map_err(|e| EdgeDBError::from(e))
+        .inspect_err(|e| println!("{}", error_chain_to_pretty_formatted(e)))?;
     let service_instance_id = service.service_instance.id;
-    let log_filter = service.service.log_filter.log_filter;
+    let log_filter = service.service.log_filter_value;
     info!(
         service.already_existed = service.service_existed,
         instance.id = service_instance_id.to_string(),
         log_filter = log_filter,
         "instance registered"
     );
-    println!("service.already_existed = {} service_instance_id = {}", service.service_existed, service_instance_id);
+    println!(
+        "service.already_existed = {} service_instance_id = {}",
+        service.service_existed, service_instance_id
+    );
     Ok(Json(RegistrationResponse {
         instance_id: service_instance_id,
         log_filter,

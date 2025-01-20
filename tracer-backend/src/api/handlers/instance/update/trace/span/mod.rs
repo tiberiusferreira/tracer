@@ -1,18 +1,11 @@
 use crate::api::handlers::instance::update::trace::TraceUpdateError;
 use api_structs::instance::update::Span;
 use edgedb_codegen::edgedb_query;
-use std::collections::{HashMap, HashSet};
 use tracing::{info, instrument};
 use tracked_error::EdgeDBError;
 
-#[derive(Debug, Clone, Hash)]
-struct AttributeKeyValue {
-    key: String,
-    value: serde_json::Value,
-}
-
 #[instrument(skip_all)]
-pub async fn insert_spans(
+pub async fn insert_spans_and_events(
     tx: &mut edgedb_tokio::Transaction,
     instance_update_id: uuid::Uuid,
     trace_id: uuid::Uuid,
@@ -35,23 +28,23 @@ for single_span in json_array_unpack(span_data) union (
     new_attributes := (
       for single_attribute in attributes union (
         insert Attribute{
-          name := (
-            insert AttributeName {
-              name := single_attribute.0
-            } unless conflict on .name else (select AttributeName)
+          normalized_name := (
+            insert NormalizedAttributeName {
+              _value := single_attribute.0
+            } unless conflict on ._value else (select NormalizedAttributeName)
           ),
-          content := (
-            insert AttributeContent {
-              content := single_attribute.1
-            } unless conflict on .content else (select AttributeContent)
+          normalized_content := (
+            insert NormalizedAttributeContent {
+              _value := single_attribute.1
+            } unless conflict on ._value else (select NormalizedAttributeContent)
           ),
-        } unless conflict on (.name, .content) else (select Attribute)
+        } unless conflict on (.normalized_name, .normalized_content) else (select Attribute)
       )
     ),
     name := (
-      insert SpanName {
-        name := <str>single_span['name']
-      } unless conflict on .name else (select SpanName)
+      insert NormalizedSpanName {
+        _value := <str>single_span['name']
+      } unless conflict on ._value else (select NormalizedSpanName)
     ),
     insert Span  {
       trace := (select Trace filter .id=trace_id),
@@ -61,7 +54,7 @@ for single_span in json_array_unpack(span_data) union (
       duration_nanos := <int64>single_span['duration_nanos'],
       started_at_nanos := <int64>single_span['started_at_nanos'],
       attributes := new_attributes,
-      name := name,
+      normalized_name := name,
       parent := (
         if exists <int64>single_span['parent_id'] then (
           assert_exists(
@@ -98,31 +91,31 @@ for single_span in json_array_unpack(span_data) union (
       new_event_attributes := (
         for single_attribute in event_attributes union (
           insert Attribute{
-            name := (
-              insert AttributeName {
-               name := single_attribute.0
-              } unless conflict on .name else (select AttributeName)
+            normalized_name := (
+              insert NormalizedAttributeName {
+               _value := single_attribute.0
+              } unless conflict on ._value else (select NormalizedAttributeName)
             ),
-            content := (
-              insert AttributeContent {
-                content := single_attribute.1
-              } unless conflict on .content else (select AttributeContent)
+            normalized_content := (
+              insert NormalizedAttributeContent {
+                _value := single_attribute.1
+              } unless conflict on ._value else (select NormalizedAttributeContent)
               ),
-          } unless conflict on (.name, .content) else (select Attribute)
+          } unless conflict on (.normalized_name, .normalized_content) else (select Attribute)
         )
       ),
       message := (
         if exists <str>single_event['message'] then (
-          insert EventMessage {
-            message := <str>single_event['message']
-          } unless conflict on .message else (select EventMessage)
+          insert NormalizedEventMessage {
+            _value := <str>single_event['message']
+          } unless conflict on ._value else (select NormalizedEventMessage)
         ) else {}
       ),
     timestamp := <int64>single_event['timestamp'],
     insert Event{
       attributes := new_event_attributes,
       timestamp := timestamp,
-      message := message,
+      normalized_message := message,
       span := span,
       service_instance_update := (select ServiceInstanceUpdate filter .id=service_instance_update_id),
     }
@@ -131,7 +124,7 @@ for single_span in json_array_unpack(span_data) union (
     spans_to_insert.sort_unstable_by_key(|e| e.id);
     for s in &*spans_to_insert {
         let spans_to_insert_json_str = serde_json::to_string(&vec![s.clone()]).unwrap();
-        let res = span_insertion::transaction(
+        let _res = span_insertion::transaction(
             &mut *tx,
             &span_insertion::Input {
                 span_data: edgedb_protocol::model::Json::new_unchecked(spans_to_insert_json_str),

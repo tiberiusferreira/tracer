@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use crate::api::state::AppState;
-use api_structs::{Endpoint, InstanceGlobalId, ServiceId};
+use api_structs::{Endpoint, InstanceGlobalId};
 use axum::response::IntoResponse;
 use axum::ServiceExt;
 use chrono::NaiveDateTime;
@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower::Layer;
-use tower_http::trace::{ OnResponse};
 use tracing::field::Empty;
 use tracing::Span;
 use tracing::{error, info, instrument};
 use tracked_error::error_chain_to_pretty_formatted;
+use valuable::Valuable;
 pub mod database;
 pub mod handlers;
 pub mod state;
@@ -67,10 +67,6 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             axum::routing::post(handlers::ui::trace::event_search::trace_keys),
         )
         .route(
-            "/header_and_spans",
-            axum::routing::get(handlers::ui::trace::chunk::get_header_and_spans),
-        )
-        .route(
             "/autocomplete",
             axum::routing::get(handlers::ui::trace::grid::ui_trace_autocomplete_get),
         );
@@ -88,10 +84,6 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
             axum::routing::get(handlers::ui::trace::time_series::handler),
         )
         .nest("/api/ui/trace", trace_routes)
-        .route(
-            "/api/ui/orphan_events",
-            axum::routing::get(handlers::ui::orphan_event::ui_orphan_events_get),
-        )
         .with_state(app_state)
         .fallback_service(serve_ui)
         .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
@@ -103,11 +95,21 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                 .make_span_with(|request: &Request<_>| {
                     let method = request.method();
                     let path = request.uri().path();
+                    let header_name = request.headers();
+                    let headers = header_name
+                        .into_iter()
+                        .map(|(name, value)| {
+                            (
+                                name.as_str(),
+                                value.to_str().unwrap_or_else(|_e| "non-utf8 value"),
+                            )
+                        })
+                        .collect::<HashMap<&str, &str>>();
                     tracing::error_span!(
                         "request",
                         http.request.method = %method,
                         url.path = path,
-                        headers = ?request.headers(),
+                        headers = headers.as_value(),
                         http.response.status_code = Empty
                     )
                 })
@@ -115,7 +117,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                 // tracing::debug!("started {} {}", request, request.uri().path())
                 // })
                 .on_response(
-                    |response: &Response<axum::body::Body>, latency: Duration, span: &Span| {
+                    |response: &Response<axum::body::Body>, _latency: Duration, span: &Span| {
                         let status_code = response.status().as_u16();
                         span.record("http.response.status_code", status_code);
                     },
@@ -167,6 +169,7 @@ struct GridErrorSample {
     event_timestamp_unix_ms: i64,
 }
 
+#[allow(unused)]
 pub fn u64_nanos_to_db_i64(val: u64) -> Result<i64, ApiError> {
     let as_i64 = i64::try_from(val).map_err(|_| ApiError {
         code: StatusCode::BAD_REQUEST,
@@ -179,36 +182,6 @@ pub fn u64_nanos_to_db_i64(val: u64) -> Result<i64, ApiError> {
 pub struct ApiError {
     pub code: StatusCode,
     pub message: String,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AppStateError {
-    #[error("AppStateError")]
-    ServiceInAppStateButNotDB(#[from] ServiceInAppStateButNotDBError),
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("ServiceInAppStateButNotDBError:\n {error}")]
-pub struct ServiceInAppStateButNotDBError {
-    pub error: String,
-}
-
-impl ServiceInAppStateButNotDBError {
-    pub fn new(service_id: &ServiceId) -> Self {
-        Self {
-            error: format!("Service {service_id:?} exists in memory cache, but not in DB, this should never happen"),
-        }
-    }
-}
-
-impl From<AppStateError> for ApiError {
-    fn from(err: AppStateError) -> Self {
-        error!("{:?}", error_chain_to_pretty_formatted(err));
-        ApiError {
-            code: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "AppStateError error when handling the request".to_string(),
-        }
-    }
 }
 
 impl IntoResponse for ApiError {
@@ -237,8 +210,8 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
     }
 }
 
-impl From<crate::error::SqlxOrSerdeJson> for ApiError {
-    fn from(err: crate::error::SqlxOrSerdeJson) -> Self {
+impl From<crate::error::EdgeDBOrSerdeJson> for ApiError {
+    fn from(err: crate::error::EdgeDBOrSerdeJson) -> Self {
         error!("{}", error_chain_to_pretty_formatted(err));
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,

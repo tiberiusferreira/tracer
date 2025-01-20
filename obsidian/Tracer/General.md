@@ -252,3 +252,232 @@ Tracer Received Data from itself.
 It ingests it and emits a trace about ingesting its own Trace. <- should not emit this trace
 
 When ingesting traces from an instance of service Tracer, it should not emit a new trace.
+
+
+## Trace Filtering
+
+Common use cases involve getting basic information from traces under normal conditions. Enough to generate metrics and alert about problems with warnings and errors. 
+
+When debugging, we usually want to increase the details we get. Increasing it for the whole application can get very noisy and impact performance. 
+
+User Story:
+
+An endpoint is behaving unexpectedly only when called by a specific user. 
+
+This is a heavily used endpoint, we can't increase the log level for all executions of it. Instead we want to increase it conditionally on the user_id received as header attribute.
+
+
+Maybe the user_id is inside the request body, or maybe we can't use the user_id and instead need to use the user_email, which is only available in the middle of the endpoint execution.
+
+> We need to be able to defer event and span logging until later
+
+
+
+All root spans are always recorded.
+
+```json5
+{
+
+	"span": "info",
+	"event": "info",
+	// background job example
+	"on_span": {
+		"name": "update_cache",
+		"on_event":{
+			"message": {
+				containing: "SomeName",
+			},
+			"attribute": {
+				"name": "user_id",
+				"containing": "SomeName",
+			},
+			"log_level": {
+				"span": {				
+						"parent_span::child_span::target_span": "debug",
+						"parent_span::child_span::noise_span": "trace"
+					}
+				},
+			}
+		}
+	},
+}
+```
+
+
+Final thoughts: it's hard to know what to filter on if we don't see the full trace data in the first place. Also, being able to see all the details is often very desirable. It's hard to know what will be needed before the fact. 
+Crucial to make this feasible is having a good visualization of how much data is being generated and the performance of the system: CPU and Memory profiles.
+
+## Trace Creation Best Practices
+
+### Attributes 
+
+Attributes are key value pairs and should represent an object. Attributes are equivalent to keys on a top level object.
+
+Example:
+
+```info!(id=trace.id, name=trace.name "new trace");```
+
+which would generate:
+```
+{
+	"id": "30e696ea-d442-11ef-b6f8-b3160be8db13"
+	"name": "handler"
+}
+```
+
+### Open Telemetry Semantic Conventions
+
+They are of the form *name_1.name_2* example:
+- http.request.method = GET
+- http.request.body.size = 3495
+- url.query = q=OpenTelemetry
+
+These looks very much like nested fields in an object, so instead they should be encoded such:
+
+```
+{
+	"http": {
+		"request": {
+			"method": "POST",
+			"method_original": "post"
+		},
+		"body":{
+			"size": 212312
+		},
+		"response": {
+			"status_code": 200
+		},
+		"route": "/users/:user_id"
+	}
+}
+```
+
+There needs to be a way to indicate to the collector that these implement the conventions and which convention.
+The way this is done is via the attribute key: "otel_semantic_convention".
+
+```
+{
+	"otel_semantic_convention": {
+		"http": {
+			"request": {
+				"method": "POST",
+				"method_original": "post"
+			},
+			"body":{
+				"size": 212312
+			},
+			"response": {
+				"status_code": 200
+			},
+			"route": "/users/:user_id"
+		}
+	}
+}
+```
+
+
+
+Nested objects can be follow the same format. 
+```info!(method=request.method, headers=request.headers, "new request");```
+
+which would generate:
+```
+{
+	"method": "POST",
+	"headers": {
+		"content-type": "json",
+		"content-enconding": "br"
+	}
+}
+```
+
+```
+{
+	"http": {
+		"request": {
+			"method": "POST",
+			"method_original": "post"
+		},
+		"response": {
+			"status_code": 200
+		},
+		"route": "/users/:user_id"
+	}
+}
+```
+
+
+
+### UI Dashboard
+
+#### User Defined Queries
+
+User defines a query which must take `start_datetime` and `end_datetime` as arguments and return the following shape:
+```json5
+[
+  {
+    "series_name": "series_1",
+    "data_points": [
+      {
+        "date": "2024-12-19T00:00:00+00:00",
+        "value": 536
+      }
+    ]
+  }
+]
+```
+
+sample query:
+
+```json5
+with
+  start_datetime := <datetime>$start_datetime,
+  end_datetime   := <datetime>$end_datetime,
+  recent_service_updates := (
+    select ServiceInstanceUpdate
+      filter 
+        .created_at >= start_datetime and
+        .created_at <= end_datetime
+      order by .created_at desc
+  ),
+  recent_service_updates_by_service_name := (
+     group recent_service_updates {
+	   created_at,
+	   export_buffer_size_bytes
+     }
+     using service_name := .service_instance.service.name
+     by service_name
+  ),
+select recent_service_updates_by_service_name {
+  series_name := .key.service_name,
+  data_points := .elements {
+    date := .created_at,
+    value := .export_buffer_size_bytes  
+  },
+}
+```
+
+#### UI
+
+The user can create a chart by specifying:
+
+The data:
+- Name
+- Query
+- Look back window
+- Alerts:
+	- max_interval_without_data
+	- min_value_threshold
+	- max_value_threshold
+
+Dashboard:
+- Name
+- Charts:
+	- Name
+	- Data
+	- Y label
+	- Width and Height
+	- Index
+
+
+The UI shows the list of dashboards.

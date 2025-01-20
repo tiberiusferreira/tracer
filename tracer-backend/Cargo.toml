@@ -50,4 +50,6 @@ path = "../tracing-config-helper"
 
 [features]
 query = []
+builder = []
+serde = []
 default = ["query"]

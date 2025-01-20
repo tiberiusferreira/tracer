@@ -8,9 +8,9 @@ use tracing::instrument;
 
 #[instrument(skip_all)]
 pub async fn trace_keys(
-    State(app_state): State<AppState>,
-    Json(trace_event_search): Json<TraceId>,
-) -> Result<axum::Json<Vec<String>>, ApiError> {
+    State(_app_state): State<AppState>,
+    Json(_trace_event_search): Json<TraceId>,
+) -> Result<Json<Vec<String>>, ApiError> {
     //     let res = sqlx::query_scalar!(
     //         "select distinct event_key_value.key
     // from event_key_value
@@ -28,9 +28,9 @@ pub async fn trace_keys(
 
 #[instrument(skip_all)]
 pub async fn search(
-    State(app_state): State<AppState>,
-    Query(trace_event_search): Query<TraceEventSearchUrlEncoded>,
-) -> Result<axum::Json<Vec<Event>>, ApiError> {
+    State(_app_state): State<AppState>,
+    Query(_trace_event_search): Query<TraceEventSearchUrlEncoded>,
+) -> Result<Json<Vec<Event>>, ApiError> {
     // let con = app_state.con;
     // let trace_event_search: TraceEventSearch =
     //     serde_json::from_str(&trace_event_search.trace_event_search).map_err(|_| ApiError {

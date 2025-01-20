@@ -7,10 +7,10 @@ use tracked_error::SqlxError;
 
 #[instrument(skip_all)]
 pub(crate) async fn insert_events(
-    con: &mut Transaction<'static, Postgres>,
-    new_events: &[Event],
-    trace_id: i32,
-    instance_id: &InstanceGlobalId,
+    _con: &mut Transaction<'static, Postgres>,
+    _new_events: &[Event],
+    _trace_id: i32,
+    _instance_id: &InstanceGlobalId,
 ) -> Result<(), SqlxError> {
     // if new_events.is_empty() {
     //     info!("No new trace events to insert");

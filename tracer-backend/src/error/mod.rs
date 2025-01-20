@@ -1,10 +1,10 @@
 use thiserror::Error;
-use tracked_error::{SerdeJsonError, SqlxError};
+use tracked_error::{EdgeDBError, SerdeJsonError};
 
 #[derive(Debug, Error)]
-pub enum SqlxOrSerdeJson {
-    #[error("SqlxError")]
-    Sqlx(#[from] SqlxError),
+pub enum EdgeDBOrSerdeJson {
+    #[error("EdgeDBError")]
+    EdgeDB(#[from] EdgeDBError),
     #[error("SerdeJson")]
     SerdeJson(#[from] SerdeJsonError),
 }

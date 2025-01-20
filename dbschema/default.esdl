@@ -8,7 +8,7 @@ module default {
     }
 
     type LogFilter{
-        required log_filter: str { constraint max_len_value(4096) };
+        required _value: str { constraint max_len_value(4096) };
         required created_at: datetime {
             readonly := true;
             default := datetime_of_statement();
@@ -58,12 +58,12 @@ module default {
     }
 
     # Attributes are repeated over and over
-    type AttributeName{
-        required name: str { constraint max_len_value(1024); constraint exclusive; };
+    type NormalizedAttributeName{
+        required _value: str { constraint max_len_value(1024); constraint exclusive; };
     }
     # Attributes are repeated over and over
-    type AttributeContent{
-        required content: json {
+    type NormalizedAttributeContent{
+        required _value: json {
             constraint expression on (
                 len(to_str(__subject__)) < 10_000_000
             );
@@ -72,25 +72,29 @@ module default {
     }
 
     type Attribute{
-        required name: AttributeName;
-        required content: AttributeContent;
-        constraint exclusive on ((.name, .content));
+        required normalized_name: NormalizedAttributeName;
+        required name := .normalized_name._value;
+        required normalized_content: NormalizedAttributeContent;
+        required content := .normalized_content._value;
+        constraint exclusive on ((.normalized_name, .normalized_content));
     }
 
     # Span name are repeated on each trace for the most part
-    type SpanName{
-        required name: str { constraint exclusive; constraint max_len_value(1024) };
+    type NormalizedSpanName{
+        required _value: str { constraint exclusive; constraint max_len_value(1024) };
     }
 
-    type EventMessage{
-        required message: str { constraint exclusive; constraint max_len_value(10_000_000) };
+    type NormalizedEventMessage{
+        required _value: str { constraint exclusive; constraint max_len_value(10_000_000) };
     }
 
     type Span {
       required span_count_id: int64 { constraint min_value(1) };
       required trace: Trace;
-      required name: SpanName;
+      required normalized_name: NormalizedSpanName;
+      required name := .normalized_name._value;
       parent: Span;
+      multi events := .<span[is Event];
       required started_at_nanos: int64 {
             constraint min_value(0)
       };
@@ -153,7 +157,8 @@ module default {
 
     type Event {
       required span: Span;
-      message: EventMessage;
+      normalized_message: NormalizedEventMessage;
+      message := .normalized_message._value;
       required service_instance_update: ServiceInstanceUpdate;
       required timestamp: int64 {
         constraint min_value(0)
@@ -167,7 +172,71 @@ module default {
       )
     }
 
+    type TimeSeries{
+        required name: str { constraint max_len_value(256) };
+        required query: str { constraint max_len_value(1024) };
+        required look_back_window_seconds: int32 { constraint min_value(5); };
+        max_interval_without_data_seconds: int32 { constraint min_value(1); };
+        min_value_threshold: int32;
+        max_value_threshold: int32;
+        constraint exclusive on (.name);
+    }
 
+    type TimeSeriesAlertChecks{
+        required time_series: TimeSeries;
+        alert_message: str { constraint max_len_value(4096) };
+        required notification_sent: bool { default :=  false };
+        required created_at: datetime { default := datetime_of_statement(); };
+    }
 
+    type Dashboard{
+        required name: str { constraint max_len_value(256) };
+        required multi charts: DashboardChart { constraint exclusive };
+    }
 
+    type DashboardChart{
+        required name: str { constraint max_len_value(256) };
+        required time_series: TimeSeries;
+        required y_label: str { constraint max_len_value(256) };
+        required _index: int32 { constraint min_value(0) };
+    }
+
+#
+#
+# insert TimeSeries{
+#   name:= "dawd",
+#   look_back_window_seconds := 60,
+#   query := "with
+#   start_datetime := <datetime>$start_datetime,
+#   end_datetime   := <datetime>$end_datetime,
+#   recent_service_updates := (
+#     select ServiceInstanceUpdate
+#       filter
+#         .created_at >= start_datetime and
+#         .created_at <= end_datetime
+#       order by .created_at desc
+#   ),
+# recent_service_updates_by_service_name := (
+#   group recent_service_updates {
+#     created_at,
+#     export_buffer_size_bytes
+#   }
+#   using service_name := .service_instance.service.name
+#   by service_name
+#   ),
+# select recent_service_updates_by_service_name {
+#   series_name := .key.service_name,
+#   data_points := .elements {
+#     date := .created_at,
+#     value := .export_buffer_size_bytes
+#   },
+# }",
+#   max_interval_without_data_seconds := 10,
+#   min_value_threshold := 0,
+#   max_value_threshold := 10_000,
+# };
+#
+#
+#
+#
 };

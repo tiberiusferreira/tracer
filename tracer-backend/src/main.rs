@@ -1,16 +1,15 @@
 use std::fmt::{Debug, Formatter};
-use std::str::FromStr;
 use std::time::Duration;
 
 use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::PgPool;
 use tokio::task::spawn_local;
 use tracing::{error, info, info_span, instrument, Instrument};
 use tracing_config_helper::TracerConfig;
 use tracked_error::error_chain_to_pretty_formatted;
+use valuable::Valuable;
+use valuable_derive::Valuable;
 mod api;
 mod background_tasks;
 mod error;
@@ -66,14 +65,13 @@ async fn main() {
 async fn start_api_and_background_tasks(
     config: LaunchConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
-    let con = connect_to_db(&config).await?;
     let edgedb_client = edgedb_tokio::create_client().await.unwrap();
-    let app_state = AppState { con, edgedb_client };
+    let app_state = AppState { edgedb_client };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
         // Sleep before tasks so they start after tracer is setup and we dont lose any traces
         tokio::time::sleep(Duration::from_secs(3)).await;
-        info!("Using config: {:#?}", config);
+        info!(config = config.as_value(), "Using config");
 
         loop {
             async {
@@ -81,7 +79,7 @@ async fn start_api_and_background_tasks(
                 info!("Checking for check_for_alerts_and_send");
                 if let Err(e) =
                     background_tasks::alerts::checker::execute_series_and_check_for_alerts(
-                        state.con.clone(),
+                        state.edgedb_client.clone(),
                     )
                     .await
                 {
@@ -89,13 +87,13 @@ async fn start_api_and_background_tasks(
                     error!("{}", error_chain_as_string);
                 }
                 info!("Sending alerts");
-                if let Err(e) =
-                    background_tasks::alerts::senders::telegram::send_alerts(state.con.clone(), 3)
-                        .await
-                {
-                    let error_chain_as_string = error_chain_to_pretty_formatted(&e);
-                    error!("{}", error_chain_as_string);
-                }
+                // if let Err(e) =
+                //     background_tasks::alerts::senders::telegram::send_alerts(state.con.clone(), 3)
+                //         .await
+                // {
+                //     let error_chain_as_string = error_chain_to_pretty_formatted(&e);
+                //     error!("{}", error_chain_as_string);
+                // }
                 // background_tasks::clean_up::instance_runtime_data::clean_up_dead_instances_and_services(
                 //     Arc::clone(&state.services_runtime_stats),
                 // );
@@ -112,7 +110,7 @@ async fn start_api_and_background_tasks(
     Ok(api_handle)
 }
 
-#[derive(Debug, Clone, clap::Parser)]
+#[derive(Debug, Clone, clap::Parser, Valuable)]
 pub struct LaunchConfig {
     #[clap(flatten)]
     pub db: DbConfig,
@@ -124,7 +122,7 @@ pub struct LaunchConfig {
     pub environment: String,
 }
 
-#[derive(Clone, clap::Parser)]
+#[derive(Clone, clap::Parser, Valuable)]
 pub struct DbConfig {
     #[clap(long, env = "DATABASE_URL")]
     pub url: String,
@@ -150,13 +148,4 @@ impl Debug for DbConfig {
             )
             .finish()
     }
-}
-
-async fn connect_to_db(config: &LaunchConfig) -> Result<PgPool, Box<dyn std::error::Error>> {
-    let con = PgPoolOptions::new()
-        .max_connections(u32::from(config.db.max_db_connections))
-        .connect_with(PgConnectOptions::from_str(&config.db.url).expect("to have a valid DB url"))
-        .instrument(info_span!("Connecting to the DB"))
-        .await?;
-    Ok(con)
 }

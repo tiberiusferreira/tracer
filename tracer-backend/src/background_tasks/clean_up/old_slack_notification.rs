@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use tracing::instrument;
 
 #[instrument(skip_all)]
-pub async fn delete_old_slack_notifications_logging_error(con: &PgPool) {
+pub async fn delete_old_slack_notifications_logging_error(_con: &PgPool) {
     // let res: PgQueryResult = match sqlx::query!(
     //     "delete from slack_alert where created_at < (now() - INTERVAL '3 DAY');"
     // )

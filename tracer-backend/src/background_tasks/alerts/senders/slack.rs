@@ -5,46 +5,47 @@ use reqwest::Response;
 use sqlx::PgPool;
 use std::fmt::Formatter;
 use thiserror::Error;
-use tracing::{error, info, instrument};
+use tracing::{error, instrument};
 use tracked_error::{error_chain_to_pretty_formatted, ReqwestError};
 
 pub mod database;
 
 #[instrument(skip_all)]
 pub async fn send_to_slack_and_update_database(
-    con: &PgPool,
-    notification: &str,
+    _con: &PgPool,
+    _notification: &str,
 ) -> Result<(), AlertingError> {
-    let slack_configs = database::load_slack_configs(&con).await?;
-    info!("Slack Configs {:?}", slack_configs);
-    for s in slack_configs {
-        info!("Processing {:?}", s);
-        if let Some(last_alert_send_attempt) = s.last_alert_send_attempt {
-            info!("Last alert send attempt: {}", last_alert_send_attempt);
-            let duration_since_last_attempt =
-                chrono::Utc::now().naive_utc() - last_alert_send_attempt;
-            let duration_since_last_attempt =
-                u64::try_from(duration_since_last_attempt.num_seconds()).unwrap_or(0);
-            info!(
-                "Last notification sent {} seconds ago",
-                duration_since_last_attempt
-            );
-            if s.min_alert_period_seconds < duration_since_last_attempt {
-                info!("Clear to send new notifications");
-            } else {
-                info!("Too soon to send notifications, skipping it now");
-                continue;
-            }
-        } else {
-            info!("Sending first notification ever!");
-        }
-        let error_str =
-            send_slack_msg_logging_error(&s.bot_user_oauth_token, &s.channel_id, &notification)
-                .await
-                .err();
-        database::insert_notification_in_db(con, s.id, &notification, error_str).await?;
-    }
-    Ok(())
+    // let slack_configs = database::load_slack_configs(&con).await?;
+    // info!("Slack Configs {:?}", slack_configs);
+    // for s in slack_configs {
+    //     info!("Processing {:?}", s);
+    //     if let Some(last_alert_send_attempt) = s.last_alert_send_attempt {
+    //         info!("Last alert send attempt: {}", last_alert_send_attempt);
+    //         let duration_since_last_attempt =
+    //             chrono::Utc::now().naive_utc() - last_alert_send_attempt;
+    //         let duration_since_last_attempt =
+    //             u64::try_from(duration_since_last_attempt.num_seconds()).unwrap_or(0);
+    //         info!(
+    //             "Last notification sent {} seconds ago",
+    //             duration_since_last_attempt
+    //         );
+    //         if s.min_alert_period_seconds < duration_since_last_attempt {
+    //             info!("Clear to send new notifications");
+    //         } else {
+    //             info!("Too soon to send notifications, skipping it now");
+    //             continue;
+    //         }
+    //     } else {
+    //         info!("Sending first notification ever!");
+    //     }
+    //     let error_str =
+    //         send_slack_msg_logging_error(&s.bot_user_oauth_token, &s.channel_id, &notification)
+    //             .await
+    //             .err();
+    //     database::insert_notification_in_db(con, s.id, &notification, error_str).await?;
+    // }
+    // Ok(())
+    unimplemented!()
 }
 
 #[instrument(skip_all)]
@@ -84,6 +85,7 @@ async fn send_slack_msg(
 
 #[derive(Debug, serde::Deserialize)]
 struct SlackResponse {
+    #[allow(unused)]
     ok: bool,
     #[allow(dead_code)] // used only to print
     #[serde(default)]
@@ -103,6 +105,7 @@ async fn check_response(text_send_resp: Response) -> Result<(), String> {
     };
 }
 
+#[allow(unused)]
 async fn send_slack_msg_logging_error(
     bot_token: &str,
     channel_id: &str,
@@ -119,6 +122,7 @@ async fn send_slack_msg_logging_error(
 
 #[derive(Clone)]
 pub struct SlackConfig {
+    #[allow(unused)]
     pub id: i32,
     pub bot_user_oauth_token: String,
     pub channel_id: String,
@@ -173,6 +177,7 @@ pub struct InvalidHeaderError {
 }
 
 impl InvalidHeaderError {
+    #[allow(unused)]
     pub fn from_invalid_header_error<S: Into<String>>(
         e: InvalidHeaderValue,
         context: S,

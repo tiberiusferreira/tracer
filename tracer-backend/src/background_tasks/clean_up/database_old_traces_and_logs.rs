@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use tracing::instrument;
 
 #[instrument(skip_all)]
-pub async fn delete_old_traces_logging_error(con: &PgPool) {
+pub async fn delete_old_traces_logging_error(_con: &PgPool) {
     //     let res: PgQueryResult = match sqlx::query!(
     //         "delete
     // from trace
@@ -30,7 +30,7 @@ pub async fn delete_old_traces_logging_error(con: &PgPool) {
 }
 
 #[instrument(skip_all)]
-pub async fn delete_old_orphan_events_logging_error(con: &PgPool) {
+pub async fn delete_old_orphan_events_logging_error(_con: &PgPool) {
     // let res: PgQueryResult =
     //     match sqlx::query!("delete from orphan_event where timestamp < (EXTRACT(epoch FROM now() - INTERVAL '10 DAY') * 1000000000);")
     //         .execute(con)

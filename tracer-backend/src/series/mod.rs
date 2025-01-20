@@ -4,14 +4,25 @@ use serde::{Deserialize, Serialize};
 pub mod database;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Series {
+pub struct TimeSeries {
     pub id: i32,
     pub name: String,
-    pub sql: String,
-    pub check_window: i32,
-    pub max_missing_data_points: Option<i32>,
+    pub look_back_window_seconds: i32,
+    pub max_interval_without_data_seconds: i32,
     pub max_value_threshold: Option<i32>,
     pub min_value_threshold: Option<i32>,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TimeSeriesWithChecks {
+    pub id: i32,
+    pub name: String,
+    pub look_back_window_seconds: i32,
+    pub max_interval_without_data_seconds: i32,
+    pub max_value_threshold: Option<i32>,
+    pub min_value_threshold: Option<i32>,
+    pub query: String,
     pub alert_checks: Vec<AlertCheck>,
 }
 

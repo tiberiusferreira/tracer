@@ -1,17 +1,14 @@
 use crate::api::ApiError;
 use api_structs::instance::update::{Span, TraceFragment};
 use edgedb_codegen::edgedb_query;
-use futures::TryFutureExt;
 use http::StatusCode;
-use serde::Serialize;
-use sqlx::{Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Formatter;
 use std::panic::Location;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument};
-use tracked_error::{error_chain_to_pretty_formatted, EdgeDBError, SqlxError};
+use tracked_error::{error_chain_to_pretty_formatted, EdgeDBError};
 use valuable_derive::Valuable;
 
 mod span;
@@ -69,18 +66,6 @@ impl FromStr for HttpMethod {
     }
 }
 
-#[derive(Debug, Clone, Valuable)]
-struct TraceCacheData {
-    status_code: Option<u16>,
-    http_path: Option<String>,
-    http_method: Option<HttpMethod>,
-    has_errors: bool,
-    warning_count: u32,
-    span_count: u32,
-    event_count: u32,
-    byte_count: u32,
-}
-
 edgedb_query!(
     insert_trace,
     "
@@ -94,6 +79,7 @@ edgedb_query!(
 #[derive(Debug, Clone)]
 pub struct ExistingDbTrace {
     id: uuid::Uuid,
+    #[allow(unused)]
     trace_count_id: u64,
     current_span_count_id: u64,
     open_spans: Vec<RunningSpan>,
@@ -176,7 +162,7 @@ impl TryFrom<get_trace_and_open_spans::Output> for ExistingDbTrace {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ExistingDbTrace {
             id: value.id,
-            trace_count_id: u64::try_from(value.trace_count_id).map_err(|e| {
+            trace_count_id: u64::try_from(value.trace_count_id).map_err(|_e| {
                 InvalidDBData::NonU64FieldValueInDB {
                     value: value.trace_count_id.to_string(),
                     field_name: "trace_count_id".to_string(),
@@ -187,7 +173,7 @@ impl TryFrom<get_trace_and_open_spans::Output> for ExistingDbTrace {
                 let current_span_count_id = value
                     .current_span_count_id
                     .ok_or_else(|| InvalidDBData::DbTraceWithoutSpans { trace_id: value.id })?;
-                u64::try_from(current_span_count_id).map_err(|e| {
+                u64::try_from(current_span_count_id).map_err(|_e| {
                     InvalidDBData::NonU64FieldValueInDB {
                         value: current_span_count_id.to_string(),
                         field_name: "current_span_count_id".to_string(),
@@ -213,8 +199,8 @@ select  assert_single(Trace{
       parent,
       started_at_nanos,
       duration_nanos,
-      span_name := .name.name,
-      attributes_names := .attributes.name.name
+      span_name := .name,
+      attributes_names := .attributes.name
     } filter Trace.spans.has_ended = false
   )
 } filter Trace.service_instance_update.service_instance.id=<uuid>$service_instance_id and Trace.trace_count_id = <int64>$trace_count_id )
@@ -248,22 +234,6 @@ pub enum TraceUpdateError {
         span_count_id: u64,
         parent_span_count_id: Option<u64>,
         name: String,
-        location: &'static Location<'static>,
-    },
-    #[error(
-        "MissingOpenSpanInUpdate error at {location}: name={name} span_count_id={span_count_id} "
-    )]
-    MissingOpenSpanInUpdate {
-        span_count_id: i64,
-        name: String,
-        location: &'static Location<'static>,
-    },
-    #[error(
-        "WrongRootSpanCountId at {location}. SpanCountId={span_count_id} span name = {span_name}"
-    )]
-    WrongRootSpanCountId {
-        span_count_id: u64,
-        span_name: String,
         location: &'static Location<'static>,
     },
     #[error("Missing Root Span error at {location}")]
@@ -312,15 +282,13 @@ impl From<TraceUpdateError> for ApiError {
                 code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: e_as_str,
             },
-            TraceUpdateError::MissingOpenSpanInUpdate { .. }
-            | TraceUpdateError::AttributeValueSetAgain { .. }
+            TraceUpdateError::AttributeValueSetAgain { .. }
             | TraceUpdateError::UpdateForClosedTrace { .. }
             | TraceUpdateError::ForbiddenFieldChange { .. }
             | TraceUpdateError::SpanNotLinkedToRoot { .. }
             | TraceUpdateError::NonContiguousSpanCountIdInUpdate { .. }
             | TraceUpdateError::NonContiguousSpanCountIdInNewTrace { .. }
             | TraceUpdateError::ParentChildSpanValidationError { .. }
-            | TraceUpdateError::WrongRootSpanCountId { .. }
             | TraceUpdateError::MissingRoot { .. } => ApiError {
                 code: StatusCode::BAD_REQUEST,
                 message: e_as_str,
@@ -451,116 +419,13 @@ async fn upsert_spans(
     trace_id: uuid::Uuid,
     spans_to_upsert: &mut SpansToUpsert,
 ) -> Result<(), TraceUpdateError> {
-    span::insert_spans(
+    span::insert_spans_and_events(
         tx,
         instance_update_id,
         trace_id,
         &mut spans_to_upsert.spans_to_insert,
     )
     .await?;
-    //     edgedb_query!(span_insert,
-    // "with
-    //   span_data := <json>$span_data,
-    //   trace_id := <uuid>$trace_id,
-    //   service_instance_update_id := <uuid>$service_instance_update_id,
-    //   spans := for single_span in json_array_unpack(span_data) union (
-    //   with attributes := json_object_unpack(single_span['attributes']),
-    //   new_attributes := (
-    //     for single_attribute in attributes union (
-    //       insert Attribute{
-    //         name := (
-    //           insert AttributeName {
-    //            name := single_attribute.0
-    //           } unless conflict on .name else (select AttributeName)
-    //         ),
-    //         content := (
-    //           insert AttributeContent {
-    //             content := single_attribute.1
-    //           } unless conflict on .content else (select AttributeContent)
-    //           ),
-    //       } unless conflict on (.name, .content) else (select Attribute)
-    //     )
-    //   ),
-    //   name := (
-    //     insert SpanName {
-    //            name := <str>single_span['name']
-    //           } unless conflict on .name else (select SpanName)
-    //   ),
-    //   span := (insert Span  {
-    //     trace := (select Trace filter .id=trace_id),
-    //     instance_update := (select ServiceInstanceUpdate filter .id=service_instance_update_id),
-    //     span_count_id := <int64>single_span['id'],
-    //     has_ended := <bool>single_span['has_ended'],
-    //     duration_nanos := <int64>single_span['duration_nanos'],
-    //     started_at_nanos := <int64>single_span['started_at_nanos'],
-    //     attributes := new_attributes,
-    //     name := name,
-    //     parent := (
-    //       if exists <int64>single_span['parent_id'] then (
-    //         assert_exists(assert_single(
-    //                 (
-    //                   select detached Span
-    //                   filter .span_count_id = <int64>single_span['parent_id']
-    //                   and .trace.id = trace_id
-    //                 )
-    //             )
-    //         )
-    //       )
-    //       else {}
-    //       )
-    //   }),
-    //   for single_event in json_array_unpack(span_data['events']) union (
-    //     with event_attributes := json_object_unpack(single_event['attributes']),
-    //     new_event_attributes := (
-    //       for single_attribute in event_attributes union (
-    //         insert Attribute{
-    //           name := (
-    //             insert AttributeName {
-    //              name := single_attribute.0
-    //             } unless conflict on .name else (select AttributeName)
-    //           ),
-    //           content := (
-    //             insert AttributeContent {
-    //               content := single_attribute.1
-    //             } unless conflict on .content else (select AttributeContent)
-    //             ),
-    //         } unless conflict on (.name, .content) else (select Attribute)
-    //       )
-    //     ),
-    //     message := (
-    //       insert EventMessage {
-    //              message := <str>single_event['message']
-    //             } unless conflict on .message else (select EventMessage)
-    //     ),
-    //     timestamp := <int64>single_event['timestamp'],
-    //     event := (insert Event{
-    //       attributes := new_attributes,
-    //       message := message,
-    //       span := span,
-    //       service_instance_update := (select ServiceInstanceUpdate filter .id=service_instance_update_id),
-    //     }
-    //   ),
-    // ),
-    //     select {
-    //     spans
-    //   }");
-    //     spans_to_upsert
-    //         .spans_to_insert
-    //         .sort_unstable_by_key(|e| e.id);
-    //     for s in &spans_to_upsert.spans_to_insert {
-    //         let spans_to_insert_json_str = serde_json::to_string(&vec![s]).unwrap();
-    //         let res = span_insert::transaction(
-    //             &mut *tx,
-    //             &span_insert::Input {
-    //                 span_data: edgedb_protocol::model::Json::new_unchecked(spans_to_insert_json_str),
-    //                 trace_id,
-    //                 service_instance_update_id: instance_update_id,
-    //             },
-    //         )
-    //         .await?;
-    //         info!(inserted.spans.count = res.len(), "spans inserted");
-    //     }
-
     Ok(())
 }
 
@@ -606,6 +471,7 @@ fn validate_update_for_span(
 
 struct SpansToUpsert {
     spans_to_insert: Vec<Span>,
+    #[allow(unused)]
     spans_to_update: Vec<SpanToUpdate>,
 }
 fn validate_new_trace_spans_for_insertion(
@@ -676,28 +542,28 @@ fn validate_spans_for_insert_or_update(
         }
     })?;
 
-    /// We update the spans by starting from the existing root and, for span:
-    /// - If it's a new one, validate and insert it.
-    /// - - Check all children are new, then add all children as children to insert
-    /// - If it's an existing, validate and update it
-    /// - - For each child check if it exists and if so add to list of children to insert, else add to list to update
-    ///
-    ///
-    /// Previous State
-    /// ```
-    ///     Root
-    /// |-------
-    ///    |C1|
-    ///   |-----
-    ///
-    /// New State (Update)
-    ///     Root
-    /// |--------------------
-    ///     |C1|      |C2|
-    ///   |-----|   |-----|
-    ///   |C1-1|
-    ///    |--|
-    ///```
+    // We update the spans by starting from the existing root and, for span:
+    // - If it's a new one, validate and insert it.
+    // - - Check all children are new, then add all children as children to insert
+    // - If it's an existing, validate and update it
+    // - - For each child check if it exists and if so add to list of children to insert, else add to list to update
+    //
+    //
+    // Previous State
+    // ```
+    //     Root
+    // |-------
+    //    |C1|
+    //   |-----
+    //
+    // New State (Update)
+    //     Root
+    // |--------------------
+    //     |C1|      |C2|
+    //   |-----|   |-----|
+    //   |C1-1|
+    //    |--|
+    //```
     // We start from existing root.
     let child_from_db = existing_trace
         .open_spans
@@ -898,25 +764,14 @@ fn validate_child_parent(parent: &Span, child: &Span) -> Result<(), ChildParentV
     }
     Ok(())
 }
-struct SpanToCheck {
-    parent_span_count: u64,
-    parent_has_ended: bool,
-}
 
+#[allow(unused)]
 struct SpanToUpdate {
     id: uuid::Uuid,
     span_count_id: u64,
     duration_nanos: u64,
     attributes_to_add: HashMap<String, serde_json::Value>,
 }
-
-// fn update(
-//     parent_update_span: &Span,
-//     db_span: &OutputOpenSpansSet,
-//     update_span: &Span,
-// ) -> Result<(), TraceUpdateError> {
-//     Ok(())
-// }
 
 struct NonContiguousId {
     prev: u64,
