@@ -79,6 +79,7 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         )
         .nest("/api/ui/service", service_routes)
         .nest("/api/instance", instance_routes)
+        .route("/database", axum::routing::post(handlers::query_database))
         .route(
             api_structs::ui::trace::time_series::TraceSummary::PATH,
             axum::routing::get(handlers::ui::trace::time_series::handler),

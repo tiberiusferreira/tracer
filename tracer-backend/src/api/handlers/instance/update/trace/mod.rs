@@ -449,7 +449,7 @@ fn validate_update_for_span(
             location: Location::caller(),
         });
     }
-    if old_span.duration_nanos <= new_span.duration_nanos {
+    if old_span.duration_nanos >= new_span.duration_nanos {
         return Err(TraceUpdateError::ForbiddenFieldChange {
             field_name: "duration".to_string(),
             old_value: old_span.duration_nanos.to_string(),

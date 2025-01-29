@@ -1,5 +1,5 @@
 use crate::datetime::{printable_local_date, printable_local_date_ms};
-use crate::r#mod::summary::create_summary_html_span_and_children_single_layer;
+use crate::handlers::summary::create_summary_html_span_and_children_single_layer;
 use crate::TRACE_CHUNK_PATH;
 use crate::{API_SERVER_URL_NO_TRAILING_SLASH, PAGE_ROOT_URL};
 use api_structs::instance::update::Location;

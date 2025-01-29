@@ -1,10 +1,34 @@
 use crate::api::ApiError;
+use axum::extract::State;
 
+use crate::api::state::AppState;
 use axum::http::StatusCode;
+use axum::Json;
+use tracing::instrument;
+use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod instance;
 pub mod ui;
 
+#[instrument(skip_all)]
+pub async fn query_database(
+    app_state: State<AppState>,
+    body: String,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    let con = app_state.edgedb_client.clone();
+    let query = body;
+    let res: Vec<edgedb_protocol::model::Json> =
+        con.query(query.as_str(), &()).await.map_err(|e| ApiError {
+            code: axum::http::StatusCode::BAD_REQUEST,
+            message: error_chain_to_pretty_formatted(e),
+        })?;
+    let mut result = vec![];
+    for e in res {
+        let a: serde_json::Value = serde_json::from_str(&String::from(e)).unwrap();
+        result.push(a);
+    }
+    Ok(Json(result))
+}
 #[derive(Debug, Clone)]
 // #[sqlx(type_name = "severity_level", rename_all = "lowercase")]
 pub enum Severity {

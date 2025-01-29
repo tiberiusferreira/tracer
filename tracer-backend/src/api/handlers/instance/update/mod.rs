@@ -3,7 +3,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use edgedb_codegen::edgedb_query;
-use tracing::{error, info, instrument};
+use tracing::{error, info, info_span, instrument, Instrument};
 use tracked_error::EdgeDBError;
 
 use crate::api::state::AppState;
@@ -26,7 +26,7 @@ pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
 }
 
 edgedb_query!(
-    instance_update_result,
+    increase_instance_update_count_get_log,
     "
 with service_instance := (
   update ServiceInstance filter .id=<uuid>$instance_id
@@ -73,19 +73,22 @@ pub async fn handler(
     let edgedb_client = app_state.edgedb_client;
     let mut tx = edgedb_client
         .transaction()
+        .instrument(info_span!("starting_transaction"))
         .await
         .map_err(|e| EdgeDBError::from(e))?;
-    let instance_update_result = instance_update_result::transaction(
-        &mut tx,
-        &instance_update_result::Input {
-            instance_id: instance_snapshot.instance_id,
-        },
-    )
-    .await
-    .map_err(|e| EdgeDBError::from(e))?;
+    let increase_instance_update_count_get_log_res =
+        increase_instance_update_count_get_log::transaction(
+            &mut tx,
+            &increase_instance_update_count_get_log::Input {
+                instance_id: instance_snapshot.instance_id,
+            },
+        )
+        .instrument(info_span!("increase_instance_update_count_get_log"))
+        .await
+        .map_err(|e| EdgeDBError::from(e))?;
     let (Some(received_update_count), Some(service_log_filter)) = (
-        instance_update_result.received_update_count,
-        instance_update_result.log_filter,
+        increase_instance_update_count_get_log_res.received_update_count,
+        increase_instance_update_count_get_log_res.log_filter,
     ) else {
         error!(instance.id=%instance_snapshot.instance_id, "got update for non existing instance");
         return Err(ApiError {
@@ -117,11 +120,18 @@ pub async fn handler(
             export_buffer_size_bytes: instance_snapshot.export_buffer_size_bytes as i64,
         },
     )
+    .instrument(info_span!("insert_instance_update"))
     .await
     .map_err(|e| EdgeDBError::from(e))?
     .instance_update_id;
+    let mut sorted_trace_fragments = instance_snapshot
+        .trace_fragments
+        .clone()
+        .into_values()
+        .collect::<Vec<_>>();
+    sorted_trace_fragments.sort_by_key(|e| e.trace_count_id);
 
-    for trace_fragment in instance_snapshot.trace_fragments.values() {
+    for trace_fragment in &sorted_trace_fragments {
         trace::insert_or_update_trace(
             &mut tx,
             instance_snapshot.instance_id,
@@ -131,7 +141,10 @@ pub async fn handler(
         .await?;
     }
 
-    tx.commit().await.map_err(|e| EdgeDBError::from(e))?;
+    tx.commit()
+        .instrument(info_span!("commit_transaction"))
+        .await
+        .map_err(|e| EdgeDBError::from(e))?;
     let mut current: Vec<char> = instance_snapshot
         .log_filter
         .chars()

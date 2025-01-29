@@ -16,6 +16,22 @@ services:
     ports:
       - "5435:5432"
     shm_size: 512MB
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config/config:/grafana/config
+      - ./config/data:/grafana/data
+      - ./config/logs:/grafana/logs
+      - ./config/plugin:/grafana/plugin
+      - ./config/provisioning:/grafana/provisioning
+    environment:
+      - GF_PATHS_CONFIG=/grafana/config/grafana.ini
+      - GF_PATHS_DATA=/grafana/data
+      - GF_PATHS_LOGS=/grafana/logs
+      - GF_PATHS_PLUGINS=/grafana/plugin
+      - GF_PATHS_PROVISIONING=/grafana/provisioning
   tracer:
     image: tiberio/tracer:latest
     depends_on:

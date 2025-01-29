@@ -112,30 +112,6 @@ module default {
             message := "span instance update must come from same instance as trace",
         )
       );
-      trigger root_span_is_first_span after insert, update for each
-              when (not exists(__new__.parent))
-              do (
-                    assert(
-                         __new__.span_count_id = 1,
-                        message := "root span span_count_id must be 1, its the first span, but was " ++ to_str(__new__.span_count_id),
-                    )
-            );
-      trigger span_count_id_has_no_gaps after insert, update for each
-              when (true)
-              do (
-                    with previous_span_count_id := ((select Span{
-                                                                span_count_id
-                                                              }
-                                                              filter .trace.id=__new__.trace.id and .id!=__new__.id
-                                                              order by .span_count_id desc
-                                                              limit 1).span_count_id),
-                    expected_new_span_count_id := (select if exists (previous_span_count_id) then previous_span_count_id+1 else 1)
-                    select assert(
-                         __new__.span_count_id = expected_new_span_count_id,
-                         message := "span count id is not sequential, span count ids must be inserted in order expected " ++ to_str(expected_new_span_count_id) ++ " got " ++ to_str(__new__.span_count_id),
-
-                    )
-            );
       trigger parent_is_from_same_trace after insert, update for each
         when (exists(__new__.parent))
         do (
@@ -144,15 +120,9 @@ module default {
                   message := "span must link to parent from same trace",
               )
       );
-      trigger trace_has_single_root after insert, update for each
-      when (not exists __new__.parent)
-      do (
-        # if this a root span (no parent), there must be no existing root span
-        assert_single(
-            (select Span filter .trace = __new__.trace and not exists Span.parent),
-            message := "a trace can not have more than one root span",
-        )
-      );
+      # checks left to the application:
+      # there is a single root span which has span_count_id = 1
+      # span span_count_id within same trace is contiguous, no gaps
     }
 
     type Event {

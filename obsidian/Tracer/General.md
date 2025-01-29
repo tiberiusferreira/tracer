@@ -481,3 +481,6 @@ Dashboard:
 
 
 The UI shows the list of dashboards.
+
+### Query examples we might want to track
+
