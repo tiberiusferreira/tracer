@@ -5,9 +5,8 @@ use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
 use tokio::task::spawn_local;
-use tracing::{error, info, info_span, instrument, Instrument};
+use tracing::{info, info_span, instrument, Instrument};
 use tracing_config_helper::TracerConfig;
-use tracked_error::error_chain_to_pretty_formatted;
 use valuable::Valuable;
 use valuable_derive::Valuable;
 mod api;
@@ -75,18 +74,19 @@ async fn start_api_and_background_tasks(
 
         loop {
             async {
-                let state = app_state.clone();
+                // let state = app_state.clone();
                 info!("Checking for check_for_alerts_and_send");
-                if let Err(e) =
-                    background_tasks::alerts::checker::execute_series_and_check_for_alerts(
-                        state.edgedb_client.clone(),
-                    )
-                    .await
-                {
-                    let error_chain_as_string = error_chain_to_pretty_formatted(&e);
-                    error!("{}", error_chain_as_string);
-                }
-                info!("Sending alerts");
+
+                // if let Err(e) =
+                //     background_tasks::alerts::checker::execute_series_and_check_for_alerts(
+                //         state.edgedb_client.clone(),
+                //     )
+                //     .await
+                // {
+                //     let error_chain_as_string = error_chain_to_pretty_formatted(&e);
+                //     error!("{}", error_chain_as_string);
+                // }
+                // info!("Sending alerts");
                 // if let Err(e) =
                 //     background_tasks::alerts::senders::telegram::send_alerts(state.con.clone(), 3)
                 //         .await

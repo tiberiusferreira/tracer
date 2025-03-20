@@ -1,34 +1,32 @@
-use crate::datetime::secs_since;
-use charming::component::{Axis, DataZoom, DataZoomType, Legend, LegendType};
+use charming::component::{Axis, Grid};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
-    AxisPointer, AxisPointerAxis, AxisType, Color, ItemStyle, NameLocation, TextStyle, Tooltip,
-    Trigger, TriggerOn,
+    AxisPointer, AxisPointerAxis, AxisTick, AxisType, Color, ItemStyle, NameLocation, TextStyle,
+    Tooltip, Trigger, TriggerOn,
 };
 use charming::{Chart, WasmRenderer};
 use leptos::html::Div;
 use leptos::prelude::*;
-use tracing::info;
 #[derive(Debug, Clone)]
 pub struct GraphSeries {
     pub name: String,
-    pub original_x_values: Vec<u64>,
-    pub x_values: Vec<f64>,
+    // pub original_x_values: Vec<u64>,
+    pub x_values: Vec<String>,
     pub y_values: Vec<f64>,
 }
 impl GraphSeries {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            original_x_values: vec![],
+            // original_x_values: vec![],
             x_values: vec![],
             y_values: vec![],
         }
     }
-    pub fn push_data(&mut self, timestamp: u64, data: f64) {
-        self.original_x_values.push(timestamp);
-        let minutes_since = secs_since(timestamp) as f64 / 60.;
-        self.x_values.push(minutes_since);
+    pub fn push_data(&mut self, timestamp: String, data: f64) {
+        // self.original_x_values.push(timestamp);
+
+        self.x_values.push(timestamp);
         self.y_values.push(data);
     }
 }
@@ -63,29 +61,23 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
         let mut graph_data = graph_data.clone();
         async move {
             let mut chart = Chart::new()
+                // .grid(Grid::new())
+                .grid(Grid::new().left(30.).right(10.).bottom(30.).top(10.))
                 .x_axis(
                     Axis::new()
-                        .type_(AxisType::Value)
-                        .name_location(NameLocation::Middle)
-                        .name_text_style(TextStyle::new().font_size(18.))
-                        .name(&graph_data.x_name)
-                        .axis_pointer(AxisPointer::new().axis(AxisPointerAxis::X).show(true))
-                        .inverse(true)
-                        .name_gap(20.),
+                        .type_(AxisType::Category)
+                        .name_location(NameLocation::Middle), // .name_text_style(TextStyle::new().font_size(18.))
+                                                              // .name(&graph_data.x_name)
+                                                              // .axis_pointer(AxisPointer::new().axis(AxisPointerAxis::X).show(true)), // .name_gap(20.),
                 )
                 .y_axis(
                     Axis::new()
                         .type_(AxisType::Value)
                         .name(&graph_data.y_name)
-                        .name_text_style(TextStyle::new().font_size(18.))
+                        .axis_tick(AxisTick::default().split_number(2))
+                        // .name_text_style(TextStyle::new().font_size(18.))
                         .name_gap(30.)
                         .name_location(NameLocation::Middle),
-                )
-                .data_zoom(
-                    DataZoom::new()
-                        .type_(DataZoomType::Slider)
-                        .start_value(0.)
-                        .end_value(15.),
                 )
                 .color(vec![
                     Color::Value("rgb(20, 255, 255)".to_string()),
@@ -93,18 +85,18 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                     Color::Value("rgb(20, 255, 20)".to_string()),
                     Color::Value("rgb(255, 255, 20)".to_string()),
                 ])
-                .legend(
-                    Legend::new()
-                        .data(
-                            graph_data
-                                .series
-                                .iter()
-                                .map(|s| s.name.clone())
-                                .collect::<Vec<String>>(),
-                        )
-                        .show(true)
-                        .type_(LegendType::Scroll),
-                )
+                // .legend(
+                //     Legend::new()
+                //         .data(
+                //             graph_data
+                //                 .series
+                //                 .iter()
+                //                 .map(|s| s.name.clone())
+                //                 .collect::<Vec<String>>(),
+                //         )
+                //         .show(true)
+                //         .type_(LegendType::Scroll),
+                // )
                 .tooltip(
                     Tooltip::new()
                         .trigger(Trigger::Item)
@@ -112,8 +104,9 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 );
             for series in &graph_data.series {
                 chart = chart.series(
-                    charming::series::Line::new()
-                        .symbol_size(6.5)
+                    charming::series::Bar::new()
+                        .bar_width(18)
+                        // .symbol_size(6.5)
                         .item_style(ItemStyle::new().opacity(1.0))
                         .data(
                             series
@@ -122,7 +115,7 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                                 .zip(series.y_values.iter())
                                 .map(|(a, b)| {
                                     CompositeValue::Array(vec![
-                                        CompositeValue::Number(NumericValue::Float(*a)),
+                                        CompositeValue::String(a.to_string()),
                                         CompositeValue::Number(NumericValue::Float(*b)),
                                     ])
                                 })
@@ -130,9 +123,55 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                         )
                         .name(&series.name),
                 );
+                chart = chart.series(
+                    charming::series::Line::new()
+                        // .symbol_size(6.5)
+                        // .item_style(ItemStyle::new().opacity(1.0))
+                        .data(
+                            series
+                                .x_values
+                                .iter()
+                                .zip(series.y_values.iter())
+                                .map(|(a, b)| {
+                                    CompositeValue::Array(vec![
+                                        CompositeValue::String(a.to_string()),
+                                        CompositeValue::Number(NumericValue::Float(20.)),
+                                    ])
+                                })
+                                .collect::<Vec<CompositeValue>>(),
+                        )
+                        .name(format!("{}-min-threshold", &series.name)),
+                );
+                chart = chart.series(
+                    charming::series::Line::new()
+                        // .symbol_size(6.5)
+                        // .item_style(ItemStyle::new().opacity(1.0))
+                        .data(
+                            series
+                                .x_values
+                                .iter()
+                                .zip(series.y_values.iter())
+                                .map(|(a, b)| {
+                                    CompositeValue::Array(vec![
+                                        CompositeValue::String(a.to_string()),
+                                        CompositeValue::Number(NumericValue::Float(600.)),
+                                    ])
+                                })
+                                .collect::<Vec<CompositeValue>>(),
+                        )
+                        .name(format!("{}-max-threshold", &series.name)),
+                );
             }
+            let el = web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .get_element_by_id(&el_id)
+                .unwrap();
+            let width = el.scroll_width();
+            let height = el.scroll_height();
+            let renderer = WasmRenderer::new(width as u32, height as u32);
 
-            let renderer = WasmRenderer::new(825, 500);
             let chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
             // let listener = graph_data.click_event_timestamp_receiver.take();
             // let series = graph_data.series;

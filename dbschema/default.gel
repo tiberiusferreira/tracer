@@ -39,22 +39,6 @@ module default {
       multi spans := .<trace[is Span];
       required service_instance_update: ServiceInstanceUpdate;
       required created_at: datetime { default := datetime_of_statement(); };
-      trigger trace_count_id_has_no_gaps after insert, update for each
-            do (
-                with previous_trace_count_id := (
-                                        select Trace {
-                                            trace_count_id
-                                        }
-                                         filter .service_instance_update.service_instance=__new__.service_instance_update.service_instance and .id != __new__.id
-                                         order by .trace_count_id desc
-                                         limit 1
-                                    ).trace_count_id,
-                expected_new_trace_count_id := (select if exists (previous_trace_count_id) then previous_trace_count_id+1 else 1)
-                select assert(
-                      __new__.trace_count_id = expected_new_trace_count_id,
-                     message := "trace count id is not sequential, trace count ids must be inserted in order expected " ++ to_str(expected_new_trace_count_id) ++ " got " ++ to_str(__new__.trace_count_id),
-                )
-        );
     }
 
     # Attributes are repeated over and over
@@ -125,8 +109,11 @@ module default {
       # span span_count_id within same trace is contiguous, no gaps
     }
 
+    scalar type Severity extending enum<Trace, Debug, Info, Warn, Error>;
+
     type Event {
       required span: Span;
+      required severity: Severity;
       normalized_message: NormalizedEventMessage;
       message := .normalized_message._value;
       required service_instance_update: ServiceInstanceUpdate;
@@ -142,34 +129,6 @@ module default {
       )
     }
 
-    type TimeSeries{
-        required name: str { constraint max_len_value(256) };
-        required query: str { constraint max_len_value(1024) };
-        required look_back_window_seconds: int32 { constraint min_value(5); };
-        max_interval_without_data_seconds: int32 { constraint min_value(1); };
-        min_value_threshold: int32;
-        max_value_threshold: int32;
-        constraint exclusive on (.name);
-    }
-
-    type TimeSeriesAlertChecks{
-        required time_series: TimeSeries;
-        alert_message: str { constraint max_len_value(4096) };
-        required notification_sent: bool { default :=  false };
-        required created_at: datetime { default := datetime_of_statement(); };
-    }
-
-    type Dashboard{
-        required name: str { constraint max_len_value(256) };
-        required multi charts: DashboardChart { constraint exclusive };
-    }
-
-    type DashboardChart{
-        required name: str { constraint max_len_value(256) };
-        required time_series: TimeSeries;
-        required y_label: str { constraint max_len_value(256) };
-        required _index: int32 { constraint min_value(0) };
-    }
 
 #
 #

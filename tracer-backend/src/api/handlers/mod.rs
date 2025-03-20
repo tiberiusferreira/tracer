@@ -4,7 +4,7 @@ use axum::extract::State;
 use crate::api::state::AppState;
 use axum::http::StatusCode;
 use axum::Json;
-use tracing::instrument;
+use tracing::{info, instrument};
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod instance;
@@ -15,6 +15,7 @@ pub async fn query_database(
     app_state: State<AppState>,
     body: String,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    info!(query = body, "query database");
     let con = app_state.edgedb_client.clone();
     let query = body;
     let res: Vec<edgedb_protocol::model::Json> =
@@ -27,6 +28,7 @@ pub async fn query_database(
         let a: serde_json::Value = serde_json::from_str(&String::from(e)).unwrap();
         result.push(a);
     }
+    info!(response = ?result.iter().take(2).collect::<Vec<&serde_json::Value>>(), "query ran ok");
     Ok(Json(result))
 }
 #[derive(Debug, Clone)]

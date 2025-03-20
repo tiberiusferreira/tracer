@@ -5,6 +5,7 @@ use tracing::Level;
 pub mod datetime;
 // mod grid;
 // mod orphan_events;
+mod alerts;
 mod chart;
 mod dashboard;
 mod services;
@@ -19,6 +20,7 @@ pub const TRACE_BROWSER_PATH: &str = "trace/browser";
 pub const TRACE_CHUNK_PATH: &str = "trace/chunk";
 pub const ORPHAN_EVENTS_PATH: &str = "orphan_events";
 pub const DASHBOARD_PATH: &str = "dashboard";
+pub const ALERTS_PATH: &str = "alerts";
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -47,9 +49,9 @@ pub fn App() -> impl IntoView {
                         </a>
                         <a
                             class="navigation__button"
-                            href=format!("{PAGE_ROOT_URL}{DASHBOARD_PATH}")
+                            href=format!("{PAGE_ROOT_URL}{ALERTS_PATH}")
                         >
-                            "Dashboard"
+                            "Alerts"
                         </a>
                         <a
                             class="navigation__button"
@@ -67,6 +69,12 @@ pub fn App() -> impl IntoView {
                 </header>
                 <Routes fallback=|| view!{<p style="color: white">"Not found."</p>} >
                     <Route path=leptos_router::StaticSegment("/") view=services::Services />
+                    <Route path=(
+                        leptos_router::StaticSegment("/"),
+                        leptos_router::StaticSegment(ALERTS_PATH)
+                    )
+                        view=alerts::Alerts
+                    />
                     <Route path=(
                         leptos_router::StaticSegment("/"),
                         leptos_router::StaticSegment(DASHBOARD_PATH)

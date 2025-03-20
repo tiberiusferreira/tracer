@@ -1,49 +1,17 @@
 services:
-  postgres:
-    image: postgres:17.2
+  gel:
+    image: geldata/gel
+    environment:
+      GEL_SERVER_INSTANCE_NAME: tracer-db
+      GEL_DOCKER_LOG_LEVEL: debug
+      GEL_SERVER_PASSWORD: password
+      GEL_SERVER_ADMIN_UI: enabled
+      GEL_SERVER_TLS_CERT_FILE: /tls/edbtlscert.pem
+      GEL_SERVER_TLS_KEY_FILE: /tls/edbprivkey.pem
     volumes:
-      - ./postgres/cascading_id_schema.sql:/docker-entrypoint-initdb.d/schema.sql
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    command:
-      - "-c"
-      - "plan_cache_mode=force_custom_plan"
-      - "-c"
-      - "shared_buffers=512MB"
-    networks:
-      - backend
+      - "./dbschema:/dbschema"
+      - "./gel/data:/var/lib/gel/data"
+      - "./tls:/tls"
     ports:
-      - "5435:5432"
-    shm_size: 512MB
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./config/config:/grafana/config
-      - ./config/data:/grafana/data
-      - ./config/logs:/grafana/logs
-      - ./config/plugin:/grafana/plugin
-      - ./config/provisioning:/grafana/provisioning
-    environment:
-      - GF_PATHS_CONFIG=/grafana/config/grafana.ini
-      - GF_PATHS_DATA=/grafana/data
-      - GF_PATHS_LOGS=/grafana/logs
-      - GF_PATHS_PLUGINS=/grafana/plugin
-      - GF_PATHS_PROVISIONING=/grafana/provisioning
-  tracer:
-    image: tiberio/tracer:latest
-    depends_on:
-      - postgres
-    networks:
-      - backend
-    environment:
-      - ENVIRONMENT=local
-      - DATABASE_URL=postgres://postgres:password@postgres:5432/postgres
-    ports:
-      - "4317:4317" # port where traces should be sent to in otel format
-      - "4200:4200" # ui and api port
+      - "5656:5656"
 
-networks:
-  backend:

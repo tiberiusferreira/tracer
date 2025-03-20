@@ -1,5 +1,8 @@
 use crate::TrackedGlooError;
+use crate::dashboard::graph_creation::GraphSeries;
 use api_structs::Endpoint;
+use api_structs::time_conversion::now_nanos_u64;
+use chrono::NaiveTime;
 use leptos::prelude::Get;
 use leptos::prelude::*;
 use tracing::info;
@@ -99,14 +102,277 @@ pub fn ServicesContainer(
 
 #[component]
 pub fn Services() -> impl IntoView {
-    let (service_data_r, service_data_w) = signal_local::<
-        Option<Result<Vec<api_structs::ui::service::Service>, TrackedGlooError>>,
-    >(None);
-    let _api_service_list_request_sender =
-        LocalResource::new(move || get_and_write_get_service_data_result(service_data_w));
+    // let (service_data_r, service_data_w) = signal_local::<
+    //     Option<Result<Vec<api_structs::ui::service::Service>, TrackedGlooError>>,
+    // >(None);
+    // let _api_service_list_request_sender =
+    //     LocalResource::new(move || get_and_write_get_service_data_result(service_data_w));
+    let mut x: Vec<String> = vec![];
+    let mut y: Vec<f64> = vec![];
+    let start = chrono::NaiveDate::from_ymd_opt(2025, 2, 17)
+        .unwrap()
+        .and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+    let mut curr = start;
+    for i in 0..50 {
+        x.push(curr.format("%H:%M:%S").to_string());
+        curr += chrono::Duration::minutes(5);
+        if i % 2 == 0 {
+            y.push(500.);
+        } else {
+            y.push(100.);
+        }
+    }
+    let graph_series: Vec<GraphSeries> = vec![GraphSeries {
+        name: "series 1".to_string(),
+        x_values: x,
+        y_values: y,
+    }];
+    let data = crate::dashboard::graph_creation::GraphData {
+        dom_id_to_render_to: "some".to_string(),
+        y_name: "traces".to_string(),
+        x_name: "minutes ago".to_string(),
+        series: graph_series.clone(),
+        click_event_timestamp_receiver: None,
+    };
+    let data2 = crate::dashboard::graph_creation::GraphData {
+        dom_id_to_render_to: "some2".to_string(),
+        y_name: "traces".to_string(),
+        x_name: "minutes ago".to_string(),
+        series: graph_series.clone(),
+        click_event_timestamp_receiver: None,
+    };
+
+    let data3 = crate::dashboard::graph_creation::GraphData {
+        dom_id_to_render_to: "some3".to_string(),
+        y_name: "duration".to_string(),
+        x_name: "minutes ago".to_string(),
+        series: graph_series.clone(),
+        click_event_timestamp_receiver: None,
+    };
+
+    let data4 = crate::dashboard::graph_creation::GraphData {
+        dom_id_to_render_to: "some4".to_string(),
+        y_name: "duration".to_string(),
+        x_name: "minutes ago".to_string(),
+        series: graph_series,
+        click_event_timestamp_receiver: None,
+    };
+    let action = crate::dashboard::graph_creation::create_create_chart_action();
+    let (trace_warning_graph, trace_warning_graph_id) =
+        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+
+    let action2 = crate::dashboard::graph_creation::create_create_chart_action();
+    let (trace_warning_graph2, trace_warning_graph_id2) =
+        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data2, action2);
+
+    let action3 = crate::dashboard::graph_creation::create_create_chart_action();
+    let (trace_warning_graph3, trace_warning_graph_id3) =
+        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data3, action2);
+
+    let action4 = crate::dashboard::graph_creation::create_create_chart_action();
+    let (trace_warning_graph4, trace_warning_graph_id4) =
+        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data4, action2);
     view! {
-        <div style="padding: 20px; color: white">
-            <ServicesContainer service_signal=service_data_r/>
+        <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 5px; color: white">
+            <div id="global-values" style="background-color: #29290645; padding: 10px; border: 2px solid white; border-radius: 10px" >
+                <div id="time-selector">
+                    <select style="margin-bottom: 10px" id="time-range-selector">
+                        <option value="5">"Past 5 minutes"</option>
+                        <option value="15">"Past 15 minutes"</option>
+                        <option value="60">"Past 1h"</option>
+                        <option value="360">"Past 6h"</option>
+                    </select>
+                    <div>
+                        <h3 style="display: inline">"Filters: "</h3>
+                        <input style="margin-left: 5px" type="text" size="150" value="" readonly>< /input>
+                    </div>
+                    <div style="margin-top: 10px">
+                        <h3 style="display: inline;">"Preset: "</h3>
+                        <select id="preset-selector">
+                            <option value="15">
+                                "
+                                <none>
+                                "
+                            </option>
+                            <option value="15">"All Traces"</option>
+                            <option value="60">"Warnings"</option>
+                            <option value="360">"Errors"</option>
+                        </select>
+                        <button style="margin-left: 5px">"Delete"</button>
+                        <p style="display: inline; margin: 0 0 0 5px">"Save as"</p>
+                        <input style="margin-left: 5px" type="text" size="6" placeholder="name" />
+                        <button style="margin-left: 5px">"Save"</button>
+                    </div>
+                </div>
+            </div>
+            <div id="service-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 10px; border: 2px solid white; border-radius: 10px; overflow: scroll;" >
+                <div style="margin: 7px 0 10px 0">
+                    <datalist id="service-list">
+                        <option value="Tracer Backend"></option>
+                        <option value="Tracer UI"></option>
+                        <option value="Service Tester"></option>
+                    </datalist>
+                    <input type="text" id="service-name" list="service-list" placeholder="Filter services" name="service-name-selector" />
+                </div>
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <span>"Tracer Backend - 1.2K"</span> <span>" - "</span> <input type="text" size="100" value="tracing=info,tracing::background::jobs=warn"  /> <button style="margin: 0px 0 0 5px" type="button">apply</button>
+                    <ul style="margin: 5px 0 0 0">
+                        <li style="margin: 5px 0 0 0">
+                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                            <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                        </li>
+                        <li style="margin: 5px 0 0 0">
+                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                            <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                        </li>
+                    </ul>
+                </div>
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <span>"Tracer UI - 1.2K"</span>
+                    <ul style="margin: 5px 0 0 0">
+                        <li style="margin: 5px 0 0 0">
+                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                            <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                        </li>
+                        <li style="margin: 5px 0 0 0">
+                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                            <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div id="overall-view" style="margin-top: 20px; ">
+                <div id="visualizations" style="resize: vertical; height: 200px; overflow: scroll; padding: 5px; border: 2px solid white; border-radius: 10px;">
+                    <h3 style="display: inline; margin: 0 3px 0 0">"Rolled Over "</h3>
+                    <select style="margin: 0 5px 0 5px" id="time-range-selector">
+                            <option value="60">"1 min"</option>
+                            <option value="60">"5 min"</option>
+                    </select>
+                    <div id="charts" style="display: grid; grid-template-columns: 3fr 3fr;">
+
+                        <div id="traces-graph">
+                            <div style="margin-top: 10px">
+                                <h3 style="display: inline; margin: 0">"Traces: "</h3>
+                                <p style="display: inline; margin: 0 0 0 10px">"5123 total (5.21/s) - 13 warnings (2.12/s) - 5 errors (0.13/s)"</p>
+                                <div style="margin-left: auto">
+                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                                    <p style="display: inline; margin: 0">" over "</p>
+                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                                    <button style="margin-left: 5px">"Create"</button>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px">
+                                <div style="height: 100px" node_ref=trace_warning_graph id=trace_warning_graph_id.clone()></div>
+                            </div>
+                        </div>
+
+                         <div id="request-charts">
+                            <div style="margin-top: 10px">
+                                <h3 style="display: inline; margin: 0">"Requests: "</h3>
+                                <p style="display: inline; margin: 0 0 0 10px">"9132 total - [200] 512 (1.35/s) - [400] 600 (2.12/s) - [500] 702 (4.13/s) - [others]  3 (0.1/s)"</p>
+                                <div style="margin-left: auto">
+                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                                    <p style="display: inline; margin: 0">" over "</p>
+                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                                    <button style="margin-left: 5px">"Create"</button>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px">
+                                <div style="height: 100px" node_ref=trace_warning_graph2 id=trace_warning_graph_id2.clone()></div>
+                            </div>
+                        </div>
+
+                         <div id="request-charts">
+                            <div style="margin-top: 10px">
+                                <h3 style="display: inline; margin: 0">"Total Size Bytes: "</h3>
+                                <p style="display: inline; margin: 0 0 0 10px">"23MB total "</p>
+                                <div style="margin-left: auto">
+                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                                    <p style="display: inline; margin: 0">" over "</p>
+                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                                    <button style="margin-left: 5px">"Create"</button>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px">
+                                <div style="height: 100px" node_ref=trace_warning_graph4 id=trace_warning_graph_id4.clone()></div>
+                            </div>
+                        </div>
+
+
+                         <div id="request-charts">
+                            <div style="margin-top: 10px">
+                                <h3 style="display: inline; margin: 0">"Trace Duration: "</h3>
+                                <p style="display: inline; margin: 0 0 0 10px">"Max 5.3s - Min 0.1s - Avg 1.2s "</p>
+                                <p style="display: inline; margin: 0">"- Bar shows"</p>
+                                <select style="margin: 0 5px 0 5px" id="time-range-selector">
+                                    <option value="60">"Min"</option>
+                                    <option value="60">"Max"</option>
+                                    <option value="60">"Avg"</option>
+                                    <option value="60">"P90"</option>
+                                    <option value="60">"P99"</option>
+                                </select>
+                                <div style="margin-left: auto">
+                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                                    <p style="display: inline; margin: 0">" over "</p>
+                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                                    <button style="margin-left: 5px">"Create"</button>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px">
+                                <div style="height: 100px" node_ref=trace_warning_graph3 id=trace_warning_graph_id3.clone()></div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                <h1>"After creating the alert it goes to a new tab with a list of alerts and for each:"</h1>
+                <ul>
+                    <li>"Name"</li>
+                    <li>"Filters selected"</li>
+                    <li>"Rollup Duration"</li>
+                    <li>"A graph with value at checking time and threshold"</li>
+                    <li>"List of alerts create, sent, errors during send"</li>
+                    <li>"Option to delete alert"</li>
+                    <li>"Link to open alert view in services tab"</li>
+                </ul>
+
+                // <div id="check-result" style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 2px solid white; border-radius: 10px; overflow: scroll;" >
+                //     <div style="display: flex; margin-bottom: 5px">
+                //         <h3 style="display: inline; color: green; margin: 0 0 0 0">"Alerts: OK"</h3>
+                //     </div>
+                //     <table style="width: 100%; text-align: left">
+                //         <tr>
+                //             <th>"Check time"</th>
+                //             <th>"Result"</th>
+                //             <th>"Alert Sending"</th>
+                //         </tr>
+                //         <tr>
+                //             <td>"1 min ago"</td>
+                //             <td>"Ok"</td>
+                //             <td>"-"</td>
+                //         </tr>
+                //         <tr>
+                //             <td>"1h ago"</td>
+                //             <td>"Trace over threshold 3/2 "</td>
+                //             <td>"Timeout"</td>
+                //         </tr>
+                //     </table>
+                // </div>
+            </div>
         </div>
     }
 }

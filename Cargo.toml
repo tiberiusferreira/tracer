@@ -5,9 +5,7 @@ members = [
     "tracer-ui",
     "api-structs",
     "tracing-config-helper",
-    "tracer-tester",
     "tracked_error",
-    "schema-tester",
 ]
 
 
@@ -28,7 +26,6 @@ serde = { version = "1.0", features = ["derive"] }
 deepsize = "0.2.0"
 serde_with = "3.3.0"
 tracing = { version = "0.1", features = ["valuable"] }
-sys-info = "0.9.1"
 tracing-subscriber = { version = "0.3.16", features = ['env-filter', 'json'] }
 thiserror = "2"
 futures = "0.3"

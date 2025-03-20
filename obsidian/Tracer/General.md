@@ -484,3 +484,110 @@ The UI shows the list of dashboards.
 
 ### Query examples we might want to track
 
+Quickly see if there is anything to worry about:
+
+Service level
+
+Total Traces per minute
+Total Warnings per minute
+Total Errors per minute
+Duration P95
+
+Filter by: Service, endpoint, method, status_code, trace_name
+Group by: Service, endpoint, method, status_code, trace_name
+
+
+Service
+
+
+- Per Minute Trace Count:
+- Warning
+- Errors
+- Max Duration and p95
+
+
+
+
+
+```
+with traces := (
+  select Trace{
+    has_warnings := exists (
+      select 
+        severity := .spans.events.severity
+      filter severity = Severity.Warn
+    ),
+    has_errors := exists (
+      select 
+        severity := .spans.events.severity
+      filter severity = Severity.Error
+    ),
+    root_span := assert_single(
+      .spans {
+        name,
+        url_path_attribute := assert_single(
+          (
+            select .attributes filter .name='url.path'
+          )
+        ),
+        status_code := assert_single(
+          (
+            select .attributes filter .name='http.response.status_code'
+          )
+        ),
+        method := assert_single(
+          (
+            select .attributes filter .name='http.request.method'
+          )
+        )
+      } filter not exists .parent and exists .url_path_attribute
+    )
+  } 
+  filter 
+    (
+      .created_at >= to_datetime(${__from} / 1000) and  .created_at <= to_datetime(${__to} / 1000)
+    )   
+    and
+    (
+      to_json('"<no filter>"') in json_array_unpack(to_json('[ ${endpoint:doublequote} ]'))  or    
+      .root_span.url_path_attribute.content in json_array_unpack(to_json('[ ${endpoint:doublequote} ]'))
+    )
+    # and
+    # (
+    #   to_json('"<no filter>"') in json_array_unpack(to_json('[${method:doublequote}]'))  or    
+    #   .root_span.method.content in json_array_unpack(to_json('[${method:doublequote}]')) 
+    # )
+  limit 1
+) 
+select <json>traces{
+  created_at := datetime_truncate(.created_at, 'minutes'),
+  has_warnings,
+  has_errors,
+  name := .root_span.name,
+  duration_ms := .root_span.duration_nanos/1000_000,
+  endpoint := .root_span.url_path_attribute.content,
+  status_code := .root_span.status_code.content,
+  method := .root_span.method.content
+}
+```
+
+
+Alerts on Total over 5 minutes:
+Trace Count - Min Max 
+
+Request Count - Min Max
+
+Size Bytes - Min Max
+
+Where to put the Check Runs Results and alert list
+
+
+![[Screenshot 2025-02-07 at 04.39.23.png]]
+![[Screenshot 2025-02-07 at 05.31.26.png]]
+
+
+![[Screenshot 2025-02-07 at 05.30.44.png]]
+
+
+
+![[Screenshot 2025-02-17 at 03.21.38.png]]

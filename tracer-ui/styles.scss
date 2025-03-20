@@ -5,6 +5,18 @@ $primary-color: #333;
   box-sizing: border-box;
 }
 
+input::placeholder {
+  opacity: 0.6;
+  color: black;
+}
+
+a:link {
+  color: #6195ff;
+}
+
+a:visited {
+  color: #6195ff;
+}
 
 .tooltip-text {
   display: none;

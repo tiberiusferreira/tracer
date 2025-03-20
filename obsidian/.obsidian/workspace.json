@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "dba563deea565570",
+        "id": "5a8d20333a185935",
         "type": "tabs",
         "children": [
           {
-            "id": "0f2bfb424e692847",
+            "id": "75978a3d49224975",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -40,7 +40,8 @@
             "state": {
               "type": "file-explorer",
               "state": {
-                "sortOrder": "alphabetical"
+                "sortOrder": "alphabetical",
+                "autoReveal": false
               },
               "icon": "lucide-folder-closed",
               "title": "Files"
@@ -162,9 +163,14 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "0f2bfb424e692847",
+  "active": "75978a3d49224975",
   "lastOpenFiles": [
+    "Screenshot 2025-02-07 at 04.39.23.png",
     "Tracer/General.md",
+    "Screenshot 2025-02-17 at 03.21.38.png",
+    "Screenshot 2025-02-17 at 03.20.43.png",
+    "Screenshot 2025-02-07 at 05.31.26.png",
+    "Screenshot 2025-02-07 at 05.30.44.png",
     "Untitled.md",
     "Tracer"
   ]

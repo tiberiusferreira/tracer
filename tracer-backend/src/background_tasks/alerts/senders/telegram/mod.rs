@@ -1,9 +1,7 @@
-use frankenstein::{AsyncApi, AsyncTelegramApi, SendMessageParams};
 use sqlx::PgPool;
 use thiserror::Error;
-use tracing::{debug, error, info, instrument};
+use tracing::{error, instrument};
 use tracked_error::SqlxError;
-use valuable::Valuable;
 use valuable_derive::Valuable;
 mod database;
 
@@ -68,38 +66,39 @@ pub async fn send_alerts(_con: PgPool, _max_alerts_to_send: u32) -> Result<(), E
     unimplemented!()
 }
 
-#[instrument(skip_all)]
-async fn send_telegram_alert(
-    notification: &str,
-    telegram_client: &AsyncApi,
-    telegram_config: &TelegramConfig,
-) -> Result<(), Error> {
-    info!(
-        telegram_config = telegram_config.as_value(),
-        notification, "sending notification"
-    );
-    send_telegram_msg(&telegram_client, &telegram_config.chat_id, notification).await?;
+// #[instrument(skip_all)]
+// async fn send_telegram_alert(
+//     notification: &str,
+//     telegram_client: &AsyncApi,
+//     telegram_config: &TelegramConfig,
+// ) -> Result<(), Error> {
+//     info!(
+//         telegram_config = telegram_config.as_value(),
+//         notification, "sending notification"
+//     );
+//     send_telegram_msg(&telegram_client, &telegram_config.chat_id, notification).await?;
+//
+//     Ok(())
+// }
 
-    Ok(())
-}
-
-#[allow(unused)]
-async fn send_telegram_msg(
-    client: &AsyncApi,
-    chat_id: &str,
-    notification: &str,
-) -> Result<(), frankenstein::Error> {
-    let resp = client
-        .send_message(
-            &SendMessageParams::builder()
-                .chat_id(chat_id.to_string())
-                .text(notification.to_string())
-                .build(),
-        )
-        .await?;
-    debug!("{resp:#?}");
-    Ok(())
-}
+// #[allow(unused)]
+// async fn send_telegram_msg(
+//     _client: &AsyncApi,
+//     _chat_id: &str,
+//     _notification: &str,
+// ) -> Result<(), frankenstein::Error> {
+//     // let resp = client
+//     //     .send_message(
+//     //         &SendMessageParams::builder()
+//     //             .chat_id(chat_id.to_string())
+//     //             .text(notification.to_string())
+//     //             .build(),
+//     //     )
+//     //     .await?;
+//     // debug!("{resp:#?}");
+//     // Ok(())
+//     unimplemented!()
+// }
 
 #[derive(Clone, Valuable)]
 pub struct TelegramConfig {

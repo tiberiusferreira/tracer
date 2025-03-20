@@ -118,6 +118,7 @@ for single_span in json_array_unpack(span_data) union (
     timestamp := <int64>single_event['timestamp'],
     insert Event{
       attributes := new_event_attributes,
+      severity := <Severity>str_title(<str>single_event['severity']),
       timestamp := timestamp,
       normalized_message := message,
       span := span,

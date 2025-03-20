@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use std::collections::HashMap;
 use tracing::info;
 
-mod graph_creation;
+pub mod graph_creation;
 #[component]
 pub fn Dashboard() -> impl IntoView {
     let (service_data_r, service_data_w) = signal_local::<
@@ -25,20 +25,20 @@ pub fn Dashboard() -> impl IntoView {
 pub fn Series(mut series: api_structs::ui::series::SeriesWithData) -> impl IntoView {
     let mut graph_series: HashMap<String, graph_creation::GraphSeries> = HashMap::new();
     for data_point in series.data {
-        match (data_point.data, data_point.series_id) {
-            (Some(data), Some(series_id)) => {
-                let graph_series = graph_series
-                    .entry(series_id.clone())
-                    .or_insert(graph_creation::GraphSeries::new(series_id.clone()));
-                graph_series.push_data(
-                    data_point.time.timestamp_nanos_opt().unwrap() as u64,
-                    data as f64,
-                );
-            }
-            _ => {
-                continue;
-            }
-        }
+        // match (data_point.data, data_point.series_id) {
+        //     (Some(data), Some(series_id)) => {
+        //         let graph_series = graph_series
+        //             .entry(series_id.clone())
+        //             .or_insert(graph_creation::GraphSeries::new(series_id.clone()));
+        //         graph_series.push_data(
+        //             data_point.time.timestamp_nanos_opt().unwrap() as u64,
+        //             data as f64,
+        //         );
+        //     }
+        //     _ => {
+        //         continue;
+        //     }
+        // }
     }
     let graph_series: Vec<graph_creation::GraphSeries> = graph_series.into_values().collect();
     let data = GraphData {
