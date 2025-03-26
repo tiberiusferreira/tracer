@@ -3,15 +3,12 @@ services:
     image: geldata/gel
     environment:
       GEL_SERVER_INSTANCE_NAME: tracer-db
-      GEL_DOCKER_LOG_LEVEL: debug
       GEL_SERVER_PASSWORD: password
       GEL_SERVER_ADMIN_UI: enabled
-      GEL_SERVER_TLS_CERT_FILE: /tls/edbtlscert.pem
-      GEL_SERVER_TLS_KEY_FILE: /tls/edbprivkey.pem
+      GEL_SERVER_SECURITY: insecure_dev_mode
     volumes:
       - "./dbschema:/dbschema"
       - "./gel/data:/var/lib/gel/data"
-      - "./tls:/tls"
     ports:
       - "5656:5656"
 

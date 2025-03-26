@@ -1,6 +1,5 @@
 use crate::api::ApiError;
 use api_structs::instance::update::{Span, TraceFragment};
-use edgedb_codegen::edgedb_query;
 use http::StatusCode;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Formatter;
@@ -8,7 +7,7 @@ use std::panic::Location;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument};
-use tracked_error::{error_chain_to_pretty_formatted, EdgeDBError};
+use tracked_error::{EdgeDBError, error_chain_to_pretty_formatted};
 use valuable_derive::Valuable;
 
 mod span;
@@ -66,15 +65,15 @@ impl FromStr for HttpMethod {
     }
 }
 
-edgedb_query!(
-    insert_trace,
-    "
- insert Trace{
-  trace_count_id := <int64>$trace_count_id,
-  service_instance_update := (select ServiceInstanceUpdate filter .id=<uuid>$instance_update_id)
-}
-"
-);
+// edgedb_query!(
+//     insert_trace,
+//     "
+//  insert Trace{
+//   trace_count_id := <int64>$trace_count_id,
+//   service_instance_update := (select ServiceInstanceUpdate filter .id=<uuid>$instance_update_id)
+// }
+// "
+// );
 
 #[derive(Debug, Clone)]
 pub struct ExistingDbTrace {
@@ -97,7 +96,9 @@ pub struct RunningSpan {
 
 #[derive(Error, Debug, Clone)]
 pub enum InvalidDBData {
-    #[error("InvalidDBData: Got NonU64FieldValueInDB at {location}. Value {value} for field {field_name}")]
+    #[error(
+        "InvalidDBData: Got NonU64FieldValueInDB at {location}. Value {value} for field {field_name}"
+    )]
     NonU64FieldValueInDB {
         value: String,
         field_name: String,
@@ -105,107 +106,108 @@ pub enum InvalidDBData {
     },
     #[error("InvalidDBData: Inconsistent DB state. Trace {trace_id} without spans")]
     DbTraceWithoutSpans { trace_id: uuid::Uuid },
-    #[error("InvalidDBData: Inconsistent DB state. Trace {trace_id} has duplicate attributes for name {attribute_name}"
+    #[error(
+        "InvalidDBData: Inconsistent DB state. Trace {trace_id} has duplicate attributes for name {attribute_name}"
     )]
     DuplicateAttributesForSameName {
         trace_id: uuid::Uuid,
         attribute_name: String,
     },
 }
-impl TryFrom<get_trace_and_open_spans::Output> for ExistingDbTrace {
-    type Error = InvalidDBData;
-
-    fn try_from(value: get_trace_and_open_spans::Output) -> Result<Self, Self::Error> {
-        let open_spans = value
-            .open_spans
-            .into_iter()
-            .map(|open_span| {
-                Ok(RunningSpan {
-                    id: open_span.id,
-                    parent_id: open_span.parent.map(|s| s.id),
-                    span_count_id: u64::try_from(open_span.span_count_id).map_err(|_e| {
-                        InvalidDBData::NonU64FieldValueInDB {
-                            value: open_span.span_count_id.to_string(),
-                            field_name: "span_count_id".to_string(),
-                            location: Location::caller(),
-                        }
-                    })?,
-                    started_at: u64::try_from(open_span.started_at_nanos).map_err(|_e| {
-                        InvalidDBData::NonU64FieldValueInDB {
-                            value: open_span.span_count_id.to_string(),
-                            field_name: "started_at".to_string(),
-                            location: Location::caller(),
-                        }
-                    })?,
-                    duration_nanos: u64::try_from(open_span.duration_nanos).map_err(|_e| {
-                        InvalidDBData::NonU64FieldValueInDB {
-                            value: open_span.span_count_id.to_string(),
-                            field_name: "duration_nanos".to_string(),
-                            location: Location::caller(),
-                        }
-                    })?,
-                    name: open_span.span_name.to_string(),
-                    attributes_names: {
-                        let mut attributes_names = HashSet::new();
-                        for name in &open_span.attributes_names {
-                            if !attributes_names.insert(name.to_string()) {
-                                return Err(InvalidDBData::DuplicateAttributesForSameName {
-                                    trace_id: value.id,
-                                    attribute_name: name.to_string(),
-                                });
-                            }
-                        }
-                        attributes_names
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ExistingDbTrace {
-            id: value.id,
-            trace_count_id: u64::try_from(value.trace_count_id).map_err(|_e| {
-                InvalidDBData::NonU64FieldValueInDB {
-                    value: value.trace_count_id.to_string(),
-                    field_name: "trace_count_id".to_string(),
-                    location: Location::caller(),
-                }
-            })?,
-            current_span_count_id: {
-                let current_span_count_id = value
-                    .current_span_count_id
-                    .ok_or_else(|| InvalidDBData::DbTraceWithoutSpans { trace_id: value.id })?;
-                u64::try_from(current_span_count_id).map_err(|_e| {
-                    InvalidDBData::NonU64FieldValueInDB {
-                        value: current_span_count_id.to_string(),
-                        field_name: "current_span_count_id".to_string(),
-                        location: Location::caller(),
-                    }
-                })?
-            },
-            open_spans,
-        })
-    }
-}
-edgedb_query!(
-    get_trace_and_open_spans,
-    "
-select  assert_single(Trace{
-  id,
-  trace_count_id,
-  current_span_count_id := assert_single(max(.spans.span_count_id)),
-  open_spans := (
-    select Trace.spans {
-      id,
-      span_count_id,
-      parent,
-      started_at_nanos,
-      duration_nanos,
-      span_name := .name,
-      attributes_names := .attributes.name
-    } filter Trace.spans.has_ended = false
-  )
-} filter Trace.service_instance_update.service_instance.id=<uuid>$service_instance_id and Trace.trace_count_id = <int64>$trace_count_id )
-"
-);
+// impl TryFrom<get_trace_and_open_spans::Output> for ExistingDbTrace {
+//     type Error = InvalidDBData;
+//
+//     fn try_from(value: get_trace_and_open_spans::Output) -> Result<Self, Self::Error> {
+//         let open_spans = value
+//             .open_spans
+//             .into_iter()
+//             .map(|open_span| {
+//                 Ok(RunningSpan {
+//                     id: open_span.id,
+//                     parent_id: open_span.parent.map(|s| s.id),
+//                     span_count_id: u64::try_from(open_span.span_count_id).map_err(|_e| {
+//                         InvalidDBData::NonU64FieldValueInDB {
+//                             value: open_span.span_count_id.to_string(),
+//                             field_name: "span_count_id".to_string(),
+//                             location: Location::caller(),
+//                         }
+//                     })?,
+//                     started_at: u64::try_from(open_span.started_at_nanos).map_err(|_e| {
+//                         InvalidDBData::NonU64FieldValueInDB {
+//                             value: open_span.span_count_id.to_string(),
+//                             field_name: "started_at".to_string(),
+//                             location: Location::caller(),
+//                         }
+//                     })?,
+//                     duration_nanos: u64::try_from(open_span.duration_nanos).map_err(|_e| {
+//                         InvalidDBData::NonU64FieldValueInDB {
+//                             value: open_span.span_count_id.to_string(),
+//                             field_name: "duration_nanos".to_string(),
+//                             location: Location::caller(),
+//                         }
+//                     })?,
+//                     name: open_span.span_name.to_string(),
+//                     attributes_names: {
+//                         let mut attributes_names = HashSet::new();
+//                         for name in &open_span.attributes_names {
+//                             if !attributes_names.insert(name.to_string()) {
+//                                 return Err(InvalidDBData::DuplicateAttributesForSameName {
+//                                     trace_id: value.id,
+//                                     attribute_name: name.to_string(),
+//                                 });
+//                             }
+//                         }
+//                         attributes_names
+//                     },
+//                 })
+//             })
+//             .collect::<Result<Vec<_>, _>>()?;
+//         Ok(ExistingDbTrace {
+//             id: value.id,
+//             trace_count_id: u64::try_from(value.trace_count_id).map_err(|_e| {
+//                 InvalidDBData::NonU64FieldValueInDB {
+//                     value: value.trace_count_id.to_string(),
+//                     field_name: "trace_count_id".to_string(),
+//                     location: Location::caller(),
+//                 }
+//             })?,
+//             current_span_count_id: {
+//                 let current_span_count_id = value
+//                     .current_span_count_id
+//                     .ok_or_else(|| InvalidDBData::DbTraceWithoutSpans { trace_id: value.id })?;
+//                 u64::try_from(current_span_count_id).map_err(|_e| {
+//                     InvalidDBData::NonU64FieldValueInDB {
+//                         value: current_span_count_id.to_string(),
+//                         field_name: "current_span_count_id".to_string(),
+//                         location: Location::caller(),
+//                     }
+//                 })?
+//             },
+//             open_spans,
+//         })
+//     }
+// }
+// edgedb_query!(
+//     get_trace_and_open_spans,
+//     "
+// select  assert_single(Trace{
+//   id,
+//   trace_count_id,
+//   current_span_count_id := assert_single(max(.spans.span_count_id)),
+//   open_spans := (
+//     select Trace.spans {
+//       id,
+//       span_count_id,
+//       parent,
+//       started_at_nanos,
+//       duration_nanos,
+//       span_name := .name,
+//       attributes_names := .attributes.name
+//     } filter Trace.spans.has_ended = false
+//   )
+// } filter Trace.service_instance_update.service_instance.id=<uuid>$service_instance_id and Trace.trace_count_id = <int64>$trace_count_id )
+// "
+// );
 
 #[derive(Debug, Error)]
 pub enum TraceUpdateError {
@@ -213,14 +215,16 @@ pub enum TraceUpdateError {
     EdgeDB(#[from] EdgeDBError),
     #[error("Root not open in DB, got update for closed trace. Trace {trace_id}")]
     UpdateForClosedTrace { trace_id: uuid::Uuid },
-    #[error("NonContiguousSpanCountIdInUpdate: Trace {trace_id} span counts ids {previous_span_count_id} and {new_span_count_id}"
+    #[error(
+        "NonContiguousSpanCountIdInUpdate: Trace {trace_id} span counts ids {previous_span_count_id} and {new_span_count_id}"
     )]
     NonContiguousSpanCountIdInUpdate {
         trace_id: uuid::Uuid,
         previous_span_count_id: u64,
         new_span_count_id: u64,
     },
-    #[error("NonContiguousSpanCountIdInNewTrace: Trace {trace_count_id} span counts ids {previous_span_count_id} and {new_span_count_id}"
+    #[error(
+        "NonContiguousSpanCountIdInNewTrace: Trace {trace_count_id} span counts ids {previous_span_count_id} and {new_span_count_id}"
     )]
     NonContiguousSpanCountIdInNewTrace {
         trace_count_id: u64,
@@ -254,7 +258,8 @@ pub enum TraceUpdateError {
         new_value: String,
         location: &'static Location<'static>,
     },
-    #[error("Got unexpected field for existing span at {location}. Field {field_name} was {old_value} and now is {new_value}"
+    #[error(
+        "Got unexpected field for existing span at {location}. Field {field_name} was {old_value} and now is {new_value}"
     )]
     ForbiddenFieldChange {
         field_name: String,
@@ -350,8 +355,8 @@ impl From<TraceUpdateError> for ApiError {
 ///
 #[instrument(skip_all)]
 pub async fn insert_or_update_trace(
-    tx: &mut edgedb_tokio::Transaction,
-    service_instance_id: uuid::Uuid,
+    _tx: &mut gel_tokio::Transaction,
+    _service_instance_id: uuid::Uuid,
     instance_update_id: uuid::Uuid,
     trace_fragment: &TraceFragment,
 ) -> Result<(), TraceUpdateError> {
@@ -360,61 +365,62 @@ pub async fn insert_or_update_trace(
         trace.count_id = trace_fragment.trace_count_id,
         "inserting or updating trace"
     );
-    let existing_trace_and_open_spans = get_trace_and_open_spans::transaction(
-        &mut *tx,
-        &get_trace_and_open_spans::Input {
-            service_instance_id,
-            trace_count_id: trace_fragment.trace_count_id as i64,
-        },
-    )
-    .await
-    .map_err(|e| EdgeDBError::from(e))?;
-    match existing_trace_and_open_spans {
-        None => {
-            info!("no existing trace, adding a new one");
-            let mut spans_to_upsert = validate_new_trace_spans_for_insertion(trace_fragment)?;
-            let trace_id = insert_trace::transaction(
-                &mut *tx,
-                &insert_trace::Input {
-                    trace_count_id: trace_fragment.trace_count_id as i64,
-                    instance_update_id,
-                },
-            )
-            .await
-            .map_err(|e| EdgeDBError::from(e))?
-            .id;
-            info!(trace.id = trace_id.to_string(), "new trace");
-            upsert_spans(&mut *tx, instance_update_id, trace_id, &mut spans_to_upsert).await?;
-        }
-        Some(existing) => {
-            info!(
-                trace.id = existing.id.to_string(),
-                trace.trace_count_id = existing.trace_count_id,
-                "existing trace found"
-            );
-            let existing = ExistingDbTrace::try_from(existing).map_err(|e| {
-                TraceUpdateError::InvalidDBData {
-                    source: e,
-                    location: Location::caller(),
-                }
-            })?;
-            let mut spans_to_upsert =
-                validate_spans_for_insert_or_update(&existing, trace_fragment)?;
-            upsert_spans(
-                &mut *tx,
-                instance_update_id,
-                existing.id,
-                &mut spans_to_upsert,
-            )
-            .await?;
-        }
-    };
-
-    Ok(())
+    // let existing_trace_and_open_spans = get_trace_and_open_spans::transaction(
+    //     &mut *tx,
+    //     &get_trace_and_open_spans::Input {
+    //         service_instance_id,
+    //         trace_count_id: trace_fragment.trace_count_id as i64,
+    //     },
+    // )
+    // .await
+    // .map_err(|e| EdgeDBError::from(e))?;
+    // match existing_trace_and_open_spans {
+    //     None => {
+    //         info!("no existing trace, adding a new one");
+    //         let mut spans_to_upsert = validate_new_trace_spans_for_insertion(trace_fragment)?;
+    //         let trace_id = insert_trace::transaction(
+    //             &mut *tx,
+    //             &insert_trace::Input {
+    //                 trace_count_id: trace_fragment.trace_count_id as i64,
+    //                 instance_update_id,
+    //             },
+    //         )
+    //         .await
+    //         .map_err(|e| EdgeDBError::from(e))?
+    //         .id;
+    //         info!(trace.id = trace_id.to_string(), "new trace");
+    //         upsert_spans(&mut *tx, instance_update_id, trace_id, &mut spans_to_upsert).await?;
+    //     }
+    //     Some(existing) => {
+    //         info!(
+    //             trace.id = existing.id.to_string(),
+    //             trace.trace_count_id = existing.trace_count_id,
+    //             "existing trace found"
+    //         );
+    //         let existing = ExistingDbTrace::try_from(existing).map_err(|e| {
+    //             TraceUpdateError::InvalidDBData {
+    //                 source: e,
+    //                 location: Location::caller(),
+    //             }
+    //         })?;
+    //         let mut spans_to_upsert =
+    //             validate_spans_for_insert_or_update(&existing, trace_fragment)?;
+    //         upsert_spans(
+    //             &mut *tx,
+    //             instance_update_id,
+    //             existing.id,
+    //             &mut spans_to_upsert,
+    //         )
+    //         .await?;
+    //     }
+    // };
+    //
+    // Ok(())
+    unimplemented!()
 }
 
 async fn upsert_spans(
-    tx: &mut edgedb_tokio::Transaction,
+    tx: &mut gel_tokio::Transaction,
     instance_update_id: uuid::Uuid,
     trace_id: uuid::Uuid,
     spans_to_upsert: &mut SpansToUpsert,
@@ -709,13 +715,16 @@ fn check_parent_children<'a>(
 
 #[derive(Debug, Clone, Error)]
 pub enum ChildParentValidationError {
-    #[error("Parent span is closed, but child span is open at {location} - child_name={child_name} parent_name={parent_name}")]
+    #[error(
+        "Parent span is closed, but child span is open at {location} - child_name={child_name} parent_name={parent_name}"
+    )]
     ParentClosedChildOpen {
         child_name: String,
         parent_name: String,
         location: &'static Location<'static>,
     },
-    #[error("ChildCreatedBeforeParent was created at {child_created_at} before parent at {parent_created_at} at {location} - child_name={child_name} parent_name={parent_name}"
+    #[error(
+        "ChildCreatedBeforeParent was created at {child_created_at} before parent at {parent_created_at} at {location} - child_name={child_name} parent_name={parent_name}"
     )]
     ChildCreatedBeforeParent {
         child_name: String,
@@ -724,7 +733,8 @@ pub enum ChildParentValidationError {
         child_created_at: u64,
         location: &'static Location<'static>,
     },
-    #[error("Child span has longer duration {child_duration} than parent duration {parent_duration} at {location} - child_name={child_name} parent_name={parent_name}"
+    #[error(
+        "Child span has longer duration {child_duration} than parent duration {parent_duration} at {location} - child_name={child_name} parent_name={parent_name}"
     )]
     ChildDurationLongerThanParent {
         child_name: String,

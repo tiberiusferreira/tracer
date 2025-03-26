@@ -1,7 +1,7 @@
 [package]
 name = "tracer-backend"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,27 +11,20 @@ uuid.workspace = true
 parking_lot.workspace = true
 deepsize.workspace = true
 
-edgedb-tokio.workspace = true
-#edgedb_codegen = { version = "0.2.1", features = ["query"] }
-#edgedb-protocol = "0.6.1"
 
-edgedb-derive = { git = "https://github.com/tiberiusferreira/edgedb-rust", branch = "StandaloneTransactions" }
-edgedb_codegen = { git = "https://github.com/tiberiusferreira/edgedb_codegen", branch = "StandaloneTransactions", features = ['query'] }
-edgedb-protocol = { git = "https://github.com/tiberiusferreira/edgedb-rust", branch = "StandaloneTransactions" }
-
-
+gel-tokio.workspace = true
+gel-protocol.workspace = true
 
 axum = { version = "0.8.1", features = ['query', 'macros'] }
 tower-http = { version = "0.6.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
 valuable = { workspace = true }
 tracing = { workspace = true, features = ["valuable"] }
 valuable-derive.workspace = true
-frankenstein = { version = "0.39", default-features = false, features = ['client-reqwest'] }
+frankenstein = { version = "0.40", default-features = false, features = ['client-reqwest'] }
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenvy.workspace = true
 thiserror = { workspace = true }
-sqlx.workspace = true
 futures = "0.3"
 serde.workspace = true
 base64.workspace = true
@@ -39,17 +32,10 @@ reqwest.workspace = true
 chrono.workspace = true
 
 api-structs = { path = "../api-structs" }
-tracked_error = { path = "../tracked_error" }
+tracked_error = { path = "../tracked_error", features = ["gel-tokio"] }
 tower = "0.5.2"
-http = "1.1.0"
+http = "1"
 
 [dependencies.tracing-config-helper]
 version = "0.1.0"
 path = "../tracing-config-helper"
-
-
-[features]
-query = []
-builder = []
-serde = []
-default = ["query"]

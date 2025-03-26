@@ -421,6 +421,8 @@ fn install_global_export_traces_on_panic_hook(export_now_handle: ExportNowReques
 
 // convenience helper so consumers don't need to import tracing_subscriber
 pub fn init_stdout_tracing_for_tests(rust_log: &str) {
-    std::env::set_var("RUST_LOG", rust_log);
+    unsafe {
+        std::env::set_var("RUST_LOG", rust_log);
+    }
     tracing_subscriber::fmt::try_init().ok();
 }

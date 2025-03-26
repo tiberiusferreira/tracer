@@ -6,14 +6,15 @@ pub mod datetime;
 // mod grid;
 // mod orphan_events;
 mod alerts;
-mod chart;
-mod dashboard;
+mod error;
+mod graph_creation;
 mod services;
-mod trace;
+// mod trace;
 
 use tracing_subscriber::fmt;
 use tracing_subscriber_wasm::MakeConsoleWriter;
 
+#[allow(unused)]
 const API_SERVER_URL_NO_TRAILING_SLASH: &str = env!("API_SERVER_URL_NO_TRAILING_SLASH");
 pub const PAGE_ROOT_URL: &str = "/";
 pub const TRACE_BROWSER_PATH: &str = "trace/browser";
@@ -55,12 +56,6 @@ pub fn App() -> impl IntoView {
                         </a>
                         <a
                             class="navigation__button"
-                            href=format!("{PAGE_ROOT_URL}{TRACE_BROWSER_PATH}")
-                        >
-                            "Trace Browser"
-                        </a>
-                        <a
-                            class="navigation__button"
                             href=format!("{PAGE_ROOT_URL}{ORPHAN_EVENTS_PATH}")
                         >
                             "Orphan Events"
@@ -75,46 +70,8 @@ pub fn App() -> impl IntoView {
                     )
                         view=alerts::Alerts
                     />
-                    <Route path=(
-                        leptos_router::StaticSegment("/"),
-                        leptos_router::StaticSegment(DASHBOARD_PATH)
-                    )
-                        view=dashboard::Dashboard
-                    />
-                    <Route path=(
-                        leptos_router::StaticSegment("/"),
-                        leptos_router::StaticSegment("trace"),
-                        leptos_router::StaticSegment("browser")
-                    )
-                        view=trace::TraceBrowserPage
-                    />
                 </Routes>
-
-                // </Routes>
-                    // <ParentRoute
-                    //       path=path!("")
-                    //       view=view! {"dawda"}
-                    //     >
-                    // </ParentRoute>
             </Router>
         </>
-    }
-}
-
-#[derive(Clone, Debug, thiserror::Error)]
-#[error("TrackedGlooError at {location}")]
-pub struct TrackedGlooError {
-    location: &'static std::panic::Location<'static>,
-    #[source]
-    source: std::sync::Arc<gloo_net::Error>,
-}
-
-impl From<gloo_net::Error> for TrackedGlooError {
-    #[track_caller]
-    fn from(err: gloo_net::Error) -> Self {
-        Self {
-            location: std::panic::Location::caller(),
-            source: std::sync::Arc::new(err),
-        }
     }
 }

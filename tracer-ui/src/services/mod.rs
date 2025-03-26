@@ -1,9 +1,7 @@
-use crate::TrackedGlooError;
-use crate::dashboard::graph_creation::GraphSeries;
+use crate::error::TrackedGlooError;
+use crate::graph_creation::GraphSeries;
 use api_structs::Endpoint;
-use api_structs::time_conversion::now_nanos_u64;
 use chrono::NaiveTime;
-use leptos::prelude::Get;
 use leptos::prelude::*;
 use tracing::info;
 
@@ -56,57 +54,117 @@ pub fn ServiceSummary(mut service: api_structs::ui::service::Service) -> impl In
 }
 
 #[component]
-pub fn ServicesContainer(
-    service_signal: ReadSignal<
-        Option<Result<Vec<api_structs::ui::service::Service>, TrackedGlooError>>,
-        LocalStorage,
-    >,
-) -> impl IntoView {
-    move || match service_signal.get() {
-        None => (view! {
-            <div>
-                "Loading"
-            </div>
-        })
-        .into_any(),
-        Some(response) => match response {
-            Ok(services) => {
-                if let Some(a) = services.first() {
-                    (view! {
-                        <div>
-                            <ServiceSummary service=a.clone()/>
-                        </div>
-                    })
-                    .into_any()
-                } else {
-                    (view! {
-                        <div>
-                            "Empty"
-                        </div>
-                    })
-                    .into_any()
-                }
-            }
-            Err(e) => {
-                let e = tracked_error::error_chain_to_pretty_formatted(e);
-                (view! {
-                    <div>
-                        {format!("Loading error: {e}")}
+pub fn Services() -> impl IntoView {
+    view! {
+        <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
+            <GlobalSelector/>
+            <ServiceSelector/>
+
+            <div id="overall-view" style="margin-top: 20px; ">
+                <Visualizations/>
+                <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
+                    <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
+                        <TraceGrid/>
                     </div>
-                })
-                .into_any()
-            }
-        },
+                    <div id="filters">
+                        <PathFilter/>
+                        <MethodFilter/>
+                        <SeverityFilter/>
+                    </div>
+                </div>
+            </div>
+        </div>
     }
 }
 
 #[component]
-pub fn Services() -> impl IntoView {
-    // let (service_data_r, service_data_w) = signal_local::<
-    //     Option<Result<Vec<api_structs::ui::service::Service>, TrackedGlooError>>,
-    // >(None);
-    // let _api_service_list_request_sender =
-    //     LocalResource::new(move || get_and_write_get_service_data_result(service_data_w));
+fn PathFilter() -> impl IntoView {
+    view! {
+        <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
+            <input style="margin-bottom: 5px" type="text" id="service-name" placeholder="Path" name="service-name-selector" />
+            <div>
+                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                <label for="scales">"/api/traces - 1.2K "</label>
+                <span>" - "</span>
+                <button class="button-as-text">"only"</button>
+                <button class="button-as-text" style="margin-left: 3px">"except"</button>
+            </div>
+            <div>
+                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                <label for="scales">"/api/traces/update - 1.5K "</label>
+                <span>" - "</span>
+                <button class="button-as-text">"only"</button>
+                <button class="button-as-text" style="margin-left: 3px">"except"</button>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn MethodFilter() -> impl IntoView {
+    view! {
+        <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
+            <input style="margin-bottom: 5px" type="text" id="service-name" placeholder="Method" name="service-name-selector" />
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <label for="scales">"GET - 2.2k "</label>
+                    <span>" - "</span>
+                    <button class="button-as-text">"only"</button>
+                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+                </div>
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <label for="scales">"POST - 1.5K "</label>
+                    <span>" - "</span>
+                    <button class="button-as-text">"only"</button>
+                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+                </div>
+        </div>
+    }
+}
+
+#[component]
+fn SeverityFilter() -> impl IntoView {
+    view! {
+        <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
+            <input style="margin-bottom: 5px" type="text" id="service-name" placeholder="Severity" name="service-name-selector" />
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <label for="scales">"info - 2.2k "</label>
+                    <span>" - "</span>
+                    <button class="button-as-text">"only"</button>
+                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+                </div>
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <label for="scales">"warn - 2.2k "</label>
+                    <span>" - "</span>
+                    <button class="button-as-text">"only"</button>
+                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+                </div>
+                <div>
+                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                    <label for="scales">"error - 1.5K "</label>
+                    <span>" - "</span>
+                    <button class="button-as-text">"only"</button>
+                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+                </div>
+        </div>
+    }
+}
+
+#[component]
+fn TraceGrid() -> impl IntoView {
+    view! {
+        <div>
+            <InstanceUpdateRow/>
+            <InstanceUpdateRow/>
+        </div>
+    }
+}
+
+#[component]
+fn Visualizations() -> impl IntoView {
     let mut x: Vec<String> = vec![];
     let mut y: Vec<f64> = vec![];
     let start = chrono::NaiveDate::from_ymd_opt(2025, 2, 17)
@@ -127,14 +185,14 @@ pub fn Services() -> impl IntoView {
         x_values: x,
         y_values: y,
     }];
-    let data = crate::dashboard::graph_creation::GraphData {
+    let data = crate::graph_creation::GraphData {
         dom_id_to_render_to: "some".to_string(),
         y_name: "traces".to_string(),
         x_name: "minutes ago".to_string(),
         series: graph_series.clone(),
         click_event_timestamp_receiver: None,
     };
-    let data2 = crate::dashboard::graph_creation::GraphData {
+    let data2 = crate::graph_creation::GraphData {
         dom_id_to_render_to: "some2".to_string(),
         y_name: "traces".to_string(),
         x_name: "minutes ago".to_string(),
@@ -142,7 +200,7 @@ pub fn Services() -> impl IntoView {
         click_event_timestamp_receiver: None,
     };
 
-    let data3 = crate::dashboard::graph_creation::GraphData {
+    let data3 = crate::graph_creation::GraphData {
         dom_id_to_render_to: "some3".to_string(),
         y_name: "duration".to_string(),
         x_name: "minutes ago".to_string(),
@@ -150,101 +208,30 @@ pub fn Services() -> impl IntoView {
         click_event_timestamp_receiver: None,
     };
 
-    let data4 = crate::dashboard::graph_creation::GraphData {
+    let data4 = crate::graph_creation::GraphData {
         dom_id_to_render_to: "some4".to_string(),
         y_name: "duration".to_string(),
         x_name: "minutes ago".to_string(),
         series: graph_series,
         click_event_timestamp_receiver: None,
     };
-    let action = crate::dashboard::graph_creation::create_create_chart_action();
+    let action = crate::graph_creation::create_create_chart_action();
     let (trace_warning_graph, trace_warning_graph_id) =
-        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
 
-    let action2 = crate::dashboard::graph_creation::create_create_chart_action();
+    let action2 = crate::graph_creation::create_create_chart_action();
     let (trace_warning_graph2, trace_warning_graph_id2) =
-        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data2, action2);
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data2, action2);
 
-    let action3 = crate::dashboard::graph_creation::create_create_chart_action();
+    let action3 = crate::graph_creation::create_create_chart_action();
     let (trace_warning_graph3, trace_warning_graph_id3) =
-        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data3, action2);
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data3, action3);
 
-    let action4 = crate::dashboard::graph_creation::create_create_chart_action();
+    let action4 = crate::graph_creation::create_create_chart_action();
     let (trace_warning_graph4, trace_warning_graph_id4) =
-        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data4, action2);
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data4, action4);
     view! {
-        <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 5px; color: white">
-            <div id="global-values" style="background-color: #29290645; padding: 10px; border: 2px solid white; border-radius: 10px" >
-                <div id="time-selector">
-                    <select style="margin-bottom: 10px" id="time-range-selector">
-                        <option value="5">"Past 5 minutes"</option>
-                        <option value="15">"Past 15 minutes"</option>
-                        <option value="60">"Past 1h"</option>
-                        <option value="360">"Past 6h"</option>
-                    </select>
-                    <div>
-                        <h3 style="display: inline">"Filters: "</h3>
-                        <input style="margin-left: 5px" type="text" size="150" value="" readonly>< /input>
-                    </div>
-                    <div style="margin-top: 10px">
-                        <h3 style="display: inline;">"Preset: "</h3>
-                        <select id="preset-selector">
-                            <option value="15">
-                                "
-                                <none>
-                                "
-                            </option>
-                            <option value="15">"All Traces"</option>
-                            <option value="60">"Warnings"</option>
-                            <option value="360">"Errors"</option>
-                        </select>
-                        <button style="margin-left: 5px">"Delete"</button>
-                        <p style="display: inline; margin: 0 0 0 5px">"Save as"</p>
-                        <input style="margin-left: 5px" type="text" size="6" placeholder="name" />
-                        <button style="margin-left: 5px">"Save"</button>
-                    </div>
-                </div>
-            </div>
-            <div id="service-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 10px; border: 2px solid white; border-radius: 10px; overflow: scroll;" >
-                <div style="margin: 7px 0 10px 0">
-                    <datalist id="service-list">
-                        <option value="Tracer Backend"></option>
-                        <option value="Tracer UI"></option>
-                        <option value="Service Tester"></option>
-                    </datalist>
-                    <input type="text" id="service-name" list="service-list" placeholder="Filter services" name="service-name-selector" />
-                </div>
-                <div>
-                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                    <span>"Tracer Backend - 1.2K"</span> <span>" - "</span> <input type="text" size="100" value="tracing=info,tracing::background::jobs=warn"  /> <button style="margin: 0px 0 0 5px" type="button">apply</button>
-                    <ul style="margin: 5px 0 0 0">
-                        <li style="margin: 5px 0 0 0">
-                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                            <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                        </li>
-                        <li style="margin: 5px 0 0 0">
-                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                            <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                        </li>
-                    </ul>
-                </div>
-                <div>
-                    <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                    <span>"Tracer UI - 1.2K"</span>
-                    <ul style="margin: 5px 0 0 0">
-                        <li style="margin: 5px 0 0 0">
-                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                            <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                        </li>
-                        <li style="margin: 5px 0 0 0">
-                            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                            <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            <div id="overall-view" style="margin-top: 20px; ">
-                <div id="visualizations" style="resize: vertical; height: 200px; overflow: scroll; padding: 5px; border: 2px solid white; border-radius: 10px;">
+         <div id="visualizations" style="resize: vertical; height: 200px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
                     <h3 style="display: inline; margin: 0 3px 0 0">"Rolled Over "</h3>
                     <select style="margin: 0 5px 0 5px" id="time-range-selector">
                             <option value="60">"1 min"</option>
@@ -339,40 +326,170 @@ pub fn Services() -> impl IntoView {
 
                     </div>
                 </div>
-                <h1>"After creating the alert it goes to a new tab with a list of alerts and for each:"</h1>
-                <ul>
-                    <li>"Name"</li>
-                    <li>"Filters selected"</li>
-                    <li>"Rollup Duration"</li>
-                    <li>"A graph with value at checking time and threshold"</li>
-                    <li>"List of alerts create, sent, errors during send"</li>
-                    <li>"Option to delete alert"</li>
-                    <li>"Link to open alert view in services tab"</li>
-                </ul>
-
-                // <div id="check-result" style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 2px solid white; border-radius: 10px; overflow: scroll;" >
-                //     <div style="display: flex; margin-bottom: 5px">
-                //         <h3 style="display: inline; color: green; margin: 0 0 0 0">"Alerts: OK"</h3>
-                //     </div>
-                //     <table style="width: 100%; text-align: left">
-                //         <tr>
-                //             <th>"Check time"</th>
-                //             <th>"Result"</th>
-                //             <th>"Alert Sending"</th>
-                //         </tr>
-                //         <tr>
-                //             <td>"1 min ago"</td>
-                //             <td>"Ok"</td>
-                //             <td>"-"</td>
-                //         </tr>
-                //         <tr>
-                //             <td>"1h ago"</td>
-                //             <td>"Trace over threshold 3/2 "</td>
-                //             <td>"Timeout"</td>
-                //         </tr>
-                //     </table>
-                // </div>
+    }
+}
+#[component]
+fn ServiceSelector() -> impl IntoView {
+    view! {
+        <div id="service-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
+            <div style="margin: 0px 0 10px 0">
+                <input type="text" id="service-name" list="service-list" placeholder="Filter services" name="service-name-selector" />
             </div>
+            <div>
+                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                <span>"Tracer Backend - 1.2K"</span> <span>" - "</span> <input type="text" size="100" value="tracing=info,tracing::background::jobs=warn"  /> <button style="margin: 0px 0 0 5px" type="button">apply</button>
+                <ul style="margin: 5px 0 0 0">
+                    <li style="margin: 5px 0 0 0">
+                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                        <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                    </li>
+                    <li style="margin: 5px 0 0 0">
+                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                        <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                    </li>
+                </ul>
+            </div>
+            <div>
+                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                <span>"Tracer UI - 1.2K"</span>
+                <ul style="margin: 5px 0 0 0">
+                    <li style="margin: 5px 0 0 0">
+                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                        <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                    </li>
+                    <li style="margin: 5px 0 0 0">
+                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                        <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    }
+}
+#[component]
+fn GlobalSelector() -> impl IntoView {
+    view! {
+        <div id="global-values" style="background-color: #29290645; padding: 7px; border: 1px solid white; border-radius: 10px" >
+                <div id="time-selector">
+                    <div style="margin-top: 0px">
+                        <h3 style="display: inline;">"Preset: "</h3>
+                        <select id="preset-selector">
+                            <option value="15">
+                                "
+                                <none>
+                                "
+                            </option>
+                            <option value="15">"All Traces"</option>
+                            <option value="60">"Warnings"</option>
+                            <option value="360">"Errors"</option>
+                        </select>
+                        <button style="margin-left: 5px">"Delete"</button>
+                        <p style="display: inline; margin: 0 0 0 5px">"Save as"</p>
+                        <input style="margin-left: 5px" type="text" size="6" placeholder="name" />
+                        <button style="margin-left: 5px">"Save"</button>
+                    </div>
+                    <select style="margin: 5px 0 5px 0" id="time-range-selector">
+                        <option value="5">"Past 5 minutes"</option>
+                        <option value="15">"Past 15 minutes"</option>
+                        <option value="60">"Past 1h"</option>
+                        <option value="360">"Past 6h"</option>
+                    </select>
+                    <div>
+                        <h3 style="display: inline">"Filters: "</h3>
+                        <input style="margin-left: 5px" type="text" size="150" value="" readonly>< /input>
+                    </div>
+                </div>
+            </div>
+    }
+}
+#[component]
+fn InstanceUpdateRow() -> impl IntoView {
+    view! {
+        <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
+            <div>
+                <p style="margin: 0">"Dev - Some Service - Instance Id: 132"</p>
+            </div>
+            <InstanceUpdateTrace/>
+        </div>
+    }
+}
+
+#[component]
+fn InstanceUpdateTrace() -> impl IntoView {
+    view! {
+        <div>
+            <table class="trace-table">
+                <tr>
+                    <th class="trace-table__cell">"name"</th>
+                    <th class="trace-table__cell">"method"</th>
+                    <th class="trace-table__cell">"path"</th>
+                    <th class="trace-table__cell">"status"</th>
+                    <th class="trace-table__cell">"duration"</th>
+                    <th class="trace-table__cell">"size"</th>
+                    <th class="trace-table__cell">"created at"</th>
+                    <th class="trace-table__cell">"key"</th>
+                    <th class="trace-table__cell">"value"</th>
+                    <th class="trace-table__cell">"log"</th>
+                    <th class="trace-table__cell">""</th>
+                </tr>
+                <tr>
+                    <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
+                        <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 50px; margin-left: 50px">
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="trace-table__cell">"handler"</td>
+                    <td class="trace-table__cell">"GET"</td>
+                    <td class="trace-table__cell">"/api/path"</td>
+                    <td class="trace-table__cell">"200"</td>
+                    <td class="trace-table__cell">"1325ms"</td>
+                    <td class="trace-table__cell">"1kb"</td>
+                    <td class="trace-table__cell" title="dawdo">"2min ago"</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">"➔"</td>
+                </tr>
+                <tr>
+                    <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
+                        <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 15px; margin-left: 100px">
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="trace-table__cell">"handler"</td>
+                    <td class="trace-table__cell">"GET"</td>
+                    <td class="trace-table__cell">"/api/path"</td>
+                    <td class="trace-table__cell">"200"</td>
+                    <td class="trace-table__cell">"1325ms"</td>
+                    <td class="trace-table__cell">"1kb"</td>
+                    <td class="trace-table__cell" title="dawdo">"2min ago"</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">"➔"</td>
+                </tr>
+                <tr>
+                    <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
+                        <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 25px; margin-left: 100px">
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="trace-table__cell">"handler"</td>
+                    <td class="trace-table__cell">"GET"</td>
+                    <td class="trace-table__cell">"/api/path"</td>
+                    <td class="trace-table__cell">"200"</td>
+                    <td class="trace-table__cell">"1325ms"</td>
+                    <td class="trace-table__cell">"1kb"</td>
+                    <td class="trace-table__cell" title="dawdo">"2min ago"</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">""</td>
+                    <td class="trace-table__cell">"➔"</td>
+                </tr>
+            </table>
         </div>
     }
 }

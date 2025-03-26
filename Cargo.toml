@@ -13,28 +13,25 @@ members = [
 api-structs = { path = "./api-structs" }
 
 
-#edgedb-tokio = "0.5.1"
-edgedb-tokio = { git = "https://github.com/tiberiusferreira/edgedb-rust", branch = "StandaloneTransactions" }
-
-
 tracked_error = { path = "./tracked_error", default-features = false }
 base64 = "0.22.1"
-valuable = "0.1.0"
-valuable-derive = "0.1.0"
-uuid = { version = "1.8.0", features = ["serde", "v4"] }
-serde = { version = "1.0", features = ["derive"] }
+valuable = "0.1"
+valuable-derive = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
+serde = { version = "1", features = ["derive"] }
 deepsize = "0.2.0"
-serde_with = "3.3.0"
+serde_with = "3"
+gel-tokio = "0.10"
+gel-protocol = "0.8"
 tracing = { version = "0.1", features = ["valuable"] }
-tracing-subscriber = { version = "0.3.16", features = ['env-filter', 'json'] }
+tracing-subscriber = { version = "0.3", features = ['env-filter', 'json'] }
 thiserror = "2"
 futures = "0.3"
-parking_lot = "0.12.3"
-chrono = { version = "0.4.31", features = ['serde'] }
+parking_lot = "0.12"
+chrono = { version = "0.4", features = ['serde'] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ['brotli', "json"] }
 brotli = "7"
-maplit = "1.0.2"
-sqlx = { version = "0.8.1", features = ["runtime-tokio-native-tls", "postgres", "chrono", "json", "uuid"] }
+maplit = "1"
 tokio = { version = "1", features = ["macros", "sync"] }
 dotenvy = "0.15.7"

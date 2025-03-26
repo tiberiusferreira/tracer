@@ -1,35 +1,78 @@
 module default {
-    type Service {
-      required env: str { constraint max_len_value(256) };
-      required name: str { constraint max_len_value(256) };
-      required log_filter: LogFilter { constraint exclusive };
-      multi instances := .<service[is ServiceInstance];
-      constraint exclusive on ((.env, .name));
-    }
 
-    type LogFilter{
-        required _value: str { constraint max_len_value(4096) };
+    type UiLayout {
+        annotation description := 'Saves ui layout configurations';
+        required name: str {
+            constraint max_len_value(256);
+            readonly := true;
+        };
+        required window_second: int64 {
+            constraint min_value(1);
+        };
+        required roll_up_window_second: int64 {
+            constraint min_value(1);
+        };
+        required filters: json {
+            readonly := true;
+            constraint max_len_value(4096)
+        };
         required created_at: datetime {
             readonly := true;
             default := datetime_of_statement();
         };
+        constraint exclusive on ((.name));
     }
+
+
+    type LogFilter {
+        annotation description := 'Used by Service and ServiceInstance. Multiple instances are likely to share the same LogFilter instance';
+        required _value: str {
+            readonly := true;
+            constraint max_len_value(4096)
+        };
+        constraint exclusive on ((._value));
+    }
+
+    type Service {
+      required env: str {
+        constraint max_len_value(256);
+        readonly := true;
+      };
+      required name: str {
+        constraint max_len_value(256);
+        readonly := true;
+       };
+      required log_filter: LogFilter;
+      multi instances := .<service[is ServiceInstance];
+      constraint exclusive on ((.env, .name));
+    }
+
 
     type ServiceInstance {
       required service: Service;
-      required latest_log_filter: LogFilter { constraint exclusive };
+      required latest_log_filter: LogFilter;
       required received_update_count: int64 {
         default := 0;
         constraint min_value(0);
       };
-      required registered_at: datetime { default := datetime_of_statement(); };
+      required registered_at: datetime {
+        default := datetime_of_statement();
+        readonly := true;
+      };
     }
 
     type ServiceInstanceUpdate {
       required service_instance: ServiceInstance;
       required export_buffer_size_bytes: int64;
-      created_at: datetime { default := datetime_of_statement(); };
+      required produced_at: datetime{
+        annotation description := "When this was produced."
+      };
+      required created_at: datetime {
+        default := datetime_of_statement();
+        readonly := true;
+      };
     }
+
 
     type Trace {
       required trace_count_id: int64{
@@ -37,13 +80,20 @@ module default {
         "incrementing sequence starting from 1 without gaps representing the number of traces produced by the instance"
       };
       multi spans := .<trace[is Span];
-      required service_instance_update: ServiceInstanceUpdate;
-      required created_at: datetime { default := datetime_of_statement(); };
+      required service_instance: ServiceInstance;
+
+      required created_at: datetime {
+        default := datetime_of_statement();
+        readonly := true;
+      };
     }
 
     # Attributes are repeated over and over
     type NormalizedAttributeName{
-        required _value: str { constraint max_len_value(1024); constraint exclusive; };
+       required _value: str {
+        constraint max_len_value(1024);
+        constraint exclusive;
+      };
     }
     # Attributes are repeated over and over
     type NormalizedAttributeContent{
@@ -89,24 +139,21 @@ module default {
         default := false
       };
       multi attributes: Attribute;
-      required instance_update: ServiceInstanceUpdate;
-      trigger same_instance_as_trace after insert, update for each do (
-        assert(
-            __new__.trace.service_instance_update.service_instance = __new__.instance_update.service_instance,
-            message := "span instance update must come from same instance as trace",
-        )
-      );
       trigger parent_is_from_same_trace after insert, update for each
         when (exists(__new__.parent))
         do (
-              assert(
-                   __new__.parent.trace.id = __new__.trace.id,
-                  message := "span must link to parent from same trace",
-              )
+          assert(
+               __new__.parent.trace.id = __new__.trace.id,
+              message := "span must link to parent from same trace",
+          )
       );
       # checks left to the application:
       # there is a single root span which has span_count_id = 1
       # span span_count_id within same trace is contiguous, no gaps
+      required created_at: datetime {
+              default := datetime_of_statement();
+              readonly := true;
+      };
     }
 
     scalar type Severity extending enum<Trace, Debug, Info, Warn, Error>;
@@ -116,19 +163,12 @@ module default {
       required severity: Severity;
       normalized_message: NormalizedEventMessage;
       message := .normalized_message._value;
-      required service_instance_update: ServiceInstanceUpdate;
       required timestamp: int64 {
         constraint min_value(0)
       };
       multi attributes: Attribute;
-      trigger same_instance_as_trace after insert, update for each do (
-        assert(
-            __new__.span.trace.service_instance_update.service_instance = __new__.service_instance_update.service_instance,
-            message := "event instance update must come from same instance as trace",
-        )
-      )
     }
-
+};
 
 #
 #
@@ -168,4 +208,3 @@ module default {
 #
 #
 #
-};

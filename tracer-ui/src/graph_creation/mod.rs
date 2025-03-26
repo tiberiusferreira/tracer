@@ -1,8 +1,7 @@
 use charming::component::{Axis, Grid};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
-    AxisPointer, AxisPointerAxis, AxisTick, AxisType, Color, ItemStyle, NameLocation, TextStyle,
-    Tooltip, Trigger, TriggerOn,
+    AxisTick, AxisType, Color, ItemStyle, NameLocation, Tooltip, Trigger, TriggerOn,
 };
 use charming::{Chart, WasmRenderer};
 use leptos::html::Div;
@@ -58,7 +57,7 @@ pub fn create_dom_el_ref_and_graph_call_action(
 pub fn create_create_chart_action() -> Action<GraphData, ()> {
     Action::new(move |graph_data: &GraphData| {
         let el_id = graph_data.dom_id_to_render_to.clone();
-        let mut graph_data = graph_data.clone();
+        let graph_data = graph_data.clone();
         async move {
             let mut chart = Chart::new()
                 // .grid(Grid::new())
@@ -132,7 +131,7 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                                 .x_values
                                 .iter()
                                 .zip(series.y_values.iter())
-                                .map(|(a, b)| {
+                                .map(|(a, _b)| {
                                     CompositeValue::Array(vec![
                                         CompositeValue::String(a.to_string()),
                                         CompositeValue::Number(NumericValue::Float(20.)),
@@ -151,7 +150,7 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                                 .x_values
                                 .iter()
                                 .zip(series.y_values.iter())
-                                .map(|(a, b)| {
+                                .map(|(a, _b)| {
                                     CompositeValue::Array(vec![
                                         CompositeValue::String(a.to_string()),
                                         CompositeValue::Number(NumericValue::Float(600.)),
@@ -172,7 +171,7 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
             let height = el.scroll_height();
             let renderer = WasmRenderer::new(width as u32, height as u32);
 
-            let chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
+            let _chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
             // let listener = graph_data.click_event_timestamp_receiver.take();
             // let series = graph_data.series;
             // WasmRenderer::on_event(&chart_instance, "click", move |c| {

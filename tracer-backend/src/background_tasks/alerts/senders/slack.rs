@@ -1,20 +1,18 @@
-use crate::background_tasks::alerts::AlertingError;
 use chrono::NaiveDateTime;
-use reqwest::header::InvalidHeaderValue;
 use reqwest::Response;
-use sqlx::PgPool;
+use reqwest::header::InvalidHeaderValue;
 use std::fmt::Formatter;
 use thiserror::Error;
 use tracing::{error, instrument};
-use tracked_error::{error_chain_to_pretty_formatted, ReqwestError};
+use tracked_error::{ReqwestError, error_chain_to_pretty_formatted};
 
 pub mod database;
 
 #[instrument(skip_all)]
 pub async fn send_to_slack_and_update_database(
-    _con: &PgPool,
+    // _con: &PgPool,
     _notification: &str,
-) -> Result<(), AlertingError> {
+) -> Result<(), ()> {
     // let slack_configs = database::load_slack_configs(&con).await?;
     // info!("Slack Configs {:?}", slack_configs);
     // for s in slack_configs {

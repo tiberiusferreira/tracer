@@ -14,6 +14,24 @@ where
     err
 }
 
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("Error at {location}")]
+pub struct TrackedError<T: std::error::Error> {
+    pub location: &'static Location<'static>,
+    #[source]
+    pub source: T,
+}
+
+impl<T: std::error::Error> From<T> for TrackedError<T> {
+    #[track_caller]
+    fn from(value: T) -> Self {
+        Self {
+            location: Location::caller(),
+            source: value,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("SerdeJsonError\nSample:{bad_input_sample}\nat {location}")]
 pub struct SerdeJsonError {
@@ -54,39 +72,39 @@ impl From<reqwest::Error> for ReqwestError {
     }
 }
 
-#[cfg(feature = "sqlx")]
-#[derive(Debug, thiserror::Error)]
-#[error("SqlxError\nat {location}")]
-pub struct SqlxError {
-    #[source]
-    pub source: sqlx::Error,
-    pub location: &'static Location<'static>,
-}
+// #[cfg(feature = "sqlx")]
+// #[derive(Debug, thiserror::Error)]
+// #[error("SqlxError\nat {location}")]
+// pub struct SqlxError {
+//     #[source]
+//     pub source: sqlx::Error,
+//     pub location: &'static Location<'static>,
+// }
 
-#[cfg(feature = "sqlx")]
-impl From<sqlx::error::Error> for SqlxError {
-    #[track_caller]
-    fn from(source: sqlx::Error) -> Self {
-        Self {
-            source,
-            location: Location::caller(),
-        }
-    }
-}
+// #[cfg(feature = "sqlx")]
+// impl From<sqlx::error::Error> for SqlxError {
+//     #[track_caller]
+//     fn from(source: sqlx::Error) -> Self {
+//         Self {
+//             source,
+//             location: Location::caller(),
+//         }
+//     }
+// }
 
-#[cfg(feature = "edgedb-tokio")]
+#[cfg(feature = "gel-tokio")]
 #[derive(Debug, thiserror::Error)]
 #[error("EdgeDBError at {location}")]
 pub struct EdgeDBError {
     #[source]
-    pub source: edgedb_tokio::Error,
+    pub source: gel_tokio::Error,
     pub location: &'static Location<'static>,
 }
 
-#[cfg(feature = "edgedb-tokio")]
-impl From<edgedb_tokio::Error> for EdgeDBError {
+#[cfg(feature = "gel-tokio")]
+impl From<gel_tokio::Error> for EdgeDBError {
     #[track_caller]
-    fn from(source: edgedb_tokio::Error) -> Self {
+    fn from(source: gel_tokio::Error) -> Self {
         Self {
             source,
             location: Location::caller(),

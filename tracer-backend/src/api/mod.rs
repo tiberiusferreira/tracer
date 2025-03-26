@@ -3,20 +3,19 @@ use std::net::SocketAddr;
 
 use crate::api::state::AppState;
 use api_structs::{Endpoint, InstanceGlobalId};
-use axum::response::IntoResponse;
 use axum::ServiceExt;
+use axum::response::IntoResponse;
 use chrono::NaiveDateTime;
 use http::{Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tower::Layer;
-use tracing::field::Empty;
 use tracing::Span;
+use tracing::field::Empty;
 use tracing::{error, info, instrument};
 use tracked_error::error_chain_to_pretty_formatted;
 use valuable::Valuable;
-pub mod database;
 pub mod handlers;
 pub mod state;
 
@@ -55,20 +54,12 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         );
     let trace_routes = axum::Router::new()
         .route(
-            "/grid",
-            axum::routing::get(handlers::ui::trace::grid::ui_trace_grid_get),
-        )
-        .route(
             "/search",
             axum::routing::get(handlers::ui::trace::event_search::search),
         )
         .route(
             "/keys",
             axum::routing::post(handlers::ui::trace::event_search::trace_keys),
-        )
-        .route(
-            "/autocomplete",
-            axum::routing::get(handlers::ui::trace::grid::ui_trace_autocomplete_get),
         );
 
     let app = axum::Router::new()
@@ -79,11 +70,6 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         )
         .nest("/api/ui/service", service_routes)
         .nest("/api/instance", instance_routes)
-        .route("/database", axum::routing::post(handlers::query_database))
-        .route(
-            api_structs::ui::trace::time_series::TraceSummary::PATH,
-            axum::routing::get(handlers::ui::trace::time_series::handler),
-        )
         .nest("/api/ui/trace", trace_routes)
         .with_state(app_state)
         .fallback_service(serve_ui)
@@ -191,16 +177,6 @@ impl IntoResponse for ApiError {
     }
 }
 
-impl From<tracked_error::SqlxError> for ApiError {
-    fn from(err: tracked_error::SqlxError) -> Self {
-        error!("{:?}", error_chain_to_pretty_formatted(err));
-        ApiError {
-            code: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "DB error when handling the request".to_string(),
-        }
-    }
-}
-
 impl From<tracked_error::SerdeJsonError> for ApiError {
     fn from(err: tracked_error::SerdeJsonError) -> Self {
         error!("{:?}", error_chain_to_pretty_formatted(err));
@@ -211,12 +187,14 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
     }
 }
 
-impl From<crate::error::EdgeDBOrSerdeJson> for ApiError {
-    fn from(err: crate::error::EdgeDBOrSerdeJson) -> Self {
-        error!("{}", error_chain_to_pretty_formatted(err));
+impl From<gel_tokio::Error> for ApiError {
+    #[track_caller]
+    fn from(err: gel_tokio::Error) -> Self {
+        let tracked = tracked_error::TrackedError::from(err);
+        error!("{:?}", error_chain_to_pretty_formatted(tracked));
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "Database or Serde error when handling the request".to_string(),
+            message: "GelDB error when handling the request".to_string(),
         }
     }
 }

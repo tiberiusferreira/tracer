@@ -1,4 +1,4 @@
-use crate::dashboard::graph_creation::GraphSeries;
+use crate::graph_creation::GraphSeries;
 use chrono::NaiveTime;
 use leptos::prelude::*;
 use leptos::{IntoView, component, view};
@@ -33,16 +33,16 @@ pub fn Alerts() -> impl IntoView {
         x_values: x,
         y_values: y,
     }];
-    let data = crate::dashboard::graph_creation::GraphData {
+    let data = crate::graph_creation::GraphData {
         dom_id_to_render_to: "some".to_string(),
         y_name: "traces".to_string(),
         x_name: "minutes ago".to_string(),
         series: graph_series.clone(),
         click_event_timestamp_receiver: None,
     };
-    let action = crate::dashboard::graph_creation::create_create_chart_action();
+    let action = crate::graph_creation::create_create_chart_action();
     let (trace_warning_graph, trace_warning_graph_id) =
-        crate::dashboard::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
     view! {
          <div style="padding: 20px; color: white">
             <div id="triggered-alerts" style="resize: vertical; height: 150px; margin: 0 0 10px 0; padding: 10px; border: 2px solid white; border-radius: 10px; overflow: scroll;" >

@@ -5,9 +5,8 @@ use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
 use tokio::task::spawn_local;
-use tracing::{info, info_span, instrument, Instrument};
+use tracing::{Instrument, info, info_span, instrument};
 use tracing_config_helper::TracerConfig;
-use valuable::Valuable;
 use valuable_derive::Valuable;
 mod api;
 mod background_tasks;
@@ -64,13 +63,13 @@ async fn main() {
 async fn start_api_and_background_tasks(
     config: LaunchConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
-    let edgedb_client = edgedb_tokio::create_client().await.unwrap();
+    let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState { edgedb_client };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
         // Sleep before tasks so they start after tracer is setup and we dont lose any traces
         tokio::time::sleep(Duration::from_secs(3)).await;
-        info!(config = config.as_value(), "Using config");
+        // info!(config = config.as_value(), "Using config");
 
         loop {
             async {

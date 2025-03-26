@@ -18,6 +18,18 @@ a:visited {
   color: #6195ff;
 }
 
+.button-as-text {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 0;
+}
+
+.button-as-text:hover {
+  color: greenyellow;
+}
+
 .tooltip-text {
   display: none;
   position: absolute;
@@ -93,11 +105,11 @@ header {
   }
 
   .row-container__error {
-    border: solid 2px red;
+    border: solid 1px red;
   }
 
   .row-container__warning {
-    border: solid 2px yellow;
+    border: solid 1px yellow;
   }
 }
 
@@ -109,9 +121,10 @@ header {
   text-align: left;
   font-family: Arial, Helvetica,
   sans-serif;
-  padding: 12px 8px 12px 8px;
+  padding: 0;
   color: white;
-  border: 1px solid #ddd;
+  //border: 1px solid rgba(221, 221, 221, 0.05);
+  border-bottom: 1px solid rgba(221, 221, 221, 0.05);
   background-color: #141414;
   white-space: pre-wrap;
 }
