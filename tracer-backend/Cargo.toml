@@ -14,6 +14,7 @@ deepsize.workspace = true
 
 gel-tokio.workspace = true
 gel-protocol.workspace = true
+gel-errors.workspace = true
 
 axum = { version = "0.8.1", features = ['query', 'macros'] }
 tower-http = { version = "0.6.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }

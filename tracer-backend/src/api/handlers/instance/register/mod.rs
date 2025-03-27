@@ -110,7 +110,7 @@ pub async fn handler(
     info!(service.name=service_id.name, service.env=?service_id.env,  "registration request for service");
 
     let mut instance_insertion_data = app_state
-        .edgedb_client
+        .gel_client
         .transaction(|tx| register_instance(tx, &service_id.env, &service_id.name))
         .await?;
     info!(

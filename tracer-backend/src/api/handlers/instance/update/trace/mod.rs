@@ -1,5 +1,9 @@
 use crate::api::ApiError;
+use api_structs::TraceCountId;
 use api_structs::instance::update::{Span, TraceFragment};
+use gel_errors::ErrorKind;
+use gel_protocol::named_args;
+use gel_tokio::{QueryExecutor, Queryable, RetryingTransaction};
 use http::StatusCode;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Formatter;
@@ -7,7 +11,8 @@ use std::panic::Location;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument};
-use tracked_error::{EdgeDBError, error_chain_to_pretty_formatted};
+use tracked_error::{EdgeDBError, TrackedError, error_chain_to_pretty_formatted};
+use uuid::Uuid;
 use valuable_derive::Valuable;
 
 mod span;
@@ -74,25 +79,6 @@ impl FromStr for HttpMethod {
 // }
 // "
 // );
-
-#[derive(Debug, Clone)]
-pub struct ExistingDbTrace {
-    id: uuid::Uuid,
-    #[allow(unused)]
-    trace_count_id: u64,
-    current_span_count_id: u64,
-    open_spans: Vec<RunningSpan>,
-}
-#[derive(Debug, Clone)]
-pub struct RunningSpan {
-    id: uuid::Uuid,
-    parent_id: Option<uuid::Uuid>,
-    span_count_id: u64,
-    started_at: u64,
-    duration_nanos: u64,
-    name: String,
-    attributes_names: HashSet<String>,
-}
 
 #[derive(Error, Debug, Clone)]
 pub enum InvalidDBData {
@@ -209,8 +195,110 @@ pub enum InvalidDBData {
 // "
 // );
 
+#[derive(Queryable, Debug, Clone)]
+pub struct RawExistingDbTrace {
+    id: uuid::Uuid,
+    #[allow(unused)]
+    trace_count_id: i64,
+    current_span_count_id: i64,
+    open_spans: Vec<RawRunningSpan>,
+}
+#[derive(Queryable, Debug, Clone)]
+pub struct RawRunningSpan {
+    id: uuid::Uuid,
+    parent_id: Option<uuid::Uuid>,
+    span_count_id: i64,
+    started_at_nanos: i64,
+    duration_nanos: i64,
+    name: String,
+    attributes_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExistingDbTrace {
+    id: uuid::Uuid,
+    #[allow(unused)]
+    trace_count_id: u64,
+    current_span_count_id: u64,
+    open_spans: Vec<RunningSpan>,
+}
+#[derive(Debug, Clone)]
+pub struct RunningSpan {
+    id: uuid::Uuid,
+    parent_id: Option<uuid::Uuid>,
+    span_count_id: u64,
+    started_at_nanos: u64,
+    duration_nanos: u64,
+    name: String,
+    attributes_names: HashSet<String>,
+}
+async fn get_trace_and_open_spans(
+    tx: &mut RetryingTransaction,
+    instance_id: Uuid,
+    trace_count_id: TraceCountId,
+) -> Result<Option<ExistingDbTrace>, gel_tokio::Error> {
+    info!("grabbing trace data");
+    let args = named_args! {
+        "service_instance_id" => instance_id,
+        "trace_count_id" => trace_count_id as i64,
+    };
+    let maybe_existing: Option<RawExistingDbTrace> = tx.query_single(r#"select  assert_single(Trace{
+      id,
+      trace_count_id,
+      current_span_count_id := assert_single(max(.spans.span_count_id)),
+      open_spans := (
+        select Trace.spans {
+          id,
+          parent_id := .parent.id,
+          span_count_id,
+          started_at_nanos,
+          duration_nanos,
+          name,
+          attributes_names := .attributes.name
+        } filter Trace.spans.has_ended = false
+      )
+    } filter Trace.service_instance.id=<uuid>$service_instance_id and Trace.trace_count_id = <int64>$trace_count_id )
+    "#, &args).await?;
+    let maybe_existing = maybe_existing.map(|existing| ExistingDbTrace {
+        id: existing.id,
+        trace_count_id: existing.trace_count_id as u64,
+        current_span_count_id: existing.current_span_count_id as u64,
+        open_spans: existing
+            .open_spans
+            .into_iter()
+            .map(|e| RunningSpan {
+                id: e.id,
+                parent_id: e.parent_id,
+                span_count_id: e.span_count_id as u64,
+                started_at_nanos: e.started_at_nanos as u64,
+                duration_nanos: e.duration_nanos as u64,
+                name: e.name,
+                attributes_names: e.attributes_names.into_iter().collect(),
+            })
+            .collect(),
+    });
+    Ok(maybe_existing)
+}
+
 #[derive(Debug, Error)]
-pub enum TraceUpdateError {
+#[error(transparent)]
+pub struct TraceUpdateError(TrackedError<TraceUpdateErrorVariant>);
+
+impl From<TraceUpdateErrorVariant> for TraceUpdateError {
+    #[track_caller]
+    fn from(value: TraceUpdateErrorVariant) -> Self {
+        TraceUpdateError(TrackedError::from(value))
+    }
+}
+
+impl From<TraceUpdateError> for gel_tokio::Error {
+    fn from(e: TraceUpdateError) -> Self {
+        gel_errors::UserError::with_source(e)
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum TraceUpdateErrorVariant {
     #[error("EdgeDB error: {0}")]
     EdgeDB(#[from] EdgeDBError),
     #[error("Root not open in DB, got update for closed trace. Trace {trace_id}")]
@@ -275,26 +363,28 @@ pub enum TraceUpdateError {
     },
 }
 
-impl From<TraceUpdateError> for ApiError {
-    fn from(e: TraceUpdateError) -> Self {
+impl From<TraceUpdateErrorVariant> for ApiError {
+    fn from(e: TraceUpdateErrorVariant) -> Self {
         let e_as_str = error_chain_to_pretty_formatted(&e);
         error!(
             e_as_str,
             "error being converted from TraceUpdateError to ApiError"
         );
         match &e {
-            TraceUpdateError::EdgeDB(_) | TraceUpdateError::InvalidDBData { .. } => ApiError {
-                code: StatusCode::INTERNAL_SERVER_ERROR,
-                message: e_as_str,
-            },
-            TraceUpdateError::AttributeValueSetAgain { .. }
-            | TraceUpdateError::UpdateForClosedTrace { .. }
-            | TraceUpdateError::ForbiddenFieldChange { .. }
-            | TraceUpdateError::SpanNotLinkedToRoot { .. }
-            | TraceUpdateError::NonContiguousSpanCountIdInUpdate { .. }
-            | TraceUpdateError::NonContiguousSpanCountIdInNewTrace { .. }
-            | TraceUpdateError::ParentChildSpanValidationError { .. }
-            | TraceUpdateError::MissingRoot { .. } => ApiError {
+            TraceUpdateErrorVariant::EdgeDB(_) | TraceUpdateErrorVariant::InvalidDBData { .. } => {
+                ApiError {
+                    code: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: e_as_str,
+                }
+            }
+            TraceUpdateErrorVariant::AttributeValueSetAgain { .. }
+            | TraceUpdateErrorVariant::UpdateForClosedTrace { .. }
+            | TraceUpdateErrorVariant::ForbiddenFieldChange { .. }
+            | TraceUpdateErrorVariant::SpanNotLinkedToRoot { .. }
+            | TraceUpdateErrorVariant::NonContiguousSpanCountIdInUpdate { .. }
+            | TraceUpdateErrorVariant::NonContiguousSpanCountIdInNewTrace { .. }
+            | TraceUpdateErrorVariant::ParentChildSpanValidationError { .. }
+            | TraceUpdateErrorVariant::MissingRoot { .. } => ApiError {
                 code: StatusCode::BAD_REQUEST,
                 message: e_as_str,
             },
@@ -355,108 +445,84 @@ impl From<TraceUpdateError> for ApiError {
 ///
 #[instrument(skip_all)]
 pub async fn insert_or_update_trace(
-    _tx: &mut gel_tokio::Transaction,
-    _service_instance_id: uuid::Uuid,
-    instance_update_id: uuid::Uuid,
+    tx: &mut RetryingTransaction,
+    service_instance_id: uuid::Uuid,
     trace_fragment: &TraceFragment,
-) -> Result<(), TraceUpdateError> {
+) -> Result<(), gel_tokio::Error> {
     info!(
-        instance.update.id = instance_update_id.to_string(),
+        service.instance_id = service_instance_id.to_string(),
         trace.count_id = trace_fragment.trace_count_id,
         "inserting or updating trace"
     );
-    // let existing_trace_and_open_spans = get_trace_and_open_spans::transaction(
-    //     &mut *tx,
-    //     &get_trace_and_open_spans::Input {
-    //         service_instance_id,
-    //         trace_count_id: trace_fragment.trace_count_id as i64,
-    //     },
-    // )
-    // .await
-    // .map_err(|e| EdgeDBError::from(e))?;
-    // match existing_trace_and_open_spans {
-    //     None => {
-    //         info!("no existing trace, adding a new one");
-    //         let mut spans_to_upsert = validate_new_trace_spans_for_insertion(trace_fragment)?;
-    //         let trace_id = insert_trace::transaction(
-    //             &mut *tx,
-    //             &insert_trace::Input {
-    //                 trace_count_id: trace_fragment.trace_count_id as i64,
-    //                 instance_update_id,
-    //             },
-    //         )
-    //         .await
-    //         .map_err(|e| EdgeDBError::from(e))?
-    //         .id;
-    //         info!(trace.id = trace_id.to_string(), "new trace");
-    //         upsert_spans(&mut *tx, instance_update_id, trace_id, &mut spans_to_upsert).await?;
-    //     }
-    //     Some(existing) => {
-    //         info!(
-    //             trace.id = existing.id.to_string(),
-    //             trace.trace_count_id = existing.trace_count_id,
-    //             "existing trace found"
-    //         );
-    //         let existing = ExistingDbTrace::try_from(existing).map_err(|e| {
-    //             TraceUpdateError::InvalidDBData {
-    //                 source: e,
-    //                 location: Location::caller(),
-    //             }
-    //         })?;
-    //         let mut spans_to_upsert =
-    //             validate_spans_for_insert_or_update(&existing, trace_fragment)?;
-    //         upsert_spans(
-    //             &mut *tx,
-    //             instance_update_id,
-    //             existing.id,
-    //             &mut spans_to_upsert,
-    //         )
-    //         .await?;
-    //     }
-    // };
+    let existing_trace_and_open_spans =
+        get_trace_and_open_spans(&mut *tx, service_instance_id, trace_fragment.trace_count_id)
+            .await?;
+    match existing_trace_and_open_spans {
+        None => {
+            info!("no existing trace, adding a new one");
+            let mut spans_to_upsert = validate_new_trace_spans_for_insertion(trace_fragment)?;
+            let args = named_args! {
+                "trace_count_id" => trace_fragment.trace_count_id as i64,
+                "instance_id" => service_instance_id,
+            };
+            let trace_id: Uuid = tx
+                .query_required_single(
+                    "select (insert Trace{
+              trace_count_id := <int64>$trace_count_id,
+              service_instance := (select ServiceInstance filter .id=<uuid>$instance_id)
+            }).id",
+                    &args,
+                )
+                .await?;
+            info!(trace.id = trace_id.to_string(), "new trace");
+            upsert_spans(&mut *tx, trace_id, &mut spans_to_upsert).await?;
+        }
+        Some(existing) => {
+            info!(
+                trace.id = existing.id.to_string(),
+                trace.trace_count_id = existing.trace_count_id,
+                "existing trace found"
+            );
+            let mut spans_to_upsert =
+                validate_spans_for_insert_or_update(&existing, trace_fragment)?;
+            upsert_spans(&mut *tx, existing.id, &mut spans_to_upsert).await?;
+        }
+    };
     //
-    // Ok(())
-    unimplemented!()
+    Ok(())
 }
 
 async fn upsert_spans(
-    tx: &mut gel_tokio::Transaction,
-    instance_update_id: uuid::Uuid,
+    tx: &mut gel_tokio::RetryingTransaction,
     trace_id: uuid::Uuid,
     spans_to_upsert: &mut SpansToUpsert,
-) -> Result<(), TraceUpdateError> {
-    span::insert_spans_and_events(
-        tx,
-        instance_update_id,
-        trace_id,
-        &mut spans_to_upsert.spans_to_insert,
-    )
-    .await?;
+) -> Result<(), gel_tokio::Error> {
+    span::insert_spans_and_events(tx, trace_id, &mut spans_to_upsert.spans_to_insert).await?;
     Ok(())
 }
 
 fn validate_update_for_span(
     old_span: &RunningSpan,
     new_span: &Span,
-) -> Result<(), TraceUpdateError> {
+) -> Result<(), TraceUpdateErrorVariant> {
     if old_span.name != new_span.name {
-        return Err(TraceUpdateError::ForbiddenFieldChange {
+        return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
             field_name: "name".to_string(),
             old_value: old_span.name.clone(),
             new_value: new_span.name.clone(),
             location: Location::caller(),
         });
     }
-    if old_span.started_at != new_span.started_at_nanos {
-        return Err(TraceUpdateError::ForbiddenFieldChange {
+    if old_span.started_at_nanos as u64 != new_span.started_at_nanos {
+        return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
             field_name: "started_at".to_string(),
-            old_value: old_span.started_at.to_string(),
+            old_value: old_span.started_at_nanos.to_string(),
             new_value: new_span.started_at_nanos.to_string(),
             location: Location::caller(),
         });
     }
-    if old_span.duration_nanos >= new_span.duration_nanos {
-        return Err(TraceUpdateError::ForbiddenFieldChange {
+    if old_span.duration_nanos as u64 >= new_span.duration_nanos {
+        return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
             field_name: "duration".to_string(),
             old_value: old_span.duration_nanos.to_string(),
             new_value: new_span.duration_nanos.to_string(),
@@ -465,7 +531,7 @@ fn validate_update_for_span(
     }
     for (attribute_name, value) in &new_span.attributes {
         if old_span.attributes_names.contains(attribute_name) {
-            return Err(TraceUpdateError::AttributeValueSetAgain {
+            return Err(TraceUpdateErrorVariant::AttributeValueSetAgain {
                 attribute_name: attribute_name.to_string(),
                 new_value: value.to_string(),
                 location: Location::caller(),
@@ -488,7 +554,7 @@ fn validate_new_trace_spans_for_insertion(
         span_count_ids.push(span.id);
     }
     check_count_ids_are_contiguous(span_count_ids.as_mut_slice()).map_err(|e| {
-        TraceUpdateError::NonContiguousSpanCountIdInNewTrace {
+        TraceUpdateErrorVariant::NonContiguousSpanCountIdInNewTrace {
             trace_count_id: new_trace_fragment.trace_count_id,
             previous_span_count_id: e.prev,
             new_span_count_id: e.next,
@@ -499,7 +565,7 @@ fn validate_new_trace_spans_for_insertion(
         new_trace_fragment
             .spans
             .get(&1)
-            .ok_or_else(|| TraceUpdateError::MissingRoot {
+            .ok_or_else(|| TraceUpdateErrorVariant::MissingRoot {
                 location: Location::caller(),
             })?;
     let mut spans_to_check: Vec<ChildToCheckWithParent> = vec![ChildToCheckWithParent {
@@ -541,7 +607,7 @@ fn validate_spans_for_insert_or_update(
         }
     }
     check_count_ids_are_contiguous(span_count_ids.as_mut_slice()).map_err(|e| {
-        TraceUpdateError::NonContiguousSpanCountIdInUpdate {
+        TraceUpdateErrorVariant::NonContiguousSpanCountIdInUpdate {
             trace_id: existing_trace.id,
             previous_span_count_id: e.prev,
             new_span_count_id: e.next,
@@ -575,14 +641,14 @@ fn validate_spans_for_insert_or_update(
         .open_spans
         .iter()
         .find(|e| e.span_count_id == 1)
-        .ok_or_else(|| TraceUpdateError::UpdateForClosedTrace {
+        .ok_or_else(|| TraceUpdateErrorVariant::UpdateForClosedTrace {
             trace_id: existing_trace.id,
         })?;
     let child_from_api =
         new_trace_fragment
             .spans
             .get(&1)
-            .ok_or_else(|| TraceUpdateError::MissingRoot {
+            .ok_or_else(|| TraceUpdateErrorVariant::MissingRoot {
                 location: Location::caller(),
             })?;
     let mut spans_to_check: Vec<ChildToCheckWithParent> = vec![ChildToCheckWithParent {
@@ -617,7 +683,7 @@ fn check_all_spans_were_inserted_or_updated<'a>(
     spans_in_fragment: impl Iterator<Item = &'a Span>,
     spans_to_insert: &[&Span],
     spans_to_update: &[SpanToUpdate],
-) -> Result<(), TraceUpdateError> {
+) -> Result<(), TraceUpdateErrorVariant> {
     let mut inserted_or_updated_span_count_ids = HashSet::new();
     for s in spans_to_insert {
         assert!(inserted_or_updated_span_count_ids.insert(s.id));
@@ -627,7 +693,7 @@ fn check_all_spans_were_inserted_or_updated<'a>(
     }
     for s in spans_in_fragment {
         if !inserted_or_updated_span_count_ids.contains(&s.id) {
-            return Err(TraceUpdateError::SpanNotLinkedToRoot {
+            return Err(TraceUpdateErrorVariant::SpanNotLinkedToRoot {
                 span_count_id: s.id,
                 parent_span_count_id: s.parent_id,
                 name: s.name.clone(),
@@ -650,13 +716,13 @@ fn check_parent_children<'a>(
     new_spans: impl Iterator<Item = &'a Span>,
     spans_to_insert: &mut Vec<&'a Span>,
     spans_to_update: &mut Vec<SpanToUpdate>,
-) -> Result<(), TraceUpdateError> {
+) -> Result<(), TraceUpdateErrorVariant> {
     let Some(child_to_check_with_parent) = children_to_check.pop() else {
         return Ok(());
     };
     if let Some(parent_from_api) = child_to_check_with_parent.parent_from_api {
         validate_child_parent(parent_from_api, child_to_check_with_parent.child_from_api).map_err(
-            |e| TraceUpdateError::ParentChildSpanValidationError {
+            |e| TraceUpdateErrorVariant::ParentChildSpanValidationError {
                 source: e,
                 location: Location::caller(),
             },

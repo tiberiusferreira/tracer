@@ -1247,6 +1247,7 @@ checksum = "1c09bee2261a0dec0df9a9e83d447623363c6232b11737e94e05945199e96d90"
 dependencies = [
  "bitflags 2.9.0",
  "bytes",
+ "chrono",
  "gel-errors",
  "serde",
  "serde_json",
@@ -4314,6 +4315,7 @@ dependencies = [
  "dotenvy",
  "frankenstein",
  "futures",
+ "gel-errors",
  "gel-protocol",
  "gel-tokio",
  "http 1.3.1",

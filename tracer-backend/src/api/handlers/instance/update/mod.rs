@@ -3,7 +3,12 @@ use crate::api::state::AppState;
 use api_structs::instance::update::{ConfigChange, InstanceSnapshot};
 use axum::Json;
 use axum::extract::State;
+use gel_errors::{ErrorKind, UserError};
+use gel_protocol::named_args;
+use gel_tokio::{QueryExecutor, Queryable, RetryingTransaction};
+use thiserror::Error;
 use tracing::{info, instrument};
+use tracked_error::TrackedError;
 
 mod trace;
 
@@ -55,6 +60,127 @@ pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
 // "
 // );
 
+#[derive(Queryable)]
+struct InstanceUpdatedData {
+    new_update_count: i64,
+    desired_log_filter: String,
+}
+
+#[derive(Error, Debug, Clone)]
+enum ErrorVariants {
+    #[error("Instance not registered")]
+    InstanceNotRegistered,
+    #[error("Unexpected update count. Expected: {expected}, actual: {actual}")]
+    UnexpectedUpdateCount { expected: i64, actual: u64 },
+}
+
+#[derive(Error, Debug, Clone)]
+#[error(transparent)]
+struct Error(TrackedError<ErrorVariants>);
+
+impl From<Error> for gel_tokio::Error {
+    fn from(value: Error) -> Self {
+        UserError::with_source(value)
+    }
+}
+async fn update_instance_update_count_and_log_level(
+    tx: &mut RetryingTransaction,
+    instance_snapshot: &InstanceSnapshot,
+) -> Result<InstanceUpdatedData, gel_tokio::Error> {
+    let args = named_args! {
+      "instance_id" => instance_snapshot.instance_id,
+      "new_log_filter" => instance_snapshot.log_filter.as_str(),
+    };
+    let instance_update_data: Option<InstanceUpdatedData> = tx
+        .query_single(
+            r#"
+ with
+  instance_id := <uuid>$instance_id,
+  new_log_filter_value := <str>$new_log_filter,
+  new_log_filter := (
+      insert LogFilter {
+        _value := new_log_filter_value
+      } unless conflict on (._value)
+      else
+        (select LogFilter)
+  ),
+  service_instance := (
+   update ServiceInstance filter .id=instance_id
+   set {
+     received_update_count := .received_update_count + 1,
+     latest_log_filter := new_log_filter
+   }
+ )
+ select {
+   new_update_count := service_instance.received_update_count,
+   desired_log_filter := service_instance.service.log_filter._value,
+ };
+    "#,
+            &args,
+        )
+        .await?;
+    let instance_update_data = instance_update_data.ok_or(Error(TrackedError::from(
+        ErrorVariants::InstanceNotRegistered,
+    )))?;
+    if instance_snapshot.update_count != instance_update_data.new_update_count as u64 {
+        return Err(Error(TrackedError::from(
+            ErrorVariants::UnexpectedUpdateCount {
+                expected: instance_update_data.new_update_count,
+                actual: instance_snapshot.update_count,
+            },
+        )))?;
+    }
+
+    Ok(instance_update_data)
+}
+
+async fn insert_new_instance_update(
+    tx: &mut RetryingTransaction,
+    instance_snapshot: &InstanceSnapshot,
+) -> Result<(), gel_tokio::Error> {
+    let args = named_args! {
+      "instance_id" => instance_snapshot.instance_id,
+      "export_buffer_size_bytes" => instance_snapshot.export_buffer_size_bytes as i64,
+      "produced_at" => gel_protocol::model::Datetime::try_from(chrono::Utc::now()).expect("chrono date time to always be valid"),
+    };
+    tx.execute(
+        r#"
+ with
+  instance_id := <uuid>$instance_id,
+  export_buffer_size_bytes := <int64>$export_buffer_size_bytes,
+  produced_at := <datetime>$produced_at,
+  insert ServiceInstanceUpdate{
+    export_buffer_size_bytes := export_buffer_size_bytes,
+    produced_at := produced_at,
+    service_instance := <ServiceInstance>instance_id
+  }
+    "#,
+        &args,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn process_update(
+    mut tx: RetryingTransaction,
+    instance_snapshot: &InstanceSnapshot,
+) -> Result<InstanceUpdatedData, gel_tokio::Error> {
+    let updated_data =
+        update_instance_update_count_and_log_level(&mut tx, instance_snapshot).await?;
+    insert_new_instance_update(&mut tx, instance_snapshot).await?;
+    let mut sorted_trace_fragments = instance_snapshot
+        .trace_fragments
+        .clone()
+        .into_values()
+        .collect::<Vec<_>>();
+    sorted_trace_fragments.sort_by_key(|e| e.trace_count_id);
+
+    for trace_fragment in &sorted_trace_fragments {
+        trace::insert_or_update_trace(&mut tx, instance_snapshot.instance_id, trace_fragment)
+            .await?;
+    }
+    Ok(updated_data)
+}
 #[instrument(level = "error", skip_all, err(Debug))]
 pub async fn handler(
     State(app_state): State<AppState>,
@@ -66,106 +192,34 @@ pub async fn handler(
         instance.export_buffer_size_bytes=instance_snapshot.export_buffer_size_bytes,
         "got instance update"
     );
-    let edgedb_client = app_state.edgedb_client;
-    // let mut tx = edgedb_client
-    //     .transaction()
-    //     .instrument(info_span!("starting_transaction"))
-    //     .await
-    //     .map_err(|e| EdgeDBError::from(e))?;
-    // let increase_instance_update_count_get_log_res =
-    //     increase_instance_update_count_get_log::transaction(
-    //         &mut tx,
-    //         &increase_instance_update_count_get_log::Input {
-    //             instance_id: instance_snapshot.instance_id,
-    //         },
-    //     )
-    //     .instrument(info_span!("increase_instance_update_count_get_log"))
-    //     .await
-    //     .map_err(|e| EdgeDBError::from(e))?;
-    // let (Some(received_update_count), Some(service_log_filter)) = (
-    //     increase_instance_update_count_get_log_res.received_update_count,
-    //     increase_instance_update_count_get_log_res.log_filter,
-    // ) else {
-    //     error!(instance.id=%instance_snapshot.instance_id, "got update for non existing instance");
-    //     return Err(ApiError {
-    //         code: StatusCode::BAD_REQUEST,
-    //         message: "instance not registered".to_string(),
-    //     });
-    // };
-    // let expected_update_count = received_update_count as u64;
-    //
-    // info!(instance.expected_update_count = expected_update_count);
-    // if instance_snapshot.update_count != expected_update_count {
-    //     error!(
-    //         instance.received_update_count = instance_snapshot.update_count,
-    //         instance.expected_update_count = expected_update_count,
-    //         "unexpected instance update id"
-    //     );
-    //     return Err(ApiError {
-    //         code: StatusCode::BAD_REQUEST,
-    //         message: format!(
-    //             "unexpected instance update id, expected={expected_update_count} got {}",
-    //             instance_snapshot.update_count
-    //         ),
-    //     });
-    // }
-    // }
-    // let instance_update_id = instance_update_insertion::transaction(
-    //     &mut tx,
-    //     &instance_update_insertion::Input {
-    //         instance_id: instance_snapshot.instance_id,
-    //         export_buffer_size_bytes: instance_snapshot.export_buffer_size_bytes as i64,
-    //     },
-    // )
-    // .instrument(info_span!("insert_instance_update"))
-    // .await
-    // .map_err(|e| EdgeDBError::from(e))?
-    // .instance_update_id;
-    // let mut sorted_trace_fragments = instance_snapshot
-    //     .trace_fragments
-    //     .clone()
-    //     .into_values()
-    //     .collect::<Vec<_>>();
-    // sorted_trace_fragments.sort_by_key(|e| e.trace_count_id);
-    //
-    // for trace_fragment in &sorted_trace_fragments {
-    //     trace::insert_or_update_trace(
-    //         &mut tx,
-    //         instance_snapshot.instance_id,
-    //         instance_update_id,
-    //         trace_fragment,
-    //     )
-    //     .await?;
-    // }
-    //
-    // tx.commit()
-    //     .instrument(info_span!("commit_transaction"))
-    //     .await
-    //     .map_err(|e| EdgeDBError::from(e))?;
-    // let mut current: Vec<char> = instance_snapshot
-    //     .log_filter
-    //     .chars()
-    //     .filter(|c| c.is_ascii_alphanumeric())
-    //     .collect();
-    // let mut new: Vec<char> = service_log_filter
-    //     .chars()
-    //     .filter(|c| c.is_ascii_alphanumeric())
-    //     .collect();
-    // current.sort();
-    // new.sort();
-    // let log_filter_request = if current != new {
-    //     info!(
-    //         instance.log_filter = instance_snapshot.log_filter,
-    //         service.log_filter = service_log_filter,
-    //         "log filter change needed"
-    //     );
-    //     Some(service_log_filter)
-    // } else {
-    //     None
-    // };
-    // info!("instance update fully processed");
-    // Ok(Json(ConfigChange {
-    //     log_filter: log_filter_request,
-    // }))
-    unimplemented!()
+    let instance_snapshot = instance_snapshot.0;
+    let gel_client = app_state.gel_client;
+    let updated_data = gel_client
+        .transaction(|tx| process_update(tx, &instance_snapshot))
+        .await?;
+    let mut current: Vec<char> = instance_snapshot
+        .log_filter
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let mut new: Vec<char> = updated_data
+        .desired_log_filter
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    current.sort();
+    new.sort();
+    let log_filter_request = if current != new {
+        info!(
+            instance.log_filter = instance_snapshot.log_filter,
+            service.log_filter = updated_data.desired_log_filter,
+            "log filter change needed"
+        );
+        Some(updated_data.desired_log_filter)
+    } else {
+        None
+    };
+    Ok(Json(ConfigChange {
+        log_filter: log_filter_request,
+    }))
 }

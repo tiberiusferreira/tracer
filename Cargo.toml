@@ -22,7 +22,8 @@ serde = { version = "1", features = ["derive"] }
 deepsize = "0.2.0"
 serde_with = "3"
 gel-tokio = "0.10"
-gel-protocol = "0.8"
+gel-protocol = { version = "0.8", features = ["with-chrono"] }
+gel-errors = "0.5"
 tracing = { version = "0.1", features = ["valuable"] }
 tracing-subscriber = { version = "0.3", features = ['env-filter', 'json'] }
 thiserror = "2"

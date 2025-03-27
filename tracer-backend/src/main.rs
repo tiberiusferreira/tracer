@@ -64,7 +64,9 @@ async fn start_api_and_background_tasks(
     config: LaunchConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let edgedb_client = gel_tokio::create_client().await.unwrap();
-    let app_state = AppState { edgedb_client };
+    let app_state = AppState {
+        gel_client: edgedb_client,
+    };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
         // Sleep before tasks so they start after tracer is setup and we dont lose any traces
