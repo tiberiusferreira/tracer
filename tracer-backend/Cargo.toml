@@ -8,27 +8,23 @@ edition = "2024"
 [dependencies]
 serde_json.workspace = true
 uuid.workspace = true
-parking_lot.workspace = true
-deepsize.workspace = true
 
 
 gel-tokio.workspace = true
 gel-protocol.workspace = true
 gel-errors.workspace = true
 
-axum = { version = "0.8.1", features = ['query', 'macros'] }
+my_macro = { path = "../my_macro" }
+axum = { version = "0.8.3", features = ['query', 'macros'] }
 tower-http = { version = "0.6.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
 valuable = { workspace = true }
 tracing = { workspace = true, features = ["valuable"] }
 valuable-derive.workspace = true
-frankenstein = { version = "0.40", default-features = false, features = ['client-reqwest'] }
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenvy.workspace = true
 thiserror = { workspace = true }
-futures = "0.3"
 serde.workspace = true
-base64.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
 
@@ -36,6 +32,7 @@ api-structs = { path = "../api-structs" }
 tracked_error = { path = "../tracked_error", features = ["gel-tokio"] }
 tower = "0.5.2"
 http = "1"
+pin-project-lite = "0.2.16"
 
 [dependencies.tracing-config-helper]
 version = "0.1.0"

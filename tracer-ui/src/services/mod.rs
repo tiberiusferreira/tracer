@@ -58,10 +58,10 @@ pub fn Services() -> impl IntoView {
     view! {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
-            <ServiceSelector/>
 
             <div id="overall-view" style="margin-top: 20px; ">
                 <Visualizations/>
+                <ServiceSelector/>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
                         <TraceGrid/>
@@ -77,6 +77,50 @@ pub fn Services() -> impl IntoView {
     }
 }
 
+// #[component]
+// fn EnvFilter() -> impl IntoView {
+//     view! {
+//         <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
+//             <input style="margin-bottom: 5px" type="text" id="env-name" placeholder="Env" name="service-env-selector" />
+//             <div>
+//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+//                 <label for="scales">"Dev - 1.2K "</label>
+//                 <span>" - "</span>
+//                 <button class="button-as-text">"only"</button>
+//             </div>
+//             <div>
+//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+//                 <label for="scales">"Stage - 1.5K "</label>
+//                 <span>" - "</span>
+//                 <button class="button-as-text">"only"</button>
+//
+//             </div>
+//         </div>
+//     }
+// }
+//
+// #[component]
+// fn ServiceFilter() -> impl IntoView {
+//     view! {
+//         <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
+//             <input style="margin-bottom: 5px" type="text" id="service-name" placeholder="Service" name="service-selector" />
+//             <div>
+//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+//                 <label for="scales">"Tracer Backend - 1.2K "</label>
+//                 <span>" - "</span>
+//                 <button class="button-as-text">"only"</button>
+//             </div>
+//             <div>
+//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+//                 <label for="scales">"Tracer UI - 1.5K "</label>
+//                 <span>" - "</span>
+//                 <button class="button-as-text">"only"</button>
+//
+//             </div>
+//         </div>
+//     }
+// }
+
 #[component]
 fn PathFilter() -> impl IntoView {
     view! {
@@ -87,14 +131,13 @@ fn PathFilter() -> impl IntoView {
                 <label for="scales">"/api/traces - 1.2K "</label>
                 <span>" - "</span>
                 <button class="button-as-text">"only"</button>
-                <button class="button-as-text" style="margin-left: 3px">"except"</button>
             </div>
             <div>
                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
                 <label for="scales">"/api/traces/update - 1.5K "</label>
                 <span>" - "</span>
                 <button class="button-as-text">"only"</button>
-                <button class="button-as-text" style="margin-left: 3px">"except"</button>
+
             </div>
         </div>
     }
@@ -110,14 +153,13 @@ fn MethodFilter() -> impl IntoView {
                     <label for="scales">"GET - 2.2k "</label>
                     <span>" - "</span>
                     <button class="button-as-text">"only"</button>
-                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
                 </div>
                 <div>
                     <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
                     <label for="scales">"POST - 1.5K "</label>
                     <span>" - "</span>
                     <button class="button-as-text">"only"</button>
-                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+
                 </div>
         </div>
     }
@@ -133,21 +175,21 @@ fn SeverityFilter() -> impl IntoView {
                     <label for="scales">"info - 2.2k "</label>
                     <span>" - "</span>
                     <button class="button-as-text">"only"</button>
-                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+
                 </div>
                 <div>
                     <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
                     <label for="scales">"warn - 2.2k "</label>
                     <span>" - "</span>
                     <button class="button-as-text">"only"</button>
-                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+
                 </div>
                 <div>
                     <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
                     <label for="scales">"error - 1.5K "</label>
                     <span>" - "</span>
                     <button class="button-as-text">"only"</button>
-                    <button class="button-as-text" style="margin-left: 3px">"except"</button>
+
                 </div>
         </div>
     }
@@ -335,37 +377,52 @@ fn ServiceSelector() -> impl IntoView {
             <div style="margin: 0px 0 10px 0">
                 <input type="text" id="service-name" list="service-list" placeholder="Filter services" name="service-name-selector" />
             </div>
-            <div>
-                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                <span>"Tracer Backend - 1.2K"</span> <span>" - "</span> <input type="text" size="100" value="tracing=info,tracing::background::jobs=warn"  /> <button style="margin: 0px 0 0 5px" type="button">apply</button>
-                <ul style="margin: 5px 0 0 0">
-                    <li style="margin: 5px 0 0 0">
-                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                        <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                    </li>
-                    <li style="margin: 5px 0 0 0">
-                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                        <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                    </li>
-                </ul>
-            </div>
-            <div>
-                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                <span>"Tracer UI - 1.2K"</span>
-                <ul style="margin: 5px 0 0 0">
-                    <li style="margin: 5px 0 0 0">
-                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                        <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                    </li>
-                    <li style="margin: 5px 0 0 0">
-                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-                        <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
-                    </li>
-                </ul>
+            <div id="env-service-list">
+                <ServiceInfo/>
+                <ServiceInfo/>
             </div>
         </div>
     }
 }
+
+#[component]
+fn ServiceInfo() -> impl IntoView {
+    view! {
+        <div id="single-env-info">
+            <div id="env-info">
+                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                <span>"Dev - 2.2K"</span>
+            </div>
+            <ul style="margin: 5px 0 0 0">
+                <li style="margin: 5px 0 0 0">
+                    <div id="service-info">
+                        <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                        <span>"Tracer Backend - 1.2K"</span>
+                        <span>" - "</span>
+                        <button class="button-as-text">"only"</button>
+                        <div>
+                            <input type="text" size="100" value="tracing=info,tracing::background::jobs=warn"  />
+                            <button style="margin: 0px 0 0 5px;" type="button">apply</button>
+                        </div>
+                    </div>
+                    <div id="service-instance-list">
+                        <ul style="margin: 5px 0 0 0">
+                            <li style="margin: 5px 0 0 0">
+                                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                                <span>"Instance 1 - 612"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                            </li>
+                            <li style="margin: 5px 0 0 0">
+                                <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+                                <span>"Instance 2 - 632"</span> <span>" - "</span> <a href="https://www.w3schools.com">CPU Profile</a>
+                            </li>
+                        </ul>
+                    </div>
+                </li>
+            </ul>
+        </div>
+    }
+}
+
 #[component]
 fn GlobalSelector() -> impl IntoView {
     view! {

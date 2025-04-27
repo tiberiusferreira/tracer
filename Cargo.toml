@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "tracer-backend",
+    "my_macro",
     "tracer-ui",
     "api-structs",
     "tracing-config-helper",
@@ -21,7 +22,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 serde = { version = "1", features = ["derive"] }
 deepsize = "0.2.0"
 serde_with = "3"
-gel-tokio = "0.10"
+gel-tokio = { version = "0.10", features = ["unstable"] }
 gel-protocol = { version = "0.8", features = ["with-chrono"] }
 gel-errors = "0.5"
 tracing = { version = "0.1", features = ["valuable"] }
@@ -32,7 +33,7 @@ parking_lot = "0.12"
 chrono = { version = "0.4", features = ['serde'] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ['brotli', "json"] }
-brotli = "7"
+brotli = "8"
 maplit = "1"
 tokio = { version = "1", features = ["macros", "sync"] }
 dotenvy = "0.15.7"

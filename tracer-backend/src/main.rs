@@ -13,6 +13,7 @@ mod background_tasks;
 mod error;
 mod notification_worthy_events;
 mod series;
+mod io_provider;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;
 pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
@@ -45,8 +46,8 @@ async fn main() {
                 },
                 format!("http://127.0.0.1:{}", launch_config.api_listen_port),
             )
-            .with_enable_log_exporting(true)
-            .with_stdout_logging(true);
+                .with_enable_log_exporting(true)
+                .with_stdout_logging(true);
 
             let _tracer_flush_request =
                 tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)
@@ -102,8 +103,8 @@ async fn start_api_and_background_tasks(
                 // background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
                 // background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
             }
-            .instrument(info_span!("background_task"))
-            .await;
+                .instrument(info_span!("background_task"))
+                .await;
             tokio::time::sleep(Duration::from_secs(5 * 60)).await;
         }
     });

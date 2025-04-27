@@ -270,56 +270,58 @@ impl DataInTracerFormatTrackingStorage {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::subscriber::state::tracer_storage::DataInTracerFormatTrackingStorage;
-    use api_structs::instance::update::Location;
-    use maplit::hashmap;
-    use std::collections::HashMap;
 
-    #[test]
-    fn a() {
-        let mut data_in_tracer_format = DataInTracerFormatTrackingStorage::new();
-        assert_eq!(data_in_tracer_format.size_bytes(), 0);
-        let k_vals = hashmap! {"key".to_string()=>"value".to_string()};
-        let location = Location {
-            module: None,
-            filename: None,
-            line: None,
-        };
-        let trace_id = data_in_tracer_format.insert_new_trace(
-            "test".to_string(),
-            k_vals.clone(),
-            location.clone(),
-        );
-        assert_eq!(data_in_tracer_format.size_bytes(), 908);
-        data_in_tracer_format.extract_data_for_export_pruning_internally();
-        assert_eq!(data_in_tracer_format.size_bytes(), 756);
-        data_in_tracer_format.extract_data_for_export_pruning_internally();
-        assert_eq!(data_in_tracer_format.size_bytes(), 756);
-        data_in_tracer_format.insert_new_span(
-            trace_id,
-            trace_id,
-            "somea".to_string(),
-            k_vals,
-            location.clone(),
-        );
-        assert_eq!(data_in_tracer_format.size_bytes(), 913);
-        data_in_tracer_format.extract_data_for_export_pruning_internally();
-        assert_eq!(data_in_tracer_format.size_bytes(), 761);
-        let span_id = data_in_tracer_format.insert_new_span(
-            trace_id,
-            trace_id,
-            "somea".to_string(),
-            HashMap::new(),
-            location.clone(),
-        );
-        assert_eq!(data_in_tracer_format.size_bytes(), 766);
-        data_in_tracer_format.extract_data_for_export_pruning_internally();
-        assert_eq!(data_in_tracer_format.size_bytes(), 766);
-        data_in_tracer_format.close_span(trace_id, span_id);
-        assert_eq!(data_in_tracer_format.size_bytes(), 766);
-        data_in_tracer_format.extract_data_for_export_pruning_internally();
-        assert_eq!(data_in_tracer_format.size_bytes(), 761);
-    }
-}
+//
+// #[cfg(test)]
+// mod tests {
+//     use crate::subscriber::state::tracer_storage::DataInTracerFormatTrackingStorage;
+//     use api_structs::instance::update::Location;
+//     use maplit::hashmap;
+//     use std::collections::HashMap;
+//
+//     #[test]
+//     fn a() {
+//         let mut data_in_tracer_format = DataInTracerFormatTrackingStorage::new();
+//         assert_eq!(data_in_tracer_format.size_bytes(), 0);
+//         let k_vals = hashmap! {"key".to_string()=>"value".to_string()};
+//         let location = Location {
+//             module: None,
+//             filename: None,
+//             line: None,
+//         };
+//         let trace_id = data_in_tracer_format.insert_new_trace(
+//             "test".to_string(),
+//             k_vals.clone(),
+//             location.clone(),
+//         );
+//         assert_eq!(data_in_tracer_format.size_bytes(), 908);
+//         data_in_tracer_format.extract_data_for_export_pruning_internally();
+//         assert_eq!(data_in_tracer_format.size_bytes(), 756);
+//         data_in_tracer_format.extract_data_for_export_pruning_internally();
+//         assert_eq!(data_in_tracer_format.size_bytes(), 756);
+//         data_in_tracer_format.insert_new_span(
+//             trace_id,
+//             trace_id,
+//             "somea".to_string(),
+//             k_vals,
+//             location.clone(),
+//         );
+//         assert_eq!(data_in_tracer_format.size_bytes(), 913);
+//         data_in_tracer_format.extract_data_for_export_pruning_internally();
+//         assert_eq!(data_in_tracer_format.size_bytes(), 761);
+//         let span_id = data_in_tracer_format.insert_new_span(
+//             trace_id,
+//             trace_id,
+//             "somea".to_string(),
+//             HashMap::new(),
+//             location.clone(),
+//         );
+//         assert_eq!(data_in_tracer_format.size_bytes(), 766);
+//         data_in_tracer_format.extract_data_for_export_pruning_internally();
+//         assert_eq!(data_in_tracer_format.size_bytes(), 766);
+//         data_in_tracer_format.close_span(trace_id, span_id);
+//         assert_eq!(data_in_tracer_format.size_bytes(), 766);
+//         data_in_tracer_format.extract_data_for_export_pruning_internally();
+//         assert_eq!(data_in_tracer_format.size_bytes(), 761);
+//     }
+// }

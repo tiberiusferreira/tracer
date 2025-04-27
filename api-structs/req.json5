@@ -1,0 +1,8 @@
+{
+  "look_back_window_seconds": 300 ,
+  "rolled_over_seconds": 60 ,
+  // dev and instance 1
+  // stage and instance 2
+  // not (service = "dev" and instance = 1)
+  "filters2": "dqwa"
+}

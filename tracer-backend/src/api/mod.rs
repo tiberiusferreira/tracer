@@ -37,12 +37,8 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         tower_http::services::ServeFile::new("./tracer-ui/dist/index.html"),
     );
     // List, Overview and Manage Services
-    let service_routes = axum::Router::new()
-        .route("/", axum::routing::get(handlers::ui::service::get))
-        .route(
-            "/filter",
-            axum::routing::post(handlers::ui::service::ui_service_filter_post),
-        );
+    let service_routes =
+        axum::Router::new().route("/data", axum::routing::post(handlers::ui::service::a));
     let instance_routes = axum::Router::new()
         .route(
             "/register",
@@ -109,16 +105,16 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                         span.record("http.response.status_code", status_code);
                     },
                 ), // .on_body_chunk(|chunk: &bytes::Bytes, latency, _span: &Span| {
-                   //     tracing::debug!("sending {} bytes", chunk.len())
-                   // })
-                   // .on_eos(|trailers, stream_duration, _span: &Span| {
-                   //     tracing::debug!("stream closed after {:?}", stream_duration)
-                   // })
-                   // .on_failure(
-                   //     |error: ServerErrorsFailureClass, latency: Duration, _span: &Span| {
-                   //         tracing::debug!("something went wrong")
-                   //     },
-                   // ),
+            //     tracing::debug!("sending {} bytes", chunk.len())
+            // })
+            // .on_eos(|trailers, stream_duration, _span: &Span| {
+            //     tracing::debug!("stream closed after {:?}", stream_duration)
+            // })
+            // .on_failure(
+            //     |error: ServerErrorsFailureClass, latency: Duration, _span: &Span| {
+            //         tracing::debug!("something went wrong")
+            //     },
+            // ),
         );
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     tokio::spawn(async move {
@@ -127,14 +123,14 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                 .parse::<SocketAddr>()
                 .expect("should be able to api server desired address and port"),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         axum::serve(
             listener,
             ServiceExt::<axum::extract::Request>::into_make_service(app),
         )
-        .await
-        .expect("http server launch to not fail")
+            .await
+            .expect("http server launch to not fail")
     })
 }
 
