@@ -1,4 +1,3 @@
-use crate::api::handlers::instance::update::trace::{TraceUpdateError, TraceUpdateErrorVariant};
 use api_structs::instance::update::Span;
 use gel_protocol::named_args;
 use tracing::{info, instrument};

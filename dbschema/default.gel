@@ -3,7 +3,7 @@ module default {
     type EntityChange{
         required entity_name: str;
         required entity_id: uuid;
-        required execution: Execution;
+        required execution: uuid;
         old: json;
         required new: json;
         required created_at: datetime {
@@ -61,15 +61,6 @@ module default {
     }
 
 
-    type LogFilter {
-        annotation description := 'Used by Service and ServiceInstance. Multiple instances are likely to share the same LogFilter instance';
-        required _value: str {
-            readonly := true;
-            constraint max_len_value(4096)
-        };
-        constraint exclusive on ((._value));
-    }
-
     type Service {
       required env: str {
         constraint max_len_value(256);
@@ -79,7 +70,6 @@ module default {
         constraint max_len_value(256);
         readonly := true;
        };
-      required log_filter: LogFilter;
       multi instances := .<service[is ServiceInstance];
       constraint exclusive on ((.env, .name));
     }
@@ -87,7 +77,6 @@ module default {
 
     type ServiceInstance {
       required service: Service;
-      required latest_log_filter: LogFilter;
       required received_update_count: int64 {
         default := 0;
         constraint min_value(0);

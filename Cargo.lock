@@ -4206,6 +4206,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
+ "futures-util",
  "gel-errors",
  "gel-protocol",
  "gel-tokio",

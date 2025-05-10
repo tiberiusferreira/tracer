@@ -2,18 +2,20 @@ use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 
 use crate::api::state::AppState;
+use crate::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
 use api_structs::ServiceId;
 use clap::Parser;
 use tokio::task::spawn_local;
 use tracing::{Instrument, info, info_span, instrument};
 use tracing_config_helper::TracerConfig;
 use valuable_derive::Valuable;
+
 mod api;
 mod background_tasks;
 mod error;
+mod io_provider;
 mod notification_worthy_events;
 mod series;
-mod io_provider;
 
 pub const BYTES_IN_1MB: usize = 1_000_000;
 pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
@@ -46,8 +48,8 @@ async fn main() {
                 },
                 format!("http://127.0.0.1:{}", launch_config.api_listen_port),
             )
-                .with_enable_log_exporting(true)
-                .with_stdout_logging(true);
+            .with_enable_log_exporting(true)
+            .with_stdout_logging(true);
 
             let _tracer_flush_request =
                 tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)
@@ -66,7 +68,10 @@ async fn start_api_and_background_tasks(
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState {
-        gel_client: edgedb_client,
+        gel_client: edgedb_client.clone(),
+        execution_io_provider: ExecutionIoProvider {
+            database: DatabaseIoProvider::Live(edgedb_client),
+        },
     };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {
@@ -103,8 +108,8 @@ async fn start_api_and_background_tasks(
                 // background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
                 // background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
             }
-                .instrument(info_span!("background_task"))
-                .await;
+            .instrument(info_span!("background_task"))
+            .await;
             tokio::time::sleep(Duration::from_secs(5 * 60)).await;
         }
     });

@@ -17,6 +17,7 @@ use api_structs::instance::registration::RegistrationResponse;
 use api_structs::instance::update::InstanceSnapshot;
 pub use api_structs::{Env, InstanceGlobalId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
+use tracked_error::error_chain_to_pretty_formatted;
 
 mod print_debugging;
 mod server_connection;
@@ -212,8 +213,12 @@ async fn registration_loop(
         {
             Ok(registration_response) => return registration_response,
             Err(err) => {
+                let err_str = error_chain_to_pretty_formatted(&err);
                 let sleep_seconds = 60;
-                println!("Registration failure: {} - sleeping {sleep_seconds}s", err);
+                println!(
+                    "Registration failure: {} - sleeping {sleep_seconds}s",
+                    err_str
+                );
                 tokio::time::sleep(Duration::from_secs(sleep_seconds)).await;
             }
         }
