@@ -1,6 +1,5 @@
 use crate::api::ApiError;
 use api_structs::TraceCountId;
-use api_structs::instance::update::{Span, TraceFragment};
 use gel_errors::ErrorKind;
 use gel_protocol::named_args;
 use gel_tokio::{QueryExecutor, Queryable, RetryingTransaction};
@@ -392,392 +391,243 @@ impl From<TraceUpdateErrorVariant> for ApiError {
     }
 }
 
-/// Traces are composed of spans
-/// Some invariants need to be held:
-/// - Each Trace must have a single root Span
-/// - If a Span is closed, all its children also are
-/// - A child can't start before its parent or end after it
-/// - A closed Span cant be update
-/// - The only update a span can have is its duration and attribute additions
-///
-/// Example of a value "tree" of spans
-///
-/// ```
-///         Root
-/// |-----------------------|
-///    |C1|         |C2|
-///   |--------||---------|
-///      C1-1
-///    |------|
-///      C1-2
-///    |------|
-/// ```
-///
-/// Trace Updates are incremental to what was already sent and acknowledged before.
-/// They contain all spans which were open last time, their new state and any new spans.
-///
-/// New spans are always children of either the root span or previous open spans.
-/// Update example:
-///
-/// Previous State
-/// ```
-///     Root
-/// |-------
-///    |C1|
-///   |-----
-///
-/// New State (Update)
-///     Root
-/// |--------------------
-///     |C1|      |C2|
-///   |-----|   |-----|
-///   |C1-1|
-///    |--|
-///```
-///
-/// Are cycles possible? (No)
-/// Cycles may happen if two spans are each others parents, but that cant be because if that was the case
-/// there would be no link to root
-/// Make sure all received spans were visited, if not it means we had spans not linked to root, example:
-/// A - parent = B
-/// B - parent = C
-/// C - parent = A
-///
-#[instrument(skip_all)]
-pub async fn insert_or_update_trace(
-    tx: &mut RetryingTransaction,
-    service_instance_id: uuid::Uuid,
-    trace_fragment: &TraceFragment,
-) -> Result<(), gel_tokio::Error> {
-    info!(
-        service.instance_id = service_instance_id.to_string(),
-        trace.count_id = trace_fragment.trace_count_id,
-        "inserting or updating trace"
-    );
-    let existing_trace_and_open_spans =
-        get_trace_and_open_spans(&mut *tx, service_instance_id, trace_fragment.trace_count_id)
-            .await?;
-    match existing_trace_and_open_spans {
-        None => {
-            info!("no existing trace, adding a new one");
-            let mut spans_to_upsert = validate_new_trace_spans_for_insertion(trace_fragment)?;
-            let args = named_args! {
-                "trace_count_id" => trace_fragment.trace_count_id as i64,
-                "instance_id" => service_instance_id,
-            };
-            let trace_id: Uuid = tx
-                .query_required_single(
-                    "select (insert Trace{
-              trace_count_id := <int64>$trace_count_id,
-              service_instance := (select ServiceInstance filter .id=<uuid>$instance_id)
-            }).id",
-                    &args,
-                )
-                .await?;
-            info!(trace.id = trace_id.to_string(), "new trace");
-            upsert_spans(&mut *tx, trace_id, &mut spans_to_upsert).await?;
-        }
-        Some(existing) => {
-            info!(
-                trace.id = existing.id.to_string(),
-                trace.trace_count_id = existing.trace_count_id,
-                "existing trace found"
-            );
-            let mut spans_to_upsert =
-                validate_spans_for_insert_or_update(&existing, trace_fragment)?;
-            upsert_spans(&mut *tx, existing.id, &mut spans_to_upsert).await?;
-        }
-    };
-    //
-    Ok(())
-}
+// async fn upsert_spans(
+//     tx: &mut gel_tokio::RetryingTransaction,
+//     trace_id: uuid::Uuid,
+//     spans_to_upsert: &mut SpansToUpsert,
+// ) -> Result<(), gel_tokio::Error> {
+//     span::insert_spans_and_events(tx, trace_id, &mut spans_to_upsert.spans_to_insert).await?;
+//     Ok(())
+// }
 
-async fn upsert_spans(
-    tx: &mut gel_tokio::RetryingTransaction,
-    trace_id: uuid::Uuid,
-    spans_to_upsert: &mut SpansToUpsert,
-) -> Result<(), gel_tokio::Error> {
-    span::insert_spans_and_events(tx, trace_id, &mut spans_to_upsert.spans_to_insert).await?;
-    Ok(())
-}
+// fn validate_update_for_span(
+//     old_span: &RunningSpan,
+//     new_span: &Span,
+// ) -> Result<(), TraceUpdateErrorVariant> {
+//     if old_span.name != new_span.name {
+//         return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
+//             field_name: "name".to_string(),
+//             old_value: old_span.name.clone(),
+//             new_value: new_span.name.clone(),
+//             location: Location::caller(),
+//         });
+//     }
+//     if old_span.started_at_nanos as u64 != new_span.started_at_nanos {
+//         return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
+//             field_name: "started_at".to_string(),
+//             old_value: old_span.started_at_nanos.to_string(),
+//             new_value: new_span.started_at_nanos.to_string(),
+//             location: Location::caller(),
+//         });
+//     }
+//     if old_span.duration_nanos as u64 >= new_span.duration_nanos {
+//         return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
+//             field_name: "duration".to_string(),
+//             old_value: old_span.duration_nanos.to_string(),
+//             new_value: new_span.duration_nanos.to_string(),
+//             location: Location::caller(),
+//         });
+//     }
+//     for (attribute_name, value) in &new_span.attributes {
+//         if old_span.attributes_names.contains(attribute_name) {
+//             return Err(TraceUpdateErrorVariant::AttributeValueSetAgain {
+//                 attribute_name: attribute_name.to_string(),
+//                 new_value: value.to_string(),
+//                 location: Location::caller(),
+//             });
+//         }
+//     }
+//     Ok(())
+// }
 
-fn validate_update_for_span(
-    old_span: &RunningSpan,
-    new_span: &Span,
-) -> Result<(), TraceUpdateErrorVariant> {
-    if old_span.name != new_span.name {
-        return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
-            field_name: "name".to_string(),
-            old_value: old_span.name.clone(),
-            new_value: new_span.name.clone(),
-            location: Location::caller(),
-        });
-    }
-    if old_span.started_at_nanos as u64 != new_span.started_at_nanos {
-        return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
-            field_name: "started_at".to_string(),
-            old_value: old_span.started_at_nanos.to_string(),
-            new_value: new_span.started_at_nanos.to_string(),
-            location: Location::caller(),
-        });
-    }
-    if old_span.duration_nanos as u64 >= new_span.duration_nanos {
-        return Err(TraceUpdateErrorVariant::ForbiddenFieldChange {
-            field_name: "duration".to_string(),
-            old_value: old_span.duration_nanos.to_string(),
-            new_value: new_span.duration_nanos.to_string(),
-            location: Location::caller(),
-        });
-    }
-    for (attribute_name, value) in &new_span.attributes {
-        if old_span.attributes_names.contains(attribute_name) {
-            return Err(TraceUpdateErrorVariant::AttributeValueSetAgain {
-                attribute_name: attribute_name.to_string(),
-                new_value: value.to_string(),
-                location: Location::caller(),
-            });
-        }
-    }
-    Ok(())
-}
+// struct SpansToUpsert {
+//     spans_to_insert: Vec<Span>,
+//     #[allow(unused)]
+//     spans_to_update: Vec<SpanToUpdate>,
+// }
 
-struct SpansToUpsert {
-    spans_to_insert: Vec<Span>,
-    #[allow(unused)]
-    spans_to_update: Vec<SpanToUpdate>,
-}
-fn validate_new_trace_spans_for_insertion(
-    new_trace_fragment: &TraceFragment,
-) -> Result<SpansToUpsert, TraceUpdateError> {
-    let mut span_count_ids = vec![];
-    for span in new_trace_fragment.spans.values() {
-        span_count_ids.push(span.id);
-    }
-    check_count_ids_are_contiguous(span_count_ids.as_mut_slice()).map_err(|e| {
-        TraceUpdateErrorVariant::NonContiguousSpanCountIdInNewTrace {
-            trace_count_id: new_trace_fragment.trace_count_id,
-            previous_span_count_id: e.prev,
-            new_span_count_id: e.next,
-        }
-    })?;
+// fn validate_spans_for_insert_or_update(
+//     existing_trace: &ExistingDbTrace,
+//     new_trace_fragment: &TraceFragment,
+// ) -> Result<SpansToUpsert, TraceUpdateError> {
+//     let mut span_count_ids = vec![existing_trace.current_span_count_id];
+//     for span in new_trace_fragment.spans.values() {
+//         if existing_trace.current_span_count_id < span.id {
+//             span_count_ids.push(span.id);
+//         }
+//     }
+//     check_count_ids_are_contiguous(span_count_ids.as_mut_slice()).map_err(|e| {
+//         TraceUpdateErrorVariant::NonContiguousSpanCountIdInUpdate {
+//             trace_id: existing_trace.id,
+//             previous_span_count_id: e.prev,
+//             new_span_count_id: e.next,
+//         }
+//     })?;
 
-    let child_from_api =
-        new_trace_fragment
-            .spans
-            .get(&1)
-            .ok_or_else(|| TraceUpdateErrorVariant::MissingRoot {
-                location: Location::caller(),
-            })?;
-    let mut spans_to_check: Vec<ChildToCheckWithParent> = vec![ChildToCheckWithParent {
-        parent_from_api: None,
-        child_from_db: None,
-        child_from_api,
-    }];
-    let mut spans_to_insert: Vec<&Span> = vec![];
-    let mut spans_to_update: Vec<SpanToUpdate> = vec![];
-    let existing_spans_in_db: Vec<RunningSpan> = vec![];
-    while !spans_to_check.is_empty() {
-        check_parent_children(
-            &mut spans_to_check,
-            &existing_spans_in_db,
-            new_trace_fragment.spans.values(),
-            &mut spans_to_insert,
-            &mut spans_to_update,
-        )?;
-    }
-    assert_eq!(spans_to_update.len(), 0);
-    check_all_spans_were_inserted_or_updated(
-        new_trace_fragment.spans.values(),
-        &spans_to_insert,
-        &spans_to_update,
-    )?;
-    Ok(SpansToUpsert {
-        spans_to_insert: spans_to_insert.into_iter().cloned().collect(),
-        spans_to_update,
-    })
-}
-fn validate_spans_for_insert_or_update(
-    existing_trace: &ExistingDbTrace,
-    new_trace_fragment: &TraceFragment,
-) -> Result<SpansToUpsert, TraceUpdateError> {
-    let mut span_count_ids = vec![existing_trace.current_span_count_id];
-    for span in new_trace_fragment.spans.values() {
-        if existing_trace.current_span_count_id < span.id {
-            span_count_ids.push(span.id);
-        }
-    }
-    check_count_ids_are_contiguous(span_count_ids.as_mut_slice()).map_err(|e| {
-        TraceUpdateErrorVariant::NonContiguousSpanCountIdInUpdate {
-            trace_id: existing_trace.id,
-            previous_span_count_id: e.prev,
-            new_span_count_id: e.next,
-        }
-    })?;
+// We update the spans by starting from the existing root and, for span:
+// - If it's a new one, validate and insert it.
+// - - Check all children are new, then add all children as children to insert
+// - If it's an existing, validate and update it
+// - - For each child check if it exists and if so add to list of children to insert, else add to list to update
+//
+//
+// Previous State
+// ```
+//     Root
+// |-------
+//    |C1|
+//   |-----
+//
+// New State (Update)
+//     Root
+// |--------------------
+//     |C1|      |C2|
+//   |-----|   |-----|
+//   |C1-1|
+//    |--|
+//```
+// We start from existing root.
+//     let child_from_db = existing_trace
+//         .open_spans
+//         .iter()
+//         .find(|e| e.span_count_id == 1)
+//         .ok_or_else(|| TraceUpdateErrorVariant::UpdateForClosedTrace {
+//             trace_id: existing_trace.id,
+//         })?;
+//     let child_from_api =
+//         new_trace_fragment
+//             .spans
+//             .get(&1)
+//             .ok_or_else(|| TraceUpdateErrorVariant::MissingRoot {
+//                 location: Location::caller(),
+//             })?;
+//     let mut spans_to_check: Vec<ChildToCheckWithParent> = vec![ChildToCheckWithParent {
+//         parent_from_api: None,
+//         child_from_db: Some(child_from_db),
+//         child_from_api,
+//     }];
+//     let mut spans_to_insert: Vec<&Span> = vec![];
+//     let mut spans_to_update: Vec<SpanToUpdate> = vec![];
+//     while !spans_to_check.is_empty() {
+//         check_parent_children(
+//             &mut spans_to_check,
+//             &existing_trace.open_spans,
+//             new_trace_fragment.spans.values(),
+//             &mut spans_to_insert,
+//             &mut spans_to_update,
+//         )?;
+//     }
+//     check_all_spans_were_inserted_or_updated(
+//         new_trace_fragment.spans.values(),
+//         &spans_to_insert,
+//         &spans_to_update,
+//     )?;
+//
+//     Ok(SpansToUpsert {
+//         spans_to_insert: spans_to_insert.into_iter().cloned().collect(),
+//         spans_to_update,
+//     })
+// }
 
-    // We update the spans by starting from the existing root and, for span:
-    // - If it's a new one, validate and insert it.
-    // - - Check all children are new, then add all children as children to insert
-    // - If it's an existing, validate and update it
-    // - - For each child check if it exists and if so add to list of children to insert, else add to list to update
-    //
-    //
-    // Previous State
-    // ```
-    //     Root
-    // |-------
-    //    |C1|
-    //   |-----
-    //
-    // New State (Update)
-    //     Root
-    // |--------------------
-    //     |C1|      |C2|
-    //   |-----|   |-----|
-    //   |C1-1|
-    //    |--|
-    //```
-    // We start from existing root.
-    let child_from_db = existing_trace
-        .open_spans
-        .iter()
-        .find(|e| e.span_count_id == 1)
-        .ok_or_else(|| TraceUpdateErrorVariant::UpdateForClosedTrace {
-            trace_id: existing_trace.id,
-        })?;
-    let child_from_api =
-        new_trace_fragment
-            .spans
-            .get(&1)
-            .ok_or_else(|| TraceUpdateErrorVariant::MissingRoot {
-                location: Location::caller(),
-            })?;
-    let mut spans_to_check: Vec<ChildToCheckWithParent> = vec![ChildToCheckWithParent {
-        parent_from_api: None,
-        child_from_db: Some(child_from_db),
-        child_from_api,
-    }];
-    let mut spans_to_insert: Vec<&Span> = vec![];
-    let mut spans_to_update: Vec<SpanToUpdate> = vec![];
-    while !spans_to_check.is_empty() {
-        check_parent_children(
-            &mut spans_to_check,
-            &existing_trace.open_spans,
-            new_trace_fragment.spans.values(),
-            &mut spans_to_insert,
-            &mut spans_to_update,
-        )?;
-    }
-    check_all_spans_were_inserted_or_updated(
-        new_trace_fragment.spans.values(),
-        &spans_to_insert,
-        &spans_to_update,
-    )?;
+// fn check_all_spans_were_inserted_or_updated<'a>(
+//     spans_in_fragment: impl Iterator<Item = &'a Span>,
+//     spans_to_insert: &[&Span],
+//     spans_to_update: &[SpanToUpdate],
+// ) -> Result<(), TraceUpdateErrorVariant> {
+//     let mut inserted_or_updated_span_count_ids = HashSet::new();
+//     for s in spans_to_insert {
+//         assert!(inserted_or_updated_span_count_ids.insert(s.id));
+//     }
+//     for s in spans_to_update {
+//         assert!(inserted_or_updated_span_count_ids.insert(s.span_count_id));
+//     }
+//     for s in spans_in_fragment {
+//         if !inserted_or_updated_span_count_ids.contains(&s.id) {
+//             return Err(TraceUpdateErrorVariant::SpanNotLinkedToRoot {
+//                 span_count_id: s.id,
+//                 parent_span_count_id: s.parent_id,
+//                 name: s.name.clone(),
+//                 location: Location::caller(),
+//             });
+//         }
+//     }
+//     Ok(())
+// }
 
-    Ok(SpansToUpsert {
-        spans_to_insert: spans_to_insert.into_iter().cloned().collect(),
-        spans_to_update,
-    })
-}
-
-fn check_all_spans_were_inserted_or_updated<'a>(
-    spans_in_fragment: impl Iterator<Item = &'a Span>,
-    spans_to_insert: &[&Span],
-    spans_to_update: &[SpanToUpdate],
-) -> Result<(), TraceUpdateErrorVariant> {
-    let mut inserted_or_updated_span_count_ids = HashSet::new();
-    for s in spans_to_insert {
-        assert!(inserted_or_updated_span_count_ids.insert(s.id));
-    }
-    for s in spans_to_update {
-        assert!(inserted_or_updated_span_count_ids.insert(s.span_count_id));
-    }
-    for s in spans_in_fragment {
-        if !inserted_or_updated_span_count_ids.contains(&s.id) {
-            return Err(TraceUpdateErrorVariant::SpanNotLinkedToRoot {
-                span_count_id: s.id,
-                parent_span_count_id: s.parent_id,
-                name: s.name.clone(),
-                location: Location::caller(),
-            });
-        }
-    }
-    Ok(())
-}
-
-struct ChildToCheckWithParent<'a> {
-    parent_from_api: Option<&'a Span>,
-    child_from_api: &'a Span,
-    child_from_db: Option<&'a RunningSpan>,
-}
-
-fn check_parent_children<'a>(
-    children_to_check: &mut Vec<ChildToCheckWithParent<'a>>,
-    existing_spans: &'a [RunningSpan],
-    new_spans: impl Iterator<Item = &'a Span>,
-    spans_to_insert: &mut Vec<&'a Span>,
-    spans_to_update: &mut Vec<SpanToUpdate>,
-) -> Result<(), TraceUpdateErrorVariant> {
-    let Some(child_to_check_with_parent) = children_to_check.pop() else {
-        return Ok(());
-    };
-    if let Some(parent_from_api) = child_to_check_with_parent.parent_from_api {
-        validate_child_parent(parent_from_api, child_to_check_with_parent.child_from_api).map_err(
-            |e| TraceUpdateErrorVariant::ParentChildSpanValidationError {
-                source: e,
-                location: Location::caller(),
-            },
-        )?;
-    }
-    let new_children: Vec<&Span> = new_spans
-        .filter(|e| e.parent_id == Some(child_to_check_with_parent.child_from_api.id))
-        .collect();
-    match child_to_check_with_parent.child_from_db {
-        None => {
-            spans_to_insert.push(child_to_check_with_parent.child_from_api);
-            for c in new_children {
-                children_to_check.push(ChildToCheckWithParent {
-                    parent_from_api: Some(child_to_check_with_parent.child_from_api),
-                    // if child has no parent in DB, its children wont have either
-                    child_from_db: None,
-                    child_from_api: c,
-                });
-            }
-        }
-        Some(child_as_in_db) => {
-            validate_update_for_span(child_as_in_db, child_to_check_with_parent.child_from_api)?;
-            spans_to_update.push(SpanToUpdate {
-                id: child_as_in_db.id,
-                span_count_id: child_as_in_db.span_count_id,
-                duration_nanos: child_to_check_with_parent.child_from_api.duration_nanos,
-                attributes_to_add: child_to_check_with_parent.child_from_api.attributes.clone(),
-            });
-
-            let existing_children_in_db: Vec<&RunningSpan> = existing_spans
-                .iter()
-                .filter(|e| e.parent_id == Some(child_as_in_db.id))
-                .collect();
-            for new_child in new_children {
-                if let Some(existing) = existing_children_in_db
-                    .iter()
-                    .find(|existing_child| existing_child.span_count_id == new_child.id)
-                {
-                    children_to_check.push(ChildToCheckWithParent {
-                        parent_from_api: Some(child_to_check_with_parent.child_from_api),
-                        child_from_db: Some(existing),
-                        child_from_api: new_child,
-                    });
-                } else {
-                    children_to_check.push(ChildToCheckWithParent {
-                        parent_from_api: Some(child_to_check_with_parent.child_from_api),
-                        child_from_db: None,
-                        child_from_api: new_child,
-                    });
-                }
-            }
-        }
-    }
-    Ok(())
-}
+// struct ChildToCheckWithParent<'a> {
+//     parent_from_api: Option<&'a Span>,
+//     child_from_api: &'a Span,
+//     child_from_db: Option<&'a RunningSpan>,
+// }
+//
+// fn check_parent_children<'a>(
+//     children_to_check: &mut Vec<ChildToCheckWithParent<'a>>,
+//     existing_spans: &'a [RunningSpan],
+//     new_spans: impl Iterator<Item = &'a Span>,
+//     spans_to_insert: &mut Vec<&'a Span>,
+//     spans_to_update: &mut Vec<SpanToUpdate>,
+// ) -> Result<(), TraceUpdateErrorVariant> {
+//     let Some(child_to_check_with_parent) = children_to_check.pop() else {
+//         return Ok(());
+//     };
+//     if let Some(parent_from_api) = child_to_check_with_parent.parent_from_api {
+//         validate_child_parent(parent_from_api, child_to_check_with_parent.child_from_api).map_err(
+//             |e| TraceUpdateErrorVariant::ParentChildSpanValidationError {
+//                 source: e,
+//                 location: Location::caller(),
+//             },
+//         )?;
+//     }
+//     let new_children: Vec<&Span> = new_spans
+//         .filter(|e| e.parent_id == Some(child_to_check_with_parent.child_from_api.id))
+//         .collect();
+//     match child_to_check_with_parent.child_from_db {
+//         None => {
+//             spans_to_insert.push(child_to_check_with_parent.child_from_api);
+//             for c in new_children {
+//                 children_to_check.push(ChildToCheckWithParent {
+//                     parent_from_api: Some(child_to_check_with_parent.child_from_api),
+//                     // if child has no parent in DB, its children wont have either
+//                     child_from_db: None,
+//                     child_from_api: c,
+//                 });
+//             }
+//         }
+//         Some(child_as_in_db) => {
+//             validate_update_for_span(child_as_in_db, child_to_check_with_parent.child_from_api)?;
+//             spans_to_update.push(SpanToUpdate {
+//                 id: child_as_in_db.id,
+//                 span_count_id: child_as_in_db.span_count_id,
+//                 duration_nanos: child_to_check_with_parent.child_from_api.duration_nanos,
+//                 attributes_to_add: child_to_check_with_parent.child_from_api.attributes.clone(),
+//             });
+//
+//             let existing_children_in_db: Vec<&RunningSpan> = existing_spans
+//                 .iter()
+//                 .filter(|e| e.parent_id == Some(child_as_in_db.id))
+//                 .collect();
+//             for new_child in new_children {
+//                 if let Some(existing) = existing_children_in_db
+//                     .iter()
+//                     .find(|existing_child| existing_child.span_count_id == new_child.id)
+//                 {
+//                     children_to_check.push(ChildToCheckWithParent {
+//                         parent_from_api: Some(child_to_check_with_parent.child_from_api),
+//                         child_from_db: Some(existing),
+//                         child_from_api: new_child,
+//                     });
+//                 } else {
+//                     children_to_check.push(ChildToCheckWithParent {
+//                         parent_from_api: Some(child_to_check_with_parent.child_from_api),
+//                         child_from_db: None,
+//                         child_from_api: new_child,
+//                     });
+//                 }
+//             }
+//         }
+//     }
+//     Ok(())
+// }
 
 #[derive(Debug, Clone, Error)]
 pub enum ChildParentValidationError {
@@ -810,36 +660,36 @@ pub enum ChildParentValidationError {
         location: &'static Location<'static>,
     },
 }
-fn validate_child_parent(parent: &Span, child: &Span) -> Result<(), ChildParentValidationError> {
-    let child_is_not_closed = !child.has_ended;
-    let parent_is_closed = parent.has_ended;
-    if parent_is_closed && child_is_not_closed {
-        return Err(ChildParentValidationError::ParentClosedChildOpen {
-            child_name: child.name.clone(),
-            parent_name: parent.name.clone(),
-            location: Location::caller(),
-        });
-    }
-    if child.started_at_nanos < parent.started_at_nanos {
-        return Err(ChildParentValidationError::ChildCreatedBeforeParent {
-            child_name: child.name.clone(),
-            parent_name: parent.name.clone(),
-            parent_created_at: parent.started_at_nanos,
-            child_created_at: child.started_at_nanos,
-            location: Location::caller(),
-        });
-    }
-    if parent.duration_nanos < child.duration_nanos {
-        return Err(ChildParentValidationError::ChildDurationLongerThanParent {
-            child_name: child.name.clone(),
-            parent_name: parent.name.clone(),
-            parent_duration: parent.duration_nanos,
-            child_duration: child.duration_nanos,
-            location: Location::caller(),
-        });
-    }
-    Ok(())
-}
+// fn validate_child_parent(parent: &Span, child: &Span) -> Result<(), ChildParentValidationError> {
+//     let child_is_not_closed = !child.has_ended;
+//     let parent_is_closed = parent.has_ended;
+//     if parent_is_closed && child_is_not_closed {
+//         return Err(ChildParentValidationError::ParentClosedChildOpen {
+//             child_name: child.name.clone(),
+//             parent_name: parent.name.clone(),
+//             location: Location::caller(),
+//         });
+//     }
+//     if child.started_at_nanos < parent.started_at_nanos {
+//         return Err(ChildParentValidationError::ChildCreatedBeforeParent {
+//             child_name: child.name.clone(),
+//             parent_name: parent.name.clone(),
+//             parent_created_at: parent.started_at_nanos,
+//             child_created_at: child.started_at_nanos,
+//             location: Location::caller(),
+//         });
+//     }
+//     if parent.duration_nanos < child.duration_nanos {
+//         return Err(ChildParentValidationError::ChildDurationLongerThanParent {
+//             child_name: child.name.clone(),
+//             parent_name: parent.name.clone(),
+//             parent_duration: parent.duration_nanos,
+//             child_duration: child.duration_nanos,
+//             location: Location::caller(),
+//         });
+//     }
+//     Ok(())
+// }
 
 #[allow(unused)]
 struct SpanToUpdate {

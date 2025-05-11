@@ -1,17 +1,17 @@
-use crate::io_provider::ExecutionIoProvider;
 use crate::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
-use crate::io_provider::execution_recorder::{
-    DataCollector, ExecutionKind, GLOBAL_DATA_COLLECTOR, get_global_collector, record_execution,
-};
-use std::collections::HashMap;
 #[tokio::test]
 async fn w() {
-    GLOBAL_DATA_COLLECTOR.set(DataCollector::new()).unwrap();
-    let _output = record_execution("my execution", ExecutionKind::Other, (), |input| async {
+    crate::io_provider::execution_recorder::GLOBAL_DATA_COLLECTOR
+        .set(crate::io_provider::execution_recorder::DataCollector::new())
+        .unwrap();
+    let _output = crate::io_provider::execution_recorder::record_execution((), |input| async {
         work_on_trace_id().await
     })
     .await;
-    println!("{:#?}", get_global_collector().get_all());
+    println!(
+        "{:#?}",
+        crate::io_provider::execution_recorder::get_global_collector().get_all()
+    );
 }
 
 #[my_macro::time]

@@ -13,5 +13,4 @@ impl crate::Endpoint for RegistrationEndpoint {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RegistrationResponse {
     pub instance_id: uuid::Uuid,
-    pub log_filter: String,
 }

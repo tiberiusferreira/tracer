@@ -1,23 +1,24 @@
-use crate::api::handlers::instance::register::Id;
-use crate::io_provider::execution_recorder::database::{Error, Parameter};
 use crate::io_provider::execution_recorder::{get_current_execution, get_global_collector};
-use gel_protocol::model::Json;
-use gel_protocol::value::Value;
+use api_structs::instance::update::{Error, Parameter, QueryWithParameters};
 use gel_protocol::value_opt::ValueOpt;
 use gel_tokio::RawTransaction;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Id {
+    pub id: uuid::Uuid,
+}
 pub mod example_usage;
 pub mod execution_recorder;
 mod gel;
 
 #[derive(Clone)]
 pub struct ExecutionIoProvider {
-    pub(crate) database: DatabaseIoProvider,
+    pub database: DatabaseIoProvider,
 }
 
 impl ExecutionIoProvider {
@@ -46,8 +47,12 @@ impl Transaction {
     pub async fn insert(
         &mut self,
         table: &str,
-        columns: HashMap<String, Parameter>,
+        columns: HashMap<&str, Parameter>,
     ) -> Result<Uuid, Error> {
+        let columns: HashMap<String, Parameter> = columns
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
         let query = gel::generate_insert_query(table, &columns);
         let id: Id = self.query_required_single(&query, columns.clone()).await?;
         let mut new = serde_json::map::Map::new();
@@ -65,7 +70,15 @@ impl Transaction {
                         serde_json::Value::Number(serde_json::Number::from(*val)),
                     );
                 }
-                Parameter::Json(_) => {}
+                Parameter::Json(val) => {
+                    new.insert(k.to_string(), val.clone());
+                }
+                Parameter::Datetime(val) => {
+                    new.insert(k.to_string(), serde_json::Value::String(val.to_string()));
+                }
+                Parameter::Bool(val) => {
+                    new.insert(k.to_string(), serde_json::Value::Bool(*val));
+                }
             }
         }
         let new = serde_json::Value::Object(new);
@@ -125,7 +138,7 @@ impl Transaction {
         let query_id = global_collector.transaction_query_start(
             execution_id,
             self.id,
-            execution_recorder::database::Query {
+            QueryWithParameters {
                 query_text: query.to_string(),
                 parameters: parameters.clone(),
             },
@@ -153,7 +166,7 @@ impl Transaction {
         let query_id = global_collector.transaction_query_start(
             execution_id,
             self.id,
-            execution_recorder::database::Query {
+            QueryWithParameters {
                 query_text: query.to_string(),
                 parameters: parameters.clone(),
             },
@@ -175,7 +188,10 @@ impl Transaction {
         };
         let res = tx.commit().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
-            Error::Internal(err_str)
+            Error::Internal {
+                msg: err_str,
+                location: std::panic::Location::caller().to_string(),
+            }
         });
 
         global_collector.transaction_end(execution_id, self.id, res.clone());
@@ -183,6 +199,7 @@ impl Transaction {
     }
 }
 impl DatabaseIoProvider {
+    #[track_caller]
     pub async fn transaction_start(&self) -> Transaction {
         let execution_id = get_current_execution().unwrap();
         let client = match &self {
@@ -200,6 +217,7 @@ impl DatabaseIoProvider {
         }
     }
 
+    #[track_caller]
     pub async fn query_required_single<T: Serialize + DeserializeOwned + Clone>(
         &self,
         query: &str,
@@ -215,7 +233,7 @@ impl DatabaseIoProvider {
         let global_collector = get_global_collector();
         let query_id = global_collector.standalone_query_start(
             execution_id,
-            execution_recorder::database::Query {
+            QueryWithParameters {
                 query_text: query.to_string(),
                 parameters: parameters.clone(),
             },
@@ -227,6 +245,7 @@ impl DatabaseIoProvider {
     }
 }
 
+#[track_caller]
 async fn run_query<T: Serialize + DeserializeOwned + Clone>(
     client: &gel_tokio::Client,
     query: &str,
@@ -243,13 +262,18 @@ async fn run_query<T: Serialize + DeserializeOwned + Clone>(
         .await
         .map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
-            Error::Internal(err_str)
+            let err_str = format!("{err_str} with query {}", query);
+            Error::Internal {
+                msg: err_str,
+                location: std::panic::Location::caller().to_string(),
+            }
         })?;
     let query_result: T = serde_json::from_str(&query_result)
         .unwrap_or_else(|_e| panic!("failed to deserialize query from {query:#?})"));
     Ok(query_result)
 }
 
+#[track_caller]
 async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
@@ -266,13 +290,18 @@ async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
         .await
         .map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
-            Error::Internal(err_str)
+            let err_str = format!("{err_str} with query {}", query);
+            Error::Internal {
+                msg: err_str,
+                location: std::panic::Location::caller().to_string(),
+            }
         })?;
     let query_result: T = serde_json::from_str(&query_result)
         .unwrap_or_else(|_e| panic!("failed to deserialize query from {query:#?})"));
     Ok(query_result)
 }
 
+#[track_caller]
 async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
@@ -289,7 +318,11 @@ async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
         .await
         .map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
-            Error::Internal(err_str)
+            let err_str = format!("{err_str} with query {}", query);
+            Error::Internal {
+                msg: err_str,
+                location: std::panic::Location::caller().to_string(),
+            }
         })?;
     let query_result = match query_result {
         None => return Ok(None),

@@ -8,6 +8,8 @@ pub mod request_compression;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Unexpected status: {status} Body {body}")]
+    NonOkResponse { status: StatusCode, body: String },
     #[error("Unexpected response body. Status: {status}")]
     UnexpectedResponseBody {
         #[source]

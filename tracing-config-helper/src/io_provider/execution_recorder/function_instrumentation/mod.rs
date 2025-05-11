@@ -2,24 +2,36 @@ use crate::io_provider::execution_recorder::{
     DataCollector, clear_current_execution, get_current_execution, get_global_collector,
     set_current_execution,
 };
-use chrono::{DateTime, Utc};
+use api_structs::instance::update::ExecutingFunction;
+use chrono::Utc;
 use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use uuid::Uuid;
 
 impl DataCollector {
-    pub fn new_function_call(&self, execution_id: Uuid, name: &str) -> u64 {
+    pub fn new_function_call(
+        &self,
+        execution_id: Uuid,
+        name: &str,
+        module: &str,
+        filename: &str,
+        line: u32,
+    ) -> u64 {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let parent_id = execution_context.call_stack.last().cloned();
-        let our_id = execution_context.executed_functions.len() as u64;
+        let parent_id = execution_context.current_call_stack.last().cloned();
+        let our_id = execution_context.function_count;
+        execution_context.function_count += 1;
         execution_context
             .executed_functions
             .push(ExecutingFunction {
                 id: our_id,
                 parent_id,
                 name: name.to_string(),
+                module: module.to_string(),
+                filename: filename.to_string(),
+                line,
                 start: Utc::now(),
                 end: None,
             });
@@ -29,13 +41,13 @@ impl DataCollector {
     pub fn resume_function(&self, execution_id: Uuid, function_id: u64) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        execution_context.call_stack.push(function_id);
+        execution_context.current_call_stack.push(function_id);
     }
 
     pub fn pause_function(&self, execution_id: Uuid, function_id: u64) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let last_executing = execution_context.call_stack.pop().unwrap();
+        let last_executing = execution_context.current_call_stack.pop().unwrap();
         assert_eq!(last_executing, function_id);
     }
 
@@ -44,7 +56,8 @@ impl DataCollector {
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
         let fun = execution_context
             .executed_functions
-            .get_mut(function_id as usize)
+            .iter_mut()
+            .find(|f| f.id == function_id)
             .unwrap();
         fun.end = Some(Utc::now());
     }
@@ -53,7 +66,8 @@ impl DataCollector {
 fn create_new_function_within_current_execution(name: &str) -> Option<u64> {
     let id = match get_current_execution() {
         Some(curr) => {
-            let function_id = get_global_collector().new_function_call(curr, name);
+            let function_id =
+                get_global_collector().new_function_call(curr, name, "module", "filename", 1);
             Some(function_id)
         }
         None => None,
@@ -139,13 +153,4 @@ impl<T: Future> Future for Fut<T> {
             }
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecutingFunction {
-    id: u64,
-    parent_id: Option<u64>,
-    name: String,
-    start: DateTime<Utc>,
-    end: Option<DateTime<Utc>>,
 }

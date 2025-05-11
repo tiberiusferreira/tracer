@@ -2,19 +2,12 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use crate::api::state::AppState;
-use crate::io_provider::execution_recorder::database::Error;
-use crate::io_provider::execution_recorder::{DataCollector, ExecutionKind, GLOBAL_DATA_COLLECTOR};
-use crate::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
+use api_structs::instance::update::ReplayData;
 use api_structs::{Endpoint, InstanceGlobalId};
-use axum::body::Bytes;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
 use chrono::NaiveDateTime;
-use futures_util::StreamExt;
-use http::uri::PathAndQuery;
-use http::{
-    HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, Uri, Version,
-};
+use http::{Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -23,6 +16,10 @@ use tower_http::normalize_path::NormalizePath;
 use tracing::Span;
 use tracing::field::Empty;
 use tracing::{error, info, instrument};
+use tracing_config_helper::io_provider::execution_recorder::{
+    DataCollector, GLOBAL_DATA_COLLECTOR, record_single_attribute,
+};
+use tracing_config_helper::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
 use tracked_error::error_chain_to_pretty_formatted;
 use valuable::Valuable;
 
@@ -61,14 +58,20 @@ struct MyParts {
     pub headers: HashMap<String, String>,
 }
 
-struct MyPathAndQuery {
-    path: String,
-    query: String,
-}
-
 fn my_request_to_axum(request: MyRequest) -> axum::extract::Request {
     let builder = http::request::Builder::new();
-    let mut builder = builder.uri(request.parts.uri);
+    let method = match request.parts.method {
+        MyMethod::Options => &Method::OPTIONS,
+        MyMethod::Get => &Method::GET,
+        MyMethod::Post => &Method::POST,
+        MyMethod::Put => &Method::PUT,
+        MyMethod::Delete => &Method::DELETE,
+        MyMethod::Head => &Method::HEAD,
+        MyMethod::Trace => &Method::TRACE,
+        MyMethod::Connect => &Method::CONNECT,
+        MyMethod::Patch => &Method::PATCH,
+    };
+    let mut builder = builder.uri(request.parts.uri).method(method);
     for (k, v) in &request.parts.headers {
         builder = builder.header(k.to_string(), v.to_string());
     }
@@ -116,21 +119,23 @@ async fn my_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let my_request = axum_request_to_serializable(request).await;
-    println!("{}", serde_json::to_string_pretty(&my_request).unwrap());
-    let response = crate::io_provider::execution_recorder::record_execution(
-        "some",
-        ExecutionKind::Other,
+    let response = tracing_config_helper::io_provider::execution_recorder::record_execution(
         my_request,
-        |my_request| {
+        |my_request| async {
+            let uri = my_request.parts.uri.clone();
+            record_single_attribute("uri".to_string(), uri);
             let axum_req = my_request_to_axum(my_request);
-            next.run(axum_req)
+            let resp = next.run(axum_req).await;
+            let status = resp.status();
+            record_single_attribute("status_code".to_string(), status.as_u16().to_string());
+            resp
         },
     )
     .await;
     response
 }
 
-pub fn create_router(app_state: AppState, api_port: u16) -> NormalizePath<Router<()>> {
+pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
     info!("Starting API, checking if index.html UI file exist");
     if std::fs::read("/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html")
         .is_err()
@@ -217,7 +222,7 @@ pub fn create_router(app_state: AppState, api_port: u16) -> NormalizePath<Router
 #[instrument(skip_all)]
 pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     // List, Overview and Manage Services
-    let app = create_router(app_state, api_port);
+    let app = create_router(app_state);
 
     tokio::spawn(async move {
         let listener = tokio::net::TcpListener::bind(
@@ -238,6 +243,8 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
 
 #[tokio::test]
 async fn a() {
+    let replay_data: ReplayData = serde_json::from_str(REPLAY_DATA).unwrap();
+    let req: MyRequest = serde_json::from_value(replay_data.input).unwrap();
     let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState {
         gel_client: edgedb_client.clone(),
@@ -245,65 +252,9 @@ async fn a() {
             database: DatabaseIoProvider::Live(edgedb_client),
         },
     };
-    let mut app = create_router(app_state, 4200);
-    let req = r#"{
-  "parts": {
-    "method": "Options",
-    "uri": "/api/instance/register",
-    "headers": {
-      "accept-encoding": "br",
-      "accept": "*/*",
-      "content-type": "application/json",
-      "content-length": "39",
-      "host": "127.0.0.1:4200"
-    }
-  },
-  "body": [
-    123,
-    34,
-    110,
-    97,
-    109,
-    101,
-    34,
-    58,
-    34,
-    116,
-    114,
-    97,
-    99,
-    101,
-    114,
-    45,
-    98,
-    97,
-    99,
-    107,
-    101,
-    110,
-    100,
-    34,
-    44,
-    34,
-    101,
-    110,
-    118,
-    34,
-    58,
-    34,
-    108,
-    111,
-    99,
-    97,
-    108,
-    34,
-    125
-  ]
-}
-"#;
-    let req: MyRequest = serde_json::from_str(req).unwrap();
-    println!("{:?}", req);
+    let mut app = create_router(app_state);
     let axum_req = my_request_to_axum(req);
+    println!("{:?}", axum_req);
     let resp = app.call(axum_req);
     let w = resp.await.unwrap();
     println!("{:?}", w);
@@ -358,8 +309,8 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
     }
 }
 
-impl From<crate::io_provider::execution_recorder::database::Error> for ApiError {
-    fn from(err: Error) -> Self {
+impl From<api_structs::instance::update::Error> for ApiError {
+    fn from(err: api_structs::instance::update::Error) -> Self {
         error!("{:?}", error_chain_to_pretty_formatted(&err));
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
@@ -400,3 +351,163 @@ async fn ready_get() -> impl IntoResponse {
         "ok".to_string(),
     )
 }
+
+const REPLAY_DATA: &str = r#"{
+  "input": {
+    "body": [
+      123,
+      34,
+      110,
+      97,
+      109,
+      101,
+      34,
+      58,
+      34,
+      116,
+      114,
+      97,
+      99,
+      101,
+      114,
+      45,
+      98,
+      97,
+      99,
+      107,
+      101,
+      110,
+      100,
+      34,
+      44,
+      34,
+      101,
+      110,
+      118,
+      34,
+      58,
+      34,
+      108,
+      111,
+      99,
+      97,
+      108,
+      34,
+      125
+    ],
+    "parts": {
+      "uri": "/api/instance/register",
+      "method": "Post",
+      "headers": {
+        "host": "127.0.0.1:4200",
+        "accept": "*/*",
+        "content-type": "application/json",
+        "content-length": "39",
+        "accept-encoding": "br"
+      }
+    }
+  },
+  "database_recording": {
+    "transactions": [
+      {
+        "id": 0,
+        "result": {
+          "result": {
+            "Ok": null
+          },
+          "ended_at": "2025-05-11T07:24:29.054351Z"
+        },
+        "queries": [
+          {
+            "id": 0,
+            "result": {
+              "result": {
+                "Ok": {
+                  "id": "eeea0606-2e27-11f0-bb39-972ef7ea354b"
+                }
+              },
+              "ended_at": "2025-05-11T07:24:29.026296Z"
+            },
+            "started_at": "2025-05-11T07:24:29.010125Z",
+            "query_with_parameters": {
+              "parameters": {
+                "env": {
+                  "String": "local"
+                },
+                "service": {
+                  "String": "tracer-backend"
+                }
+              },
+              "query_text": "with\n    env := <str>$env,\n    name := <str>$service,\nselect Service{\n  id\n} filter .env = env and .name = name;"
+            }
+          },
+          {
+            "id": 1,
+            "result": {
+              "result": {
+                "Ok": {
+                  "id": "f9aea7c0-2e38-11f0-8373-574a6aaedde4"
+                }
+              },
+              "ended_at": "2025-05-11T07:24:29.035577Z"
+            },
+            "started_at": "2025-05-11T07:24:29.026351Z",
+            "query_with_parameters": {
+              "parameters": {
+                "service": {
+                  "Uuid": {
+                    "val": "eeea0606-2e27-11f0-bb39-972ef7ea354b",
+                    "cast_to_table": "Service"
+                  }
+                }
+              },
+              "query_text": "insert ServiceInstance{\n    service := <Service><uuid>$service\n}"
+            }
+          },
+          {
+            "id": 2,
+            "result": {
+              "result": {
+                "Ok": {
+                  "id": "f9afcb96-2e38-11f0-8373-0f91737742a5"
+                }
+              },
+              "ended_at": "2025-05-11T07:24:29.042822Z"
+            },
+            "started_at": "2025-05-11T07:24:29.035632Z",
+            "query_with_parameters": {
+              "parameters": {
+                "new": {
+                  "Json": {
+                    "service": "eeea0606-2e27-11f0-bb39-972ef7ea354b"
+                  }
+                },
+                "entity_id": {
+                  "Uuid": {
+                    "val": "f9aea7c0-2e38-11f0-8373-574a6aaedde4",
+                    "cast_to_table": null
+                  }
+                },
+                "entity_name": {
+                  "String": "ServiceInstance"
+                },
+                "execution_id": {
+                  "Uuid": {
+                    "val": "c8b100aa-92dc-4d17-9594-a9e6192155b1",
+                    "cast_to_table": null
+                  }
+                }
+              },
+              "query_text": "insert EntityChange{\n    entity_name := <str>$entity_name,\n    entity_id := <uuid>$entity_id,\n    execution := <uuid>$execution_id,\n    new := <json>$new\n};"
+            }
+          }
+        ],
+        "started_at": "2025-05-11T07:24:29.010114Z",
+        "queries_count": 3
+      }
+    ],
+    "standalone_queries": [],
+    "transactions_count": 1,
+    "standalone_queries_count": 0
+  }
+}"#;

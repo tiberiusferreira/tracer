@@ -1,14 +1,18 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
-use api_structs::instance::update::{ConfigChange, InstanceSnapshot};
+use api_structs::instance::update::{ConfigChange, InstanceSnapshot, Parameter};
 use axum::Json;
 use axum::extract::State;
 use gel_errors::{ErrorKind, UserError};
 use gel_protocol::named_args;
 use gel_tokio::{QueryExecutor, Queryable, RetryingTransaction};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{info, instrument};
+use tracing_config_helper::io_provider::Transaction;
 use tracked_error::TrackedError;
+use uuid::Uuid;
 
 mod trace;
 
@@ -63,7 +67,6 @@ pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
 #[derive(Queryable)]
 struct InstanceUpdatedData {
     new_update_count: i64,
-    desired_log_filter: String,
 }
 
 #[derive(Error, Debug, Clone)]
@@ -87,51 +90,52 @@ async fn update_instance_update_count_and_log_level(
     tx: &mut RetryingTransaction,
     instance_snapshot: &InstanceSnapshot,
 ) -> Result<InstanceUpdatedData, gel_tokio::Error> {
-    let args = named_args! {
-      "instance_id" => instance_snapshot.instance_id,
-      "new_log_filter" => instance_snapshot.log_filter.as_str(),
-    };
-    let instance_update_data: Option<InstanceUpdatedData> = tx
-        .query_single(
-            r#"
- with
-  instance_id := <uuid>$instance_id,
-  new_log_filter_value := <str>$new_log_filter,
-  new_log_filter := (
-      insert LogFilter {
-        _value := new_log_filter_value
-      } unless conflict on (._value)
-      else
-        (select LogFilter)
-  ),
-  service_instance := (
-   update ServiceInstance filter .id=instance_id
-   set {
-     received_update_count := .received_update_count + 1,
-     latest_log_filter := new_log_filter
-   }
- )
- select {
-   new_update_count := service_instance.received_update_count,
-   desired_log_filter := service_instance.service.log_filter._value,
- };
-    "#,
-            &args,
-        )
-        .await?;
-    let instance_update_data = instance_update_data.ok_or(Error(TrackedError::from(
-        ErrorVariants::InstanceNotRegistered,
-    )))?;
-    if instance_snapshot.update_count != instance_update_data.new_update_count as u64 {
-        return Err(Error(TrackedError::from(
-            ErrorVariants::UnexpectedUpdateCount {
-                expected: instance_update_data.new_update_count,
-                actual: instance_snapshot.update_count,
-            },
-        )))?;
-    }
-
-    Ok(instance_update_data)
+    unimplemented!()
+    //    let args = named_args! {
+    //      "instance_id" => instance_snapshot.instance_id,
+    //      "new_log_filter" => instance_snapshot.log_filter.as_str(),
+    //    };
+    //    let instance_update_data: Option<InstanceUpdatedData> = tx
+    //        .query_single(
+    //            r#"
+    // with
+    //  instance_id := <uuid>$instance_id,
+    //  new_log_filter_value := <str>$new_log_filter,
+    //  new_log_filter := (
+    //      insert LogFilter {
+    //        _value := new_log_filter_value
+    //      } unless conflict on (._value)
+    //      else
+    //        (select LogFilter)
+    //  ),
+    //  service_instance := (
+    //   update ServiceInstance filter .id=instance_id
+    //   set {
+    //     received_update_count := .received_update_count + 1,
+    //     latest_log_filter := new_log_filter
+    //   }
+    // )
+    // select {
+    //   new_update_count := service_instance.received_update_count,
+    //   desired_log_filter := service_instance.service.log_filter._value,
+    // };
+    //    "#,
+    //            &args,
+    //        )
+    //        .await?;
+    //    let instance_update_data = instance_update_data.ok_or(Error(TrackedError::from(
+    //        ErrorVariants::InstanceNotRegistered,
+    //    )))?;
+    //    if instance_snapshot.update_count != instance_update_data.new_update_count as u64 {
+    //        return Err(Error(TrackedError::from(
+    //            ErrorVariants::UnexpectedUpdateCount {
+    //                expected: instance_update_data.new_update_count,
+    //                actual: instance_snapshot.update_count,
+    //            },
+    //        )))?;
+    //    }
+    //
+    //    Ok(instance_update_data)
 }
 
 async fn insert_new_instance_update(
@@ -161,65 +165,131 @@ async fn insert_new_instance_update(
     Ok(())
 }
 
-async fn process_update(
-    mut tx: RetryingTransaction,
-    instance_snapshot: &InstanceSnapshot,
-) -> Result<InstanceUpdatedData, gel_tokio::Error> {
-    let updated_data =
-        update_instance_update_count_and_log_level(&mut tx, instance_snapshot).await?;
-    insert_new_instance_update(&mut tx, instance_snapshot).await?;
-    let mut sorted_trace_fragments = instance_snapshot
-        .trace_fragments
-        .clone()
-        .into_values()
-        .collect::<Vec<_>>();
-    sorted_trace_fragments.sort_by_key(|e| e.trace_count_id);
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DbPartialExecution {
+    pub id: Uuid,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+    pub ended: bool,
+}
 
-    for trace_fragment in &sorted_trace_fragments {
-        trace::insert_or_update_trace(&mut tx, instance_snapshot.instance_id, trace_fragment)
+async fn process_update(
+    tx: &mut Transaction,
+    instance_snapshot: &InstanceSnapshot,
+) -> Result<(), api_structs::instance::update::Error> {
+    for recording in &instance_snapshot.execution_recordings {
+        let existing_execution: Option<DbPartialExecution> = tx
+            .query_optional(
+                "select Execution{
+      id,
+      last_seen_at,
+      ended
+    } filter
+      .service_instance = <ServiceInstance><uuid>$service_instance_id
+      and .external_id = <uuid>$external_id
+      ",
+                HashMap::from([
+                    (
+                        "service_instance_id".to_string(),
+                        Parameter::Uuid {
+                            val: instance_snapshot.instance_id,
+                            cast_to_table: None,
+                        },
+                    ),
+                    (
+                        "external_id".to_string(),
+                        Parameter::Uuid {
+                            val: recording.id,
+                            cast_to_table: None,
+                        },
+                    ),
+                ]),
+            )
             .await?;
+        let execution_id = match existing_execution {
+            None => {
+                let params = HashMap::from([
+                    (
+                        "service_instance",
+                        Parameter::Uuid {
+                            val: instance_snapshot.instance_id,
+                            cast_to_table: Some("ServiceInstance".to_string()),
+                        },
+                    ),
+                    (
+                        "external_id",
+                        Parameter::Uuid {
+                            val: recording.id,
+                            cast_to_table: None,
+                        },
+                    ),
+                    ("started_at", Parameter::Datetime(recording.started_at)),
+                    ("last_seen_at", Parameter::Datetime(recording.last_seen_at)),
+                    ("ended", Parameter::Bool(recording.ended)),
+                    (
+                        "replay_data",
+                        Parameter::Json(serde_json::to_value(&recording.replay_data).unwrap()),
+                    ),
+                    (
+                        "executed_functions",
+                        Parameter::Json(
+                            serde_json::to_value(&recording.executed_functions).unwrap(),
+                        ),
+                    ),
+                ]);
+                let execution_id = tx.insert("Execution", params).await?;
+                for (name, values) in &recording.attributes {
+                    for value in values {
+                        let params = HashMap::from([
+                            (
+                                "execution",
+                                Parameter::Uuid {
+                                    val: execution_id,
+                                    cast_to_table: Some("Execution".to_string()),
+                                },
+                            ),
+                            ("name", Parameter::String(name.clone())),
+                            ("_value", Parameter::String(value.clone())),
+                        ]);
+                        println!("inserted attribute");
+                        let _id = tx.insert("Attributes", params).await?;
+                    }
+                }
+                execution_id
+            }
+            Some(existing_execution) => {
+                // TODO update
+                existing_execution.id
+            }
+        };
     }
-    Ok(updated_data)
+    Ok(())
+    // let updated_data =
+    //     update_instance_update_count_and_log_level(&mut tx, instance_snapshot).await?;
+    // insert_new_instance_update(&mut tx, instance_snapshot).await?;
+    // let mut sorted_trace_fragments = instance_snapshot
+    //     .execution_fragments
+    //     .clone()
+    //     .into_values()
+    //     .collect::<Vec<_>>();
+    // sorted_trace_fragments.sort_by_key(|e| e.trace_id);
+
+    // for trace_fragment in &sorted_trace_fragments {
+    // trace::insert_or_update_trace(&mut tx, instance_snapshot.instance_id, trace_fragment)
+    //     .await?;
+    // }
+    // Ok(updated_data)
 }
 #[instrument(level = "error", skip_all, err(Debug))]
 pub async fn handler(
     State(app_state): State<AppState>,
     instance_snapshot: Json<InstanceSnapshot>,
-) -> Result<Json<ConfigChange>, ApiError> {
-    info!(
-        instance.id=%instance_snapshot.instance_id,
-        instance.log_filter=instance_snapshot.log_filter,
-        instance.export_buffer_size_bytes=instance_snapshot.export_buffer_size_bytes,
-        "got instance update"
-    );
+) -> Result<(), ApiError> {
+    let io_provider = app_state.execution_io_provider;
+
     let instance_snapshot = instance_snapshot.0;
-    let gel_client = app_state.gel_client;
-    let updated_data = gel_client
-        .transaction(|tx| process_update(tx, &instance_snapshot))
-        .await?;
-    let mut current: Vec<char> = instance_snapshot
-        .log_filter
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
-    let mut new: Vec<char> = updated_data
-        .desired_log_filter
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
-    current.sort();
-    new.sort();
-    let log_filter_request = if current != new {
-        info!(
-            instance.log_filter = instance_snapshot.log_filter,
-            service.log_filter = updated_data.desired_log_filter,
-            "log filter change needed"
-        );
-        Some(updated_data.desired_log_filter)
-    } else {
-        None
-    };
-    Ok(Json(ConfigChange {
-        log_filter: log_filter_request,
-    }))
+    let db = io_provider.database().clone();
+    let mut tx = db.transaction_start().await;
+    process_update(&mut tx, &instance_snapshot).await?;
+    tx.commit().await?;
+    Ok(())
 }

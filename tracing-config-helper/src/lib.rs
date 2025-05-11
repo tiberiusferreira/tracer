@@ -8,21 +8,16 @@ use pprof::ProfilerGuard;
 use std::fmt::Debug;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Registry};
 
-use crate::server_connection::instance_update_sender::export_instance_update;
-use crate::subscriber::{ExportDataGetter, TracerTracingSubscriber};
+use crate::io_provider::execution_recorder::get_global_collector;
 use api_structs::instance::registration::RegistrationResponse;
-use api_structs::instance::update::InstanceSnapshot;
 pub use api_structs::{Env, InstanceGlobalId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
 use tracked_error::error_chain_to_pretty_formatted;
 
+pub mod io_provider;
 mod print_debugging;
 mod server_connection;
-mod subscriber;
-
 #[derive(Debug, Clone)]
 pub struct TracerConfig {
     /// Where to send data to, should not contain a trailing /
@@ -34,9 +29,6 @@ pub struct TracerConfig {
     /// export buffers to fill up. Stats are also exported on this schedule.
     pub duration_between_exports: Duration,
     pub min_duration_between_profile_exports: Duration,
-    pub enable_log_exporting: bool,
-    pub enable_stdout_logging: bool,
-    pub stdout_log_as_json: bool,
 }
 
 impl TracerConfig {
@@ -44,21 +36,10 @@ impl TracerConfig {
         TracerConfig {
             collector_url,
             export_timeout: Duration::from_secs(10),
-            duration_between_exports: Duration::from_secs(5),
+            duration_between_exports: Duration::from_secs(2),
             min_duration_between_profile_exports: Duration::from_secs(60),
-            enable_log_exporting: true,
-            enable_stdout_logging: true,
             service_id,
-            stdout_log_as_json: false,
         }
-    }
-    pub fn with_enable_log_exporting(mut self, enable_exporting: bool) -> Self {
-        self.enable_log_exporting = enable_exporting;
-        self
-    }
-    pub fn with_stdout_logging(mut self, enable_stdout_logging: bool) -> Self {
-        self.enable_stdout_logging = enable_stdout_logging;
-        self
     }
     pub fn with_export_timeout(mut self, duration: Duration) -> Self {
         self.export_timeout = duration;
@@ -238,31 +219,13 @@ async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks 
     let (export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
     let cpu_profiler_guard = start_cpu_profiler();
 
-    let tracer_filter = EnvFilter::builder()
-        .parse(registration_response.log_filter)
-        .expect("initial filters to be valid");
-    let (reloadable_tracer_filter, reload_tracer_handle) =
-        tracing_subscriber::reload::Layer::new(tracer_filter);
-
-    let tracer_tracing_subscriber = TracerTracingSubscriber::new();
-    let export_data_getter = tracer_tracing_subscriber.export_data_getter_handle();
-
-    let registry = Registry::default()
-        .with(reloadable_tracer_filter)
-        .with(tracer_tracing_subscriber)
-        .with(tracing_subscriber::fmt::layer());
-    tracing::subscriber::set_global_default(registry).expect("no other global subscriber to exist");
-
     let trace_export_task = tokio::task::spawn_local(trace_export_loop(
         reqwest_client,
         config,
         cpu_profiler_guard,
         export_now_request_receiver,
-        reload_tracer_handle,
-        export_data_getter,
         registration_response.instance_id,
     ));
-    install_global_export_traces_on_panic_hook(export_now_request_sender.clone());
     TracerTasks {
         trace_export_task,
         export_now_request_sender,
@@ -274,14 +237,16 @@ async fn trace_export_loop(
     config: TracerConfig,
     profiler_guard: ProfilerGuard<'static>,
     mut flush_request_receiver: Receiver<FlushRequest>,
-    reload_tracer_handle: tracing_subscriber::reload::Handle<EnvFilter, Registry>,
-    export_data_getter: ExportDataGetter,
     instance_id: InstanceGlobalId,
 ) {
     let context = "trace_export_task";
     let min_wait_duration_between_profile_exports = config.min_duration_between_profile_exports;
     let mut time_last_profile_export = std::time::Instant::now();
     let mut update_count = 1;
+    println!(
+        "{}s between exports",
+        config.duration_between_exports.as_secs()
+    );
     loop {
         let period_time_secs = config.duration_between_exports;
         print_if_dbg(
@@ -310,9 +275,6 @@ async fn trace_export_loop(
                 }
             },
         };
-        let current_filters = reload_tracer_handle
-            .with_current(|c| c.to_string())
-            .expect("subscriber to exist");
         print_if_dbg(context, "Checking for new events");
 
         let should_export_profile = (time_last_profile_export.elapsed()
@@ -333,19 +295,12 @@ async fn trace_export_loop(
         } else {
             None
         };
-        let mut traces_and_orphan_events = export_data_getter.get_data_ready_to_export();
-        if !config.enable_log_exporting {
-            print_if_dbg(context, "dropping logs due to config.enable_log_exporting");
-            std::mem::take(&mut traces_and_orphan_events.traces);
-            std::mem::take(&mut traces_and_orphan_events.orphan_events);
-        }
-        let export_data = InstanceSnapshot {
+        let execution_recording = get_global_collector().get_all();
+        let export_data = api_structs::instance::update::InstanceSnapshot {
             update_count,
             instance_id,
-            orphan_events: traces_and_orphan_events.orphan_events,
-            trace_fragments: traces_and_orphan_events.traces,
-            export_buffer_size_bytes: traces_and_orphan_events.export_buffer_size_bytes,
-            log_filter: current_filters,
+            execution_recordings: execution_recording,
+            export_buffer_size_bytes: 1_000_000,
             cpu_profile_base64,
         };
         print_if_dbg(context, format!("Export data: {:#?}", export_data));
@@ -353,7 +308,8 @@ async fn trace_export_loop(
             serde_json::to_string(&export_data).expect("export data to be serializable");
         loop {
             print_if_dbg(context, "attempting export");
-            match export_instance_update(
+            tokio::time::sleep(period_time_secs).await;
+            match server_connection::instance_update_sender::export_instance_update(
                 &client,
                 &config.collector_url,
                 &export_data_json,
@@ -361,18 +317,11 @@ async fn trace_export_loop(
             )
             .await
             {
-                Ok(config_change) => {
-                    update_count += 1;
-                    if let Some(new_log_filter) = config_change.log_filter {
-                        println!("reloading log filters using new config: {new_log_filter}");
-                        reload_tracer_handle
-                            .reload(new_log_filter)
-                            .expect("not not failed to reload filter");
-                    }
+                Ok(()) => {
                     break;
                 }
                 Err(err) => {
-                    let err = tracked_error::error_chain_to_pretty_formatted(err);
+                    let err = error_chain_to_pretty_formatted(err);
                     println!("{context} - {err}");
                     let sleep_sec = Duration::from_secs(10);
                     println!("sleeping 10s");
@@ -392,42 +341,4 @@ async fn trace_export_loop(
             }
         });
     }
-}
-
-fn install_global_export_traces_on_panic_hook(export_now_handle: ExportNowRequester) {
-    let current = std::panic::take_hook();
-    println!("Installing panic hook");
-    std::panic::set_hook(Box::new(move |panic_info| {
-        println!("Running panic hook, trying to export creating and exporting panic span.");
-        println!("{}", panic_info);
-        println!(
-            "Backtrace:\n{}.",
-            std::backtrace::Backtrace::force_capture()
-        );
-        // Make sure we signal that we panic
-        let panic_span = tracing::info_span!("program panicked", is_panic = true);
-        panic_span.in_scope(|| {
-            let bt = std::backtrace::Backtrace::force_capture();
-            let panic_info: String = panic_info.to_string().chars().take(30_000).collect();
-            let bt: String = bt.to_string().chars().take(30_000).collect();
-            tracing::error!("Code panicked: Panic info: {}.", panic_info);
-            tracing::error!("Backtrace:\n{bt}.");
-        });
-        println!("trying to export it");
-        if let Err(e) = export_now_handle.try_export_dont_wait_result() {
-            println!("{:?}", e);
-        }
-        let wait_secs = 3;
-        println!("Waiting {wait_secs} seconds so export hopefully finishes");
-        std::thread::sleep(Duration::from_secs(wait_secs));
-        current(panic_info)
-    }));
-}
-
-// convenience helper so consumers don't need to import tracing_subscriber
-pub fn init_stdout_tracing_for_tests(rust_log: &str) {
-    unsafe {
-        std::env::set_var("RUST_LOG", rust_log);
-    }
-    tracing_subscriber::fmt::try_init().ok();
 }

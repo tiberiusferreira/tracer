@@ -12,4 +12,4 @@ serde_with.workspace = true
 deepsize.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-
+thiserror.workspace = true

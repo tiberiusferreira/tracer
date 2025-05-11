@@ -2,18 +2,17 @@ use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 
 use crate::api::state::AppState;
-use crate::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
 use api_structs::ServiceId;
 use clap::Parser;
 use tokio::task::spawn_local;
 use tracing::{Instrument, info, info_span, instrument};
 use tracing_config_helper::TracerConfig;
+use tracing_config_helper::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
 use valuable_derive::Valuable;
 
 mod api;
 mod background_tasks;
 mod error;
-mod io_provider;
 mod notification_worthy_events;
 mod series;
 
@@ -47,9 +46,7 @@ async fn main() {
                     env: launch_config.environment.clone(),
                 },
                 format!("http://127.0.0.1:{}", launch_config.api_listen_port),
-            )
-            .with_enable_log_exporting(true)
-            .with_stdout_logging(true);
+            );
 
             let _tracer_flush_request =
                 tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)

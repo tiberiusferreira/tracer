@@ -1,17 +1,17 @@
-use crate::io_provider::execution_recorder::database::Query;
-use crate::io_provider::execution_recorder::function_instrumentation::{
-    ExecutingFunction, track_task,
+use crate::io_provider::execution_recorder::function_instrumentation::track_task;
+use api_structs::instance::update::{
+    Error, ExecutionRecording, QueryResult, QueryWithParameters, QueryWithResult, Transaction,
+    TransactionResult,
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{OnceLock, RwLock};
 use uuid::Uuid;
 
-pub mod database;
 pub mod function_instrumentation;
 pub static GLOBAL_DATA_COLLECTOR: OnceLock<DataCollector> = OnceLock::new();
 
@@ -20,12 +20,11 @@ pub async fn record_execution<
     Input: Serialize + DeserializeOwned,
     Fun: FnOnce(Input) -> F,
 >(
-    name: &str,
-    kind: ExecutionKind,
     input: Input,
     future_generator: Fun,
 ) -> <F as Future>::Output {
-    let execution_context_id = get_global_collector().register_new_execution(name, kind);
+    let input_json = serde_json::to_value(&input).unwrap();
+    let execution_context_id = get_global_collector().register_new_execution(input_json);
     let future = future_generator(input);
     let res = track_task(future, execution_context_id).await;
     res
@@ -44,41 +43,48 @@ impl DataCollector {
     pub fn get_all(&self) -> Vec<ExecutionRecording> {
         self.executions.read().unwrap().values().cloned().collect()
     }
-    pub fn register_new_execution(&self, name: &str, kind: ExecutionKind) -> Uuid {
+    pub fn register_new_execution(&self, input: serde_json::Value) -> Uuid {
         let id = Uuid::new_v4();
 
         assert!(
             self.executions
                 .write()
                 .unwrap()
-                .insert(id, ExecutionRecording::new(id, name, kind))
+                .insert(id, ExecutionRecording::new(id, input))
                 .is_none(),
             "execution already registered"
         );
         id
     }
     pub fn end_execution(&self, id: Uuid) {
+        self.executions.write().unwrap().get_mut(&id).unwrap().ended = true;
         self.executions
             .write()
             .unwrap()
             .get_mut(&id)
             .unwrap()
-            .ended_at = Some(Utc::now());
+            .last_seen_at = Utc::now();
     }
 
-    pub fn standalone_query_start(&self, execution_id: Uuid, query: Query) -> u64 {
+    pub fn standalone_query_start(&self, execution_id: Uuid, query: QueryWithParameters) -> u64 {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
         let id = execution_context
+            .replay_data
             .database_recording
-            .standalone_queries
-            .len() as u64;
+            .standalone_queries_count;
         execution_context
+            .replay_data
+            .database_recording
+            .standalone_queries_count += 1;
+        execution_context
+            .replay_data
             .database_recording
             .standalone_queries
             .push(QueryWithResult {
+                id,
                 started_at: Utc::now(),
-                query,
+                query_with_parameters: query,
                 result: None,
             });
         id
@@ -87,31 +93,43 @@ impl DataCollector {
         &self,
         execution_id: Uuid,
         query_id: u64,
-        result: Result<serde_json::Value, database::Error>,
+        result: Result<serde_json::Value, Error>,
     ) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
         let query_mut = execution_context
+            .replay_data
             .database_recording
             .standalone_queries
-            .get_mut(query_id as usize)
+            .iter_mut()
+            .find(|q| q.id == query_id)
             .unwrap();
         assert!(query_mut.result.is_none());
         query_mut.result = Some(QueryResult {
-            result,
             ended_at: Utc::now(),
-        });
+            result,
+        })
     }
 
     pub fn transaction_start(&self, execution_id: Uuid) -> u64 {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let id = execution_context.database_recording.transactions.len() as u64;
+        let id = execution_context
+            .replay_data
+            .database_recording
+            .transactions_count;
         execution_context
+            .replay_data
+            .database_recording
+            .transactions_count += 1;
+        execution_context
+            .replay_data
             .database_recording
             .transactions
             .push(Transaction {
+                id,
                 started_at: Utc::now(),
+                queries_count: 0,
                 queries: vec![],
                 result: None,
             });
@@ -121,19 +139,23 @@ impl DataCollector {
         &self,
         execution_id: Uuid,
         transaction_id: u64,
-        query: Query,
+        query: QueryWithParameters,
     ) -> u64 {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
         let transaction = execution_context
+            .replay_data
             .database_recording
             .transactions
-            .get_mut(transaction_id as usize)
+            .iter_mut()
+            .find(|transaction| transaction.id == transaction_id)
             .unwrap();
-        let id = transaction.queries.len() as u64;
+        let id = transaction.queries_count;
+        transaction.queries_count += 1;
         transaction.queries.push(QueryWithResult {
+            id,
             started_at: Utc::now(),
-            query,
+            query_with_parameters: query,
             result: None,
         });
         id
@@ -143,20 +165,26 @@ impl DataCollector {
         execution_id: Uuid,
         transaction_id: u64,
         query_id: u64,
-        result: Result<serde_json::Value, database::Error>,
+        result: Result<serde_json::Value, Error>,
     ) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
         let transaction = execution_context
+            .replay_data
             .database_recording
             .transactions
-            .get_mut(transaction_id as usize)
+            .iter_mut()
+            .find(|transaction| transaction.id == transaction_id)
             .unwrap();
-        let query_result = transaction.queries.get_mut(query_id as usize).unwrap();
+        let query_result = transaction
+            .queries
+            .iter_mut()
+            .find(|query| query.id == query_id)
+            .unwrap();
         assert!(query_result.result.is_none());
         query_result.result = Some(QueryResult {
-            result,
             ended_at: Utc::now(),
+            result,
         });
     }
 
@@ -164,14 +192,16 @@ impl DataCollector {
         &self,
         execution_id: Uuid,
         transaction_id: u64,
-        result: Result<(), database::Error>,
+        result: Result<(), Error>,
     ) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
         let transaction = execution_context
+            .replay_data
             .database_recording
             .transactions
-            .get_mut(transaction_id as usize)
+            .iter_mut()
+            .find(|transaction| transaction.id == transaction_id)
             .unwrap();
         assert!(transaction.result.is_none());
         transaction.result = Some(TransactionResult {
@@ -179,6 +209,18 @@ impl DataCollector {
             result,
         });
     }
+    pub fn record_single_attribute(&self, execution_id: Uuid, name: String, value: String) {
+        let mut exec_context_w_guard = self.executions.write().unwrap();
+        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
+        execution_context
+            .attributes
+            .insert(name, HashSet::from([value]));
+    }
+}
+
+pub fn record_single_attribute(name: String, value: String) {
+    let current_exec = get_current_execution().unwrap();
+    get_global_collector().record_single_attribute(current_exec, name, value);
 }
 
 pub fn get_global_collector() -> &'static DataCollector {
@@ -188,83 +230,9 @@ pub fn get_global_collector() -> &'static DataCollector {
 }
 
 #[derive(Clone, Debug)]
-struct QueryWithResult {
-    started_at: DateTime<Utc>,
-    query: Query,
-    result: Option<QueryResult>,
-}
-
-#[derive(Clone, Debug)]
-struct QueryResult {
-    result: Result<serde_json::Value, database::Error>,
-    ended_at: DateTime<Utc>,
-}
-
-#[derive(Clone, Debug)]
-struct Transaction {
-    started_at: DateTime<Utc>,
-    queries: Vec<QueryWithResult>,
-    result: Option<TransactionResult>,
-}
-
-#[derive(Clone, Debug)]
-enum CommitResult {
-    Commited,
-    RolledBack,
-}
-
-#[derive(Clone, Debug)]
-struct TransactionResult {
-    ended_at: DateTime<Utc>,
-    result: Result<(), database::Error>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct DatabaseRecording {
-    standalone_queries: Vec<QueryWithResult>,
-    transactions: Vec<Transaction>,
-}
-
-#[derive(Clone, Debug)]
 pub struct HttpHandler {
     endpoint: String,
     response_status_code: Option<i64>,
-}
-#[derive(Clone, Debug)]
-pub enum ExecutionKind {
-    HttpHandler(HttpHandler),
-    Other,
-}
-
-#[derive(Clone, Debug)]
-pub struct ExecutionRecording {
-    id: Uuid,
-    kind: ExecutionKind,
-    name: String,
-    started_at: DateTime<Utc>,
-    ended_at: Option<DateTime<Utc>>,
-    warning_messages: Vec<String>,
-    error_messages: Vec<String>,
-    database_recording: DatabaseRecording,
-    executed_functions: Vec<ExecutingFunction>,
-    call_stack: Vec<u64>,
-}
-
-impl ExecutionRecording {
-    pub fn new(id: Uuid, name: &str, kind: ExecutionKind) -> ExecutionRecording {
-        Self {
-            id,
-            database_recording: DatabaseRecording::default(),
-            started_at: Utc::now(),
-            name: name.to_string(),
-            warning_messages: Default::default(),
-            error_messages: Default::default(),
-            ended_at: None,
-            executed_functions: vec![],
-            call_stack: vec![],
-            kind,
-        }
-    }
 }
 
 thread_local! {
@@ -286,22 +254,4 @@ pub fn get_current_execution() -> Option<Uuid> {
 fn clear_current_execution(id: Uuid) {
     let old = CURRENT_EXECUTION.replace(None);
     assert_eq!(old, Some(id), "execution didnt match {old:#?} {id}");
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecutionMetadata {
-    name: String,
-    started_at: DateTime<Utc>,
-    ended_at: Option<DateTime<Utc>>,
-    warning_messages: Vec<String>,
-    error_messages: Vec<String>,
-}
-
-impl ExecutionMetadata {
-    pub fn record_error(&mut self, error: &str) {
-        self.error_messages.push(error.to_string());
-    }
-    pub fn record_warning(&mut self, warning: &str) {
-        self.warning_messages.push(warning.to_string());
-    }
 }
