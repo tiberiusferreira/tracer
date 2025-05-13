@@ -10,7 +10,7 @@ async fn w() {
     .await;
     println!(
         "{:#?}",
-        crate::io_provider::execution_recorder::get_global_collector().get_all()
+        crate::io_provider::execution_recorder::get_global_collector().get_all_pruning()
     );
 }
 

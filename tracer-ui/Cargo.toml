@@ -10,14 +10,14 @@ tracked_error = { workspace = true, default-features = false, features = [] }
 api-structs = { path = "../api-structs" }
 console_error_panic_hook = "0.1"
 tracing-subscriber-wasm = "0.1.0"
-leptos = { version = "0.7.7", features = ["csr"] }
-leptos_router = { version = "0.7.7" }
+leptos = { version = "0.8.2", features = ["csr"] }
+leptos_router = { version = "0.8.2" }
 chrono = "0.4"
 js-sys = "0.3"
 gloo-net = { version = "0.6.0", features = ['http'] }
 charming = { version = "0.4.0", features = ["wasm"] }
 tracing-subscriber = "0.3"
-web-sys = { version = "0.3.73", features = ['DomRect', 'Element'] }
+web-sys = { version = "0.3.77", features = ['DomRect', 'Element'] }
 uuid = { workspace = true, features = ["js"] }
 #wasm-bindgen = "0.2.100"
 #serde_json.workspace = true

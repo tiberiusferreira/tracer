@@ -60,10 +60,11 @@ pub struct ExecutionRecording {
     // support data
     pub current_call_stack: Vec<u64>,
     pub function_count: u64,
+    pub recording_enabled: bool,
 }
 
 impl ExecutionRecording {
-    pub fn new(id: Uuid, input: serde_json::Value) -> ExecutionRecording {
+    pub fn new(id: Uuid, input: serde_json::Value, recording_enabled: bool) -> ExecutionRecording {
         Self {
             id,
             function_count: 0,
@@ -79,6 +80,7 @@ impl ExecutionRecording {
             executed_functions: vec![],
             current_call_stack: vec![],
             attributes: Default::default(),
+            recording_enabled,
         }
     }
 }

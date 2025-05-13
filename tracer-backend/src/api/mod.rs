@@ -118,7 +118,22 @@ async fn my_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    // Service A -> Tracer update endpoint -> generates execution recording -> Tracer self-tracing endpoint
+    // Service B -> Tracer update endpoint
+    // Tracer -> Tracer self-tracing endpoint that records the data without generating a new execution recording
     let my_request = axum_request_to_serializable(request).await;
+    let recording_enabled = if my_request.parts.uri == "/api/instance/update"
+        && my_request
+            .parts
+            .headers
+            .get("host")
+            .is_some_and(|h| h == "127.0.0.1:4200")
+    {
+        // about to store data from ourselves
+        false
+    } else {
+        true
+    };
     let response = tracing_config_helper::io_provider::execution_recorder::record_execution(
         my_request,
         |my_request| async {
@@ -130,6 +145,7 @@ async fn my_middleware(
             record_single_attribute("status_code".to_string(), status.as_u16().to_string());
             resp
         },
+        recording_enabled,
     )
     .await;
     response
@@ -150,7 +166,7 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
         "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html",
     ));
     let service_routes =
-        axum::Router::new().route("/data", axum::routing::post(handlers::ui::service::a));
+        axum::Router::new().route("/data", axum::routing::post(handlers::ui::service::data));
     let instance_routes = axum::Router::new()
         .route(
             "/register",
@@ -181,6 +197,7 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
         .nest("/api/ui/trace", trace_routes)
         .with_state(app_state)
         .fallback_service(serve_ui)
+        .layer(axum::middleware::from_fn(my_middleware))
         .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
         .layer(tower_http::cors::CorsLayer::very_permissive())
         .layer(tower_http::compression::CompressionLayer::new())
@@ -214,8 +231,7 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
                         span.record("http.response.status_code", status_code);
                     },
                 ),
-        )
-        .layer(axum::middleware::from_fn(my_middleware));
+        );
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     app
 }

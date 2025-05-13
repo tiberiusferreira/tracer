@@ -43,7 +43,21 @@ pub struct Transaction {
     tx: TransactionIoProvider,
 }
 
+pub struct IoProviderState {
+    is_playing_recording: bool,
+}
+
 impl Transaction {
+    pub fn state(&self) -> IoProviderState {
+        match self.tx {
+            TransactionIoProvider::Recorded(_) => IoProviderState {
+                is_playing_recording: true,
+            },
+            TransactionIoProvider::Live(_) => IoProviderState {
+                is_playing_recording: false,
+            },
+        }
+    }
     pub async fn insert(
         &mut self,
         table: &str,
@@ -199,7 +213,6 @@ impl Transaction {
     }
 }
 impl DatabaseIoProvider {
-    #[track_caller]
     pub async fn transaction_start(&self) -> Transaction {
         let execution_id = get_current_execution().unwrap();
         let client = match &self {
@@ -217,8 +230,32 @@ impl DatabaseIoProvider {
         }
     }
 
-    #[track_caller]
     pub async fn query_required_single<T: Serialize + DeserializeOwned + Clone>(
+        &self,
+        query: &str,
+        parameters: HashMap<String, Parameter>,
+    ) -> Result<T, Error> {
+        let execution_id = get_current_execution().unwrap();
+        let client = match &self {
+            DatabaseIoProvider::Recorded(_) => {
+                unimplemented!()
+            }
+            DatabaseIoProvider::Live(client) => client,
+        };
+        let global_collector = get_global_collector();
+        let query_id = global_collector.standalone_query_start(
+            execution_id,
+            QueryWithParameters {
+                query_text: query.to_string(),
+                parameters: parameters.clone(),
+            },
+        );
+        let result: Result<T, Error> = run_query_required_single(client, query, parameters).await;
+        let res_as_json_value = result.clone().map(|v| serde_json::to_value(v).unwrap());
+        global_collector.standalone_query_end(execution_id, query_id, res_as_json_value);
+        result
+    }
+    pub async fn query<T: Serialize + DeserializeOwned + Clone>(
         &self,
         query: &str,
         parameters: HashMap<String, Parameter>,
@@ -245,8 +282,7 @@ impl DatabaseIoProvider {
     }
 }
 
-#[track_caller]
-async fn run_query<T: Serialize + DeserializeOwned + Clone>(
+async fn run_query_required_single<T: Serialize + DeserializeOwned + Clone>(
     client: &gel_tokio::Client,
     query: &str,
     parameters: HashMap<String, Parameter>,
@@ -273,7 +309,32 @@ async fn run_query<T: Serialize + DeserializeOwned + Clone>(
     Ok(query_result)
 }
 
-#[track_caller]
+async fn run_query<T: Serialize + DeserializeOwned + Clone>(
+    client: &gel_tokio::Client,
+    query: &str,
+    parameters: HashMap<String, Parameter>,
+) -> Result<T, Error> {
+    let gel_params = gel::params_to_gel(parameters);
+    let gel_params: HashMap<&str, ValueOpt> = gel_params
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect();
+
+    let query_result: gel_protocol::model::Json =
+        client.query_json(query, &gel_params).await.map_err(|e| {
+            let err_str = error_chain_to_pretty_formatted(&e);
+            let err_str = format!("{err_str} with query {}", query);
+            Error::Internal {
+                msg: err_str,
+                location: std::panic::Location::caller().to_string(),
+            }
+        })?;
+    let query_result: T = serde_json::from_str(&query_result).unwrap_or_else(|_e| {
+        panic!("failed to deserialize query from {query:#?} value {query_result:#?}")
+    });
+    Ok(query_result)
+}
+
 async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
@@ -301,7 +362,6 @@ async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
     Ok(query_result)
 }
 
-#[track_caller]
 async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,

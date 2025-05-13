@@ -295,7 +295,7 @@ async fn trace_export_loop(
         } else {
             None
         };
-        let execution_recording = get_global_collector().get_all();
+        let execution_recording = get_global_collector().get_all_pruning();
         let export_data = api_structs::instance::update::InstanceSnapshot {
             update_count,
             instance_id,

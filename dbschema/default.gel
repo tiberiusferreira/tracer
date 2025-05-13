@@ -24,6 +24,7 @@ module default {
         };
         required replay_data: json;
         required executed_functions: json;
+        required size_bytes := len(to_str(.replay_data)) + len(to_str(.executed_functions));
         required created_at: datetime {
             default := datetime_of_statement();
             readonly := true;

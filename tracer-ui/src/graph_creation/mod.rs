@@ -1,7 +1,8 @@
-use charming::component::{Axis, Grid};
+use charming::component::{Axis, Grid, Title};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
-    AxisTick, AxisType, Color, ItemStyle, NameLocation, Tooltip, Trigger, TriggerOn,
+    AxisTick, AxisType, Color, ItemStyle, NameLocation, SplitLine, TextAlign, Tooltip, Trigger,
+    TriggerOn,
 };
 use charming::{Chart, WasmRenderer};
 use leptos::html::Div;
@@ -61,21 +62,26 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
         async move {
             let mut chart = Chart::new()
                 // .grid(Grid::new())
-                .grid(Grid::new().left(30.).right(10.).bottom(30.).top(10.))
+                .grid(Grid::new().left(45.).right(20.).bottom(30.).top(10.))
+                // .title(Title::new().text("Some").text_align(TextAlign::Left))
                 .x_axis(
                     Axis::new()
                         .type_(AxisType::Category)
-                        .name_location(NameLocation::Middle), // .name_text_style(TextStyle::new().font_size(18.))
-                                                              // .name(&graph_data.x_name)
-                                                              // .axis_pointer(AxisPointer::new().axis(AxisPointerAxis::X).show(true)), // .name_gap(20.),
+                        .name_location(NameLocation::Middle) // .name_text_style(TextStyle::new().font_size(18.))
+                        // .name(&graph_data.x_name)
+                        .axis_pointer(
+                            charming::element::AxisPointer::new()
+                                .axis(charming::element::AxisPointerAxis::X)
+                                .show(true),
+                        ),
+                    // .name_gap(20.),
                 )
                 .y_axis(
                     Axis::new()
                         .type_(AxisType::Value)
-                        .name(&graph_data.y_name)
-                        .axis_tick(AxisTick::default().split_number(2))
+                        // .name(&graph_data.y_name)
                         // .name_text_style(TextStyle::new().font_size(18.))
-                        .name_gap(30.)
+                        // .name_gap(30.)
                         .name_location(NameLocation::Middle),
                 )
                 .color(vec![
@@ -122,44 +128,44 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                         )
                         .name(&series.name),
                 );
-                chart = chart.series(
-                    charming::series::Line::new()
-                        // .symbol_size(6.5)
-                        // .item_style(ItemStyle::new().opacity(1.0))
-                        .data(
-                            series
-                                .x_values
-                                .iter()
-                                .zip(series.y_values.iter())
-                                .map(|(a, _b)| {
-                                    CompositeValue::Array(vec![
-                                        CompositeValue::String(a.to_string()),
-                                        CompositeValue::Number(NumericValue::Float(20.)),
-                                    ])
-                                })
-                                .collect::<Vec<CompositeValue>>(),
-                        )
-                        .name(format!("{}-min-threshold", &series.name)),
-                );
-                chart = chart.series(
-                    charming::series::Line::new()
-                        // .symbol_size(6.5)
-                        // .item_style(ItemStyle::new().opacity(1.0))
-                        .data(
-                            series
-                                .x_values
-                                .iter()
-                                .zip(series.y_values.iter())
-                                .map(|(a, _b)| {
-                                    CompositeValue::Array(vec![
-                                        CompositeValue::String(a.to_string()),
-                                        CompositeValue::Number(NumericValue::Float(600.)),
-                                    ])
-                                })
-                                .collect::<Vec<CompositeValue>>(),
-                        )
-                        .name(format!("{}-max-threshold", &series.name)),
-                );
+                // chart = chart.series(
+                //     charming::series::Line::new()
+                //         // .symbol_size(6.5)
+                //         // .item_style(ItemStyle::new().opacity(1.0))
+                //         .data(
+                //             series
+                //                 .x_values
+                //                 .iter()
+                //                 .zip(series.y_values.iter())
+                //                 .map(|(a, _b)| {
+                //                     CompositeValue::Array(vec![
+                //                         CompositeValue::String(a.to_string()),
+                //                         CompositeValue::Number(NumericValue::Float(20.)),
+                //                     ])
+                //                 })
+                //                 .collect::<Vec<CompositeValue>>(),
+                //         )
+                //         .name(format!("{}-min-threshold", &series.name)),
+                // );
+                // chart = chart.series(
+                //     charming::series::Line::new()
+                //         // .symbol_size(6.5)
+                //         // .item_style(ItemStyle::new().opacity(1.0))
+                //         .data(
+                //             series
+                //                 .x_values
+                //                 .iter()
+                //                 .zip(series.y_values.iter())
+                //                 .map(|(a, _b)| {
+                //                     CompositeValue::Array(vec![
+                //                         CompositeValue::String(a.to_string()),
+                //                         CompositeValue::Number(NumericValue::Float(600.)),
+                //                     ])
+                //                 })
+                //                 .collect::<Vec<CompositeValue>>(),
+                //         )
+                //         .name(format!("{}-max-threshold", &series.name)),
+                // );
             }
             let el = web_sys::window()
                 .unwrap()

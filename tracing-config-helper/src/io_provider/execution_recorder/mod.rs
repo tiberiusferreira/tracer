@@ -1,15 +1,19 @@
+use crate::io_provider::TransactionIoProvider;
 use crate::io_provider::execution_recorder::function_instrumentation::track_task;
 use api_structs::instance::update::{
     Error, ExecutionRecording, QueryResult, QueryWithParameters, QueryWithResult, Transaction,
     TransactionResult,
 };
 use chrono::{DateTime, Utc};
+use pin_project_lite::pin_project;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::pin::Pin;
 use std::sync::{OnceLock, RwLock};
+use std::task::{Context, Poll};
 use uuid::Uuid;
 
 pub mod function_instrumentation;
@@ -22,9 +26,11 @@ pub async fn record_execution<
 >(
     input: Input,
     future_generator: Fun,
+    recording_enabled: bool,
 ) -> <F as Future>::Output {
     let input_json = serde_json::to_value(&input).unwrap();
-    let execution_context_id = get_global_collector().register_new_execution(input_json);
+    let execution_context_id =
+        get_global_collector().register_new_execution(input_json, recording_enabled);
     let future = future_generator(input);
     let res = track_task(future, execution_context_id).await;
     res
@@ -40,17 +46,31 @@ impl DataCollector {
             executions: RwLock::new(HashMap::new()),
         }
     }
-    pub fn get_all(&self) -> Vec<ExecutionRecording> {
-        self.executions.read().unwrap().values().cloned().collect()
+    pub fn get_all_pruning(&self) -> Vec<ExecutionRecording> {
+        let data: Vec<ExecutionRecording> = self
+            .executions
+            .read()
+            .unwrap()
+            .values()
+            .filter(|v| v.recording_enabled)
+            .cloned()
+            .collect();
+        let mut w_guard = self.executions.write().unwrap();
+        w_guard.retain(|k, val| !val.ended);
+        data
     }
-    pub fn register_new_execution(&self, input: serde_json::Value) -> Uuid {
+    pub fn register_new_execution(
+        &self,
+        input: serde_json::Value,
+        recording_enabled: bool,
+    ) -> Uuid {
         let id = Uuid::new_v4();
 
         assert!(
             self.executions
                 .write()
                 .unwrap()
-                .insert(id, ExecutionRecording::new(id, input))
+                .insert(id, ExecutionRecording::new(id, input, recording_enabled))
                 .is_none(),
             "execution already registered"
         );
@@ -69,6 +89,10 @@ impl DataCollector {
     pub fn standalone_query_start(&self, execution_id: Uuid, query: QueryWithParameters) -> u64 {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
+        let is_recording = get_recording_database_state();
+        if !is_recording {
+            return 0;
+        }
         let id = execution_context
             .replay_data
             .database_recording
@@ -97,6 +121,10 @@ impl DataCollector {
     ) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
+        let is_recording = get_recording_database_state();
+        if !is_recording {
+            return;
+        }
         let query_mut = execution_context
             .replay_data
             .database_recording
@@ -143,6 +171,10 @@ impl DataCollector {
     ) -> u64 {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
+        let is_recording = get_recording_database_state();
+        if !is_recording {
+            return 0;
+        }
         let transaction = execution_context
             .replay_data
             .database_recording
@@ -169,6 +201,10 @@ impl DataCollector {
     ) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
+        let is_recording = get_recording_database_state();
+        if !is_recording {
+            return;
+        }
         let transaction = execution_context
             .replay_data
             .database_recording
@@ -229,14 +265,60 @@ pub fn get_global_collector() -> &'static DataCollector {
         .expect("collector to have been initialized")
 }
 
-#[derive(Clone, Debug)]
-pub struct HttpHandler {
-    endpoint: String,
-    response_status_code: Option<i64>,
+pin_project! {
+    pub struct NoDatabaseRecording<F> {
+        #[pin]
+        inner: F,
+        is_playing_a_recording: bool,
+    }
+    //  impl<T> PinnedDrop for Fut<T> {
+    //     fn drop(this: Pin<&mut Self>) {
+    //         let this = this.project();
+    //         if let Some(function_id) = *this.function_id {
+    //             let Some(current_execution) = get_current_execution() else {
+    //                 panic!("tried to end function {function_id} without execution context");
+    //             };
+    //             get_global_collector().end_function(current_execution, function_id);
+    //         }
+    //     }
+    // }
+}
+impl<E, T: Future<Output = Result<(), E>>> Future for NoDatabaseRecording<T> {
+    type Output = T::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let fut = this.inner;
+        if *this.is_playing_a_recording {
+            return Poll::Ready(Ok(()));
+        }
+        set_recording_database_state(false);
+        let res = fut.poll(cx);
+        set_recording_database_state(true);
+        res
+    }
+}
+pub fn run_without_query_recording<F: Future>(
+    state: &crate::io_provider::IoProviderState,
+    fut: F,
+) -> NoDatabaseRecording<F> {
+    let is_playing_a_recording = state.is_playing_recording;
+    NoDatabaseRecording {
+        inner: fut,
+        is_playing_a_recording,
+    }
 }
 
 thread_local! {
     pub static CURRENT_EXECUTION: Cell<Option<Uuid>> = const { Cell::new(None) };
+    pub static RECORDING_DATABASE: Cell<bool> = const { Cell::new(true) };
+}
+
+fn get_recording_database_state() -> bool {
+    RECORDING_DATABASE.get()
+}
+fn set_recording_database_state(new_state: bool) {
+    RECORDING_DATABASE.replace(new_state);
 }
 
 fn set_current_execution(id: Uuid) {

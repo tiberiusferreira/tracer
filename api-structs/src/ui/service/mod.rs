@@ -1,4 +1,5 @@
 use crate::Endpoint;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub struct GetService;
@@ -42,4 +43,41 @@ pub struct ProfileData {
 pub struct NewFiltersRequest {
     pub service_id: i32,
     pub log_filter: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Summaries {
+    pub buckets: Vec<DateTime<Utc>>,
+    pub execution: ExecutionSummary,
+    pub requests: RequestsSummary,
+    pub size_bytes: SizeBytesSummary,
+    pub duration: DurationSummary,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ExecutionSummary {
+    pub total: u64,
+    pub with_warning_count: u64,
+    pub with_errors_count: u64,
+    pub values: Vec<f64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RequestsSummary {
+    pub total: u64,
+    pub with_200_status_count: u64,
+    pub with_non_200_status_count: u64,
+    pub values: Vec<f64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SizeBytesSummary {
+    pub total: u64,
+    pub values: Vec<f64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DurationSummary {
+    pub max_ms: f64,
+    pub max_values: Vec<f64>,
 }

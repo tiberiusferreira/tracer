@@ -1,6 +1,8 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
-use api_structs::instance::update::{ConfigChange, InstanceSnapshot, Parameter};
+use api_structs::instance::update::{
+    ConfigChange, ExecutionRecording, InstanceSnapshot, Parameter,
+};
 use axum::Json;
 use axum::extract::State;
 use gel_errors::{ErrorKind, UserError};
@@ -11,6 +13,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{info, instrument};
 use tracing_config_helper::io_provider::Transaction;
+use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
 use tracked_error::TrackedError;
 use uuid::Uuid;
 
@@ -172,14 +175,14 @@ pub struct DbPartialExecution {
     pub ended: bool,
 }
 
-async fn process_update(
+async fn process_execution_recording(
     tx: &mut Transaction,
-    instance_snapshot: &InstanceSnapshot,
+    instance_id: Uuid,
+    recording: &ExecutionRecording,
 ) -> Result<(), api_structs::instance::update::Error> {
-    for recording in &instance_snapshot.execution_recordings {
-        let existing_execution: Option<DbPartialExecution> = tx
-            .query_optional(
-                "select Execution{
+    let existing_execution: Option<DbPartialExecution> = tx
+        .query_optional(
+            "select Execution{
       id,
       last_seen_at,
       ended
@@ -187,97 +190,104 @@ async fn process_update(
       .service_instance = <ServiceInstance><uuid>$service_instance_id
       and .external_id = <uuid>$external_id
       ",
-                HashMap::from([
-                    (
-                        "service_instance_id".to_string(),
-                        Parameter::Uuid {
-                            val: instance_snapshot.instance_id,
-                            cast_to_table: None,
-                        },
-                    ),
-                    (
-                        "external_id".to_string(),
-                        Parameter::Uuid {
-                            val: recording.id,
-                            cast_to_table: None,
-                        },
-                    ),
-                ]),
-            )
-            .await?;
-        let execution_id = match existing_execution {
-            None => {
-                let params = HashMap::from([
-                    (
-                        "service_instance",
-                        Parameter::Uuid {
-                            val: instance_snapshot.instance_id,
-                            cast_to_table: Some("ServiceInstance".to_string()),
-                        },
-                    ),
-                    (
-                        "external_id",
-                        Parameter::Uuid {
-                            val: recording.id,
-                            cast_to_table: None,
-                        },
-                    ),
-                    ("started_at", Parameter::Datetime(recording.started_at)),
-                    ("last_seen_at", Parameter::Datetime(recording.last_seen_at)),
-                    ("ended", Parameter::Bool(recording.ended)),
-                    (
-                        "replay_data",
-                        Parameter::Json(serde_json::to_value(&recording.replay_data).unwrap()),
-                    ),
-                    (
-                        "executed_functions",
-                        Parameter::Json(
-                            serde_json::to_value(&recording.executed_functions).unwrap(),
+            HashMap::from([
+                (
+                    "service_instance_id".to_string(),
+                    Parameter::Uuid {
+                        val: instance_id,
+                        cast_to_table: None,
+                    },
+                ),
+                (
+                    "external_id".to_string(),
+                    Parameter::Uuid {
+                        val: recording.id,
+                        cast_to_table: None,
+                    },
+                ),
+            ]),
+        )
+        .await?;
+    let execution_id = match existing_execution {
+        None => {
+            let params = HashMap::from([
+                (
+                    "service_instance",
+                    Parameter::Uuid {
+                        val: instance_id,
+                        cast_to_table: Some("ServiceInstance".to_string()),
+                    },
+                ),
+                (
+                    "external_id",
+                    Parameter::Uuid {
+                        val: recording.id,
+                        cast_to_table: None,
+                    },
+                ),
+                ("started_at", Parameter::Datetime(recording.started_at)),
+                ("last_seen_at", Parameter::Datetime(recording.last_seen_at)),
+                ("ended", Parameter::Bool(recording.ended)),
+                (
+                    "replay_data",
+                    Parameter::Json(serde_json::to_value(&recording.replay_data).unwrap()),
+                ),
+                (
+                    "executed_functions",
+                    Parameter::Json(serde_json::to_value(&recording.executed_functions).unwrap()),
+                ),
+            ]);
+            let execution_id = tx.insert("Execution", params).await?;
+            for (name, values) in &recording.attributes {
+                for value in values {
+                    let params = HashMap::from([
+                        (
+                            "execution",
+                            Parameter::Uuid {
+                                val: execution_id,
+                                cast_to_table: Some("Execution".to_string()),
+                            },
                         ),
-                    ),
-                ]);
-                let execution_id = tx.insert("Execution", params).await?;
-                for (name, values) in &recording.attributes {
-                    for value in values {
-                        let params = HashMap::from([
-                            (
-                                "execution",
-                                Parameter::Uuid {
-                                    val: execution_id,
-                                    cast_to_table: Some("Execution".to_string()),
-                                },
-                            ),
-                            ("name", Parameter::String(name.clone())),
-                            ("_value", Parameter::String(value.clone())),
-                        ]);
-                        println!("inserted attribute");
-                        let _id = tx.insert("Attributes", params).await?;
-                    }
+                        ("name", Parameter::String(name.clone())),
+                        ("_value", Parameter::String(value.clone())),
+                    ]);
+                    println!("inserted attribute");
+                    let _id = tx.insert("Attributes", params).await?;
                 }
-                execution_id
             }
-            Some(existing_execution) => {
-                // TODO update
-                existing_execution.id
-            }
-        };
+            execution_id
+        }
+        Some(existing_execution) => {
+            // TODO update
+            existing_execution.id
+        }
+    };
+    Ok(())
+}
+async fn process_update(
+    tx: &mut Transaction,
+    instance_snapshot: &InstanceSnapshot,
+) -> Result<(), api_structs::instance::update::Error> {
+    for recording in &instance_snapshot.execution_recordings {
+        // let is_from_self = recording
+        //     .attributes
+        //     .get("uri")
+        //     .is_some_and(|uri| uri.contains("/api/instance/update"));
+        // if is_from_self {
+        //     let state = tx.state();
+        //     tracing_config_helper::io_provider::execution_recorder::run_without_query_recording(
+        //         &state,
+        //         async {
+        //             process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording)
+        //                 .await
+        //         },
+        //     )
+        //     .await?;
+        // } else {
+        process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording).await?;
+        // }
     }
     Ok(())
-    // let updated_data =
-    //     update_instance_update_count_and_log_level(&mut tx, instance_snapshot).await?;
-    // insert_new_instance_update(&mut tx, instance_snapshot).await?;
-    // let mut sorted_trace_fragments = instance_snapshot
-    //     .execution_fragments
-    //     .clone()
-    //     .into_values()
-    //     .collect::<Vec<_>>();
-    // sorted_trace_fragments.sort_by_key(|e| e.trace_id);
-
-    // for trace_fragment in &sorted_trace_fragments {
-    // trace::insert_or_update_trace(&mut tx, instance_snapshot.instance_id, trace_fragment)
-    //     .await?;
-    // }
-    // Ok(updated_data)
 }
 #[instrument(level = "error", skip_all, err(Debug))]
 pub async fn handler(

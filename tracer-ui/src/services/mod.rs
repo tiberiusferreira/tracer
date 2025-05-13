@@ -1,8 +1,10 @@
 use crate::error::TrackedGlooError;
-use crate::graph_creation::GraphSeries;
+use crate::graph_creation::{GraphData, GraphSeries};
 use api_structs::Endpoint;
+use api_structs::ui::service::{ExecutionSummary, Summaries};
 use chrono::NaiveTime;
 use leptos::prelude::*;
+use leptos::tachys::prelude::*;
 use tracing::info;
 
 #[component]
@@ -58,7 +60,6 @@ pub fn Services() -> impl IntoView {
     view! {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
-
             <div id="overall-view" style="margin-top: 20px; ">
                 <Visualizations/>
                 <ServiceSelector/>
@@ -205,8 +206,287 @@ fn TraceGrid() -> impl IntoView {
     }
 }
 
+fn service_graph(execution_summary: &Summaries) -> AnyView {
+    let action = crate::graph_creation::create_create_chart_action();
+    info!("{execution_summary:#?}");
+    let series = GraphSeries {
+        name: "my series".to_string(),
+        x_values: execution_summary
+            .buckets
+            .iter()
+            .map(|f| {
+                let f = f.with_timezone(&chrono::Local);
+                f.format("%H:%M").to_string()
+            })
+            .collect(),
+        y_values: execution_summary.execution.values.clone(),
+    };
+    let total = execution_summary.execution.total;
+    let warnings = execution_summary.execution.with_warning_count;
+    let errors = execution_summary.execution.with_errors_count;
+    let data = GraphData {
+        dom_id_to_render_to: "exec_summary".to_string(),
+        y_name: "TestY".to_string(),
+        x_name: "TestX".to_string(),
+        series: vec![series],
+        click_event_timestamp_receiver: None,
+    };
+    let (trace_warning_graph, trace_warning_graph_id) =
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+    view! {
+            <div id="traces-graph">
+                <div style="margin-top: 10px">
+                    <h3 style="display: inline; margin: 0">"Executions: "</h3>
+                    <p style="display: inline; margin: 0 0 0 10px">{format!("{total} total - {warnings} warnings - {errors} errors")}</p>
+                    <div style="margin-left: auto">
+                        <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                        <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                        <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                        <p style="display: inline; margin: 0">" over "</p>
+                        <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                        <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                        <button style="margin-left: 5px">"Create"</button>
+                    </div>
+                </div>
+                <div style="margin-top: 10px">
+                    <div style="height: 100px" node_ref=trace_warning_graph id=trace_warning_graph_id.clone()></div>
+                </div>
+            </div>
+    }.into_any()
+}
+
+fn requests_graph(execution_summary: &Summaries) -> AnyView {
+    let action = crate::graph_creation::create_create_chart_action();
+    info!("{execution_summary:#?}");
+    let series = GraphSeries {
+        name: "requests".to_string(),
+        x_values: execution_summary
+            .buckets
+            .iter()
+            .map(|f| {
+                let f = f.with_timezone(&chrono::Local);
+                f.format("%H:%M").to_string()
+            })
+            .collect(),
+        y_values: execution_summary.execution.values.clone(),
+    };
+    let total = execution_summary.requests.total;
+    let with_200 = execution_summary.requests.with_200_status_count;
+    let non_200 = execution_summary.requests.with_non_200_status_count;
+    let data = GraphData {
+        dom_id_to_render_to: "requests".to_string(),
+        y_name: "TestY".to_string(),
+        x_name: "TestX".to_string(),
+        series: vec![series],
+        click_event_timestamp_receiver: None,
+    };
+    let (trace_warning_graph, trace_warning_graph_id) =
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+    view! {
+            <div id="request-charts">
+                <div style="margin-top: 10px">
+                    <h3 style="display: inline; margin: 0">"Requests: "</h3>
+                    <p style="display: inline; margin: 0 0 0 10px">{format!("{total} total - [200] {with_200} - others {non_200}")}</p>
+                    <div style="margin-left: auto">
+                        <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                        <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                        <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                        <p style="display: inline; margin: 0">" over "</p>
+                        <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                        <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                        <button style="margin-left: 5px">"Create"</button>
+                    </div>
+                </div>
+                <div style="margin-top: 10px">
+                    <div style="height: 100px" node_ref=trace_warning_graph id=trace_warning_graph_id.clone()></div>
+                </div>
+            </div>
+    }.into_any()
+}
+
+fn size_graph(execution_summary: &Summaries) -> AnyView {
+    let action = crate::graph_creation::create_create_chart_action();
+    info!("{execution_summary:#?}");
+    let series = GraphSeries {
+        name: "size".to_string(),
+        x_values: execution_summary
+            .buckets
+            .iter()
+            .map(|f| {
+                let f = f.with_timezone(&chrono::Local);
+                f.format("%H:%M").to_string()
+            })
+            .collect(),
+        y_values: execution_summary
+            .size_bytes
+            .values
+            .clone()
+            .into_iter()
+            .map(|v| v / 1000_000.)
+            .collect(),
+    };
+    let total_mb = execution_summary.size_bytes.total as f64 / 1000_000.0;
+    let data = GraphData {
+        dom_id_to_render_to: "size".to_string(),
+        y_name: "TestY".to_string(),
+        x_name: "TestX".to_string(),
+        series: vec![series],
+        click_event_timestamp_receiver: None,
+    };
+    let (trace_warning_graph, trace_warning_graph_id) =
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+    view! {
+             <div id="size-charts">
+                    <div style="margin-top: 10px">
+                        <h3 style="display: inline; margin: 0">"Total Size Bytes: "</h3>
+                        <p style="display: inline; margin: 0 0 0 10px">{format!("{total_mb:.2}MB total")}</p>
+                        <div style="margin-left: auto">
+                            <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                            <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                            <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                            <p style="display: inline; margin: 0">" over "</p>
+                            <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                            <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                            <button style="margin-left: 5px">"Create"</button>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px">
+                        <div style="height: 100px" node_ref=trace_warning_graph id=trace_warning_graph_id.clone()></div>
+                    </div>
+                </div>
+
+    }.into_any()
+}
+
+fn duration_graph(execution_summary: &Summaries) -> AnyView {
+    let action = crate::graph_creation::create_create_chart_action();
+    info!("{execution_summary:#?}");
+    let series = GraphSeries {
+        name: "duration".to_string(),
+        x_values: execution_summary
+            .buckets
+            .iter()
+            .map(|f| {
+                let f = f.with_timezone(&chrono::Local);
+                f.format("%H:%M").to_string()
+            })
+            .collect(),
+        y_values: execution_summary.duration.max_values.clone(),
+    };
+    let max_duration = execution_summary.duration.max_ms;
+    let data = GraphData {
+        dom_id_to_render_to: "duration".to_string(),
+        y_name: "TestY".to_string(),
+        x_name: "TestX".to_string(),
+        series: vec![series],
+        click_event_timestamp_receiver: None,
+    };
+    let (trace_warning_graph, trace_warning_graph_id) =
+        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+    view! {
+              <div id="duration-charts">
+                    <div style="margin-top: 10px">
+                        <h3 style="display: inline; margin: 0">"Trace Duration: "</h3>
+                        <p style="display: inline; margin: 0 0 0 10px">{format!("Max {max_duration:.0}ms")}</p>
+                        <p style="display: inline; margin: 0">"- Bar shows"</p>
+                        <select style="margin: 0 5px 0 5px" id="time-range-selector">
+                            <option value="60">"Max"</option>
+                            <option value="60">"Min"</option>
+                            <option value="60">"Avg"</option>
+                            <option value="60">"P90"</option>
+                            <option value="60">"P99"</option>
+                        </select>
+                        <div style="margin-left: auto">
+                            <p style="display: inline; margin: 0">"Alert Threshold"</p>
+                            <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
+                            <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
+                            <p style="display: inline; margin: 0">" over "</p>
+                            <p style="display: inline; margin: 0"><b>"1 min"</b></p>
+                            <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
+                            <button style="margin-left: 5px">"Create"</button>
+                        </div>
+                        <div style="margin-top: 10px">
+                                <div style="height: 100px" node_ref=trace_warning_graph id=trace_warning_graph_id.clone()></div>
+                        </div>
+                    </div>
+             </div>
+
+    }.into_any()
+}
+
 #[component]
 fn Visualizations() -> impl IntoView {
+    let (service_data_r, service_data_w) =
+        signal_local::<Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>>(None);
+    let _api_service_list_request_sender =
+        LocalResource::new(move || get_and_write_get_service_data_result(service_data_w));
+    let service_graph = move || match service_data_r.get() {
+        None => {
+            info!("empty");
+            view! {
+                <div>"empty"</div>
+            }
+            .into_any()
+        }
+        Some(value) => match value {
+            Ok(data) => service_graph(&data),
+            Err(err) => view! {
+                <div><p>{format!("{err:#?}")}</p></div>
+            }
+            .into_any(),
+        },
+    };
+    let reqs_graph = move || match service_data_r.get() {
+        None => {
+            info!("empty");
+            view! {
+                <div>"empty"</div>
+            }
+            .into_any()
+        }
+        Some(value) => match value {
+            Ok(data) => crate::services::requests_graph(&data),
+            Err(err) => view! {
+                <div><p>{format!("{err:#?}")}</p></div>
+            }
+            .into_any(),
+        },
+    };
+
+    let size_graph = move || match service_data_r.get() {
+        None => {
+            info!("empty");
+            view! {
+                <div>"empty"</div>
+            }
+            .into_any()
+        }
+        Some(value) => match value {
+            Ok(data) => crate::services::size_graph(&data),
+            Err(err) => view! {
+                <div><p>{format!("{err:#?}")}</p></div>
+            }
+            .into_any(),
+        },
+    };
+
+    let duration_graph = move || match service_data_r.get() {
+        None => {
+            info!("empty");
+            view! {
+                <div>"empty"</div>
+            }
+            .into_any()
+        }
+        Some(value) => match value {
+            Ok(data) => crate::services::duration_graph(&data),
+            Err(err) => view! {
+                <div><p>{format!("{err:#?}")}</p></div>
+            }
+            .into_any(),
+        },
+    };
+
     let mut x: Vec<String> = vec![];
     let mut y: Vec<f64> = vec![];
     let start = chrono::NaiveDate::from_ymd_opt(2025, 2, 17)
@@ -280,91 +560,16 @@ fn Visualizations() -> impl IntoView {
                             <option value="60">"5 min"</option>
                     </select>
                     <div id="charts" style="display: grid; grid-template-columns: 3fr 3fr;">
-
-                        <div id="traces-graph">
-                            <div style="margin-top: 10px">
-                                <h3 style="display: inline; margin: 0">"Traces: "</h3>
-                                <p style="display: inline; margin: 0 0 0 10px">"5123 total (5.21/s) - 13 warnings (2.12/s) - 5 errors (0.13/s)"</p>
-                                <div style="margin-left: auto">
-                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
-                                    <p style="display: inline; margin: 0">" over "</p>
-                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
-                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
-                                    <button style="margin-left: 5px">"Create"</button>
-                                </div>
-                            </div>
-                            <div style="margin-top: 10px">
-                                <div style="height: 100px" node_ref=trace_warning_graph id=trace_warning_graph_id.clone()></div>
-                            </div>
-                        </div>
-
-                         <div id="request-charts">
-                            <div style="margin-top: 10px">
-                                <h3 style="display: inline; margin: 0">"Requests: "</h3>
-                                <p style="display: inline; margin: 0 0 0 10px">"9132 total - [200] 512 (1.35/s) - [400] 600 (2.12/s) - [500] 702 (4.13/s) - [others]  3 (0.1/s)"</p>
-                                <div style="margin-left: auto">
-                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
-                                    <p style="display: inline; margin: 0">" over "</p>
-                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
-                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
-                                    <button style="margin-left: 5px">"Create"</button>
-                                </div>
-                            </div>
-                            <div style="margin-top: 10px">
-                                <div style="height: 100px" node_ref=trace_warning_graph2 id=trace_warning_graph_id2.clone()></div>
-                            </div>
-                        </div>
-
-                         <div id="request-charts">
-                            <div style="margin-top: 10px">
-                                <h3 style="display: inline; margin: 0">"Total Size Bytes: "</h3>
-                                <p style="display: inline; margin: 0 0 0 10px">"23MB total "</p>
-                                <div style="margin-left: auto">
-                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
-                                    <p style="display: inline; margin: 0">" over "</p>
-                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
-                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
-                                    <button style="margin-left: 5px">"Create"</button>
-                                </div>
-                            </div>
-                            <div style="margin-top: 10px">
-                                <div style="height: 100px" node_ref=trace_warning_graph4 id=trace_warning_graph_id4.clone()></div>
-                            </div>
-                        </div>
+                        {service_graph}
+                        {reqs_graph}
+                        {size_graph}
+                        {duration_graph}
 
 
-                         <div id="request-charts">
-                            <div style="margin-top: 10px">
-                                <h3 style="display: inline; margin: 0">"Trace Duration: "</h3>
-                                <p style="display: inline; margin: 0 0 0 10px">"Max 5.3s - Min 0.1s - Avg 1.2s "</p>
-                                <p style="display: inline; margin: 0">"- Bar shows"</p>
-                                <select style="margin: 0 5px 0 5px" id="time-range-selector">
-                                    <option value="60">"Min"</option>
-                                    <option value="60">"Max"</option>
-                                    <option value="60">"Avg"</option>
-                                    <option value="60">"P90"</option>
-                                    <option value="60">"P99"</option>
-                                </select>
-                                <div style="margin-left: auto">
-                                    <p style="display: inline; margin: 0">"Alert Threshold"</p>
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Min" />
-                                    <input style="margin-left: 5px" type="text" size="4" placeholder="Max" />
-                                    <p style="display: inline; margin: 0">" over "</p>
-                                    <p style="display: inline; margin: 0"><b>"1 min"</b></p>
-                                    <input style="margin-left: 5px" type="text" size="8" placeholder="alert name" />
-                                    <button style="margin-left: 5px">"Create"</button>
-                                </div>
-                            </div>
-                            <div style="margin-top: 10px">
-                                <div style="height: 100px" node_ref=trace_warning_graph3 id=trace_warning_graph_id3.clone()></div>
-                            </div>
-                        </div>
+
+
+
+
 
                     </div>
                 </div>
@@ -400,10 +605,6 @@ fn ServiceInfo() -> impl IntoView {
                         <span>"Tracer Backend - 1.2K"</span>
                         <span>" - "</span>
                         <button class="button-as-text">"only"</button>
-                        <div>
-                            <input type="text" size="100" value="tracing=info,tracing::background::jobs=warn"  />
-                            <button style="margin: 0px 0 0 5px;" type="button">apply</button>
-                        </div>
                     </div>
                     <div id="service-instance-list">
                         <ul style="margin: 5px 0 0 0">
@@ -836,7 +1037,7 @@ fn InstanceUpdateTrace() -> impl IntoView {
 
 async fn get_and_write_get_service_data_result(
     w: WriteSignal<
-        Option<Result<Vec<api_structs::ui::service::Service>, TrackedGlooError>>,
+        Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>,
         LocalStorage,
     >,
 ) {
@@ -846,11 +1047,11 @@ async fn get_and_write_get_service_data_result(
     w.set(Some(res));
 }
 
-async fn get_services_impl() -> Result<Vec<api_structs::ui::service::Service>, TrackedGlooError> {
-    let services = gloo_net::http::Request::get(&format!(
+async fn get_services_impl() -> Result<Summaries, TrackedGlooError> {
+    let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
-        api_structs::ui::service::GetService::PATH
+        "/api/ui/service/data"
     ))
     .send()
     .await?
