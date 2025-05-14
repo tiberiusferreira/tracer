@@ -40,9 +40,13 @@ pub struct ProfileData {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NewFiltersRequest {
-    pub service_id: i32,
-    pub log_filter: String,
+pub struct Filters {
+    pub end_date: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExecutionListFilters {
+    pub bucket: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -220,40 +220,10 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
         .with_state(app_state)
         .fallback_service(serve_ui)
         .layer(axum::middleware::from_fn(my_middleware))
-        .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
         .layer(tower_http::cors::CorsLayer::very_permissive())
         .layer(tower_http::compression::CompressionLayer::new())
-        .layer(tower_http::decompression::RequestDecompressionLayer::new())
-        .layer(
-            tower_http::trace::TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<_>| {
-                    let method = request.method();
-                    let path = request.uri().path();
-                    let header_name = request.headers();
-                    let headers = header_name
-                        .into_iter()
-                        .map(|(name, value)| {
-                            (
-                                name.as_str(),
-                                value.to_str().unwrap_or_else(|_e| "non-utf8 value"),
-                            )
-                        })
-                        .collect::<HashMap<&str, &str>>();
-                    tracing::error_span!(
-                        "request",
-                        http.request.method = %method,
-                        url.path = path,
-                        headers = headers.as_value(),
-                        http.response.status_code = Empty
-                    )
-                })
-                .on_response(
-                    |response: &Response<axum::body::Body>, _latency: Duration, span: &Span| {
-                        let status_code = response.status().as_u16();
-                        span.record("http.response.status_code", status_code);
-                    },
-                ),
-        );
+        .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
+        .layer(tower_http::decompression::RequestDecompressionLayer::new());
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     app
 }

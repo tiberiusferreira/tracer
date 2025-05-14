@@ -1,11 +1,15 @@
 use crate::error::TrackedGlooError;
 use crate::graph_creation::{GraphData, GraphSeries};
 use api_structs::Endpoint;
-use api_structs::ui::service::{ExecutionHeader, ExecutionSummary, Summaries};
-use chrono::NaiveTime;
+use api_structs::ui::service::{
+    ExecutionHeader, ExecutionListFilters, ExecutionSummary, Filters, Summaries,
+};
+use chrono::{DateTime, Datelike, Duration, NaiveTime, Timelike, Utc};
 use leptos::prelude::*;
 use leptos::tachys::prelude::*;
+use std::cmp::min;
 use std::fmt::Display;
+use std::ops::{Add, Sub};
 use tracing::info;
 
 #[component]
@@ -58,15 +62,59 @@ pub fn ServiceSummary(mut service: api_structs::ui::service::Service) -> impl In
 
 #[component]
 pub fn Services() -> impl IntoView {
+    let (index_clicked_r, index_clicked_w) = signal_local::<Option<u64>>(None);
+    let (end_date_r, end_date_w) = signal_local::<chrono::DateTime<Utc>>(Utc::now());
+    let (service_data_r, service_data_w) =
+        signal_local::<Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>>(None);
+    let _api_service_list_request_sender = LocalResource::new(move || {
+        get_and_write_get_service_data_result(end_date_r.get(), service_data_w)
+    });
+    let current_selected_datetime = Signal::derive(move || {
+        info!("called");
+        match index_clicked_r.get() {
+            None => {
+                info!("no value");
+            }
+            Some(index) => {
+                info!("index at services = {index}");
+                if let Some(Ok(summaries)) = service_data_r.get_untracked() {
+                    let new_date = summaries.buckets[index as usize];
+                    info!("{}", new_date);
+                    return Some(new_date);
+                }
+            }
+        }
+        return None;
+    });
+    let date = move || {
+        info!("called in date");
+        current_selected_datetime
+            .get()
+            .unwrap_or_default()
+            .to_string()
+    };
+    let a = move || {
+        let index = index_clicked_r.get().unwrap_or_default();
+        view! {
+            <p>{index.to_string()}</p>
+        }
+    };
+    let date = view! {
+        <p>{date}</p>
+    };
     view! {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
-                <Visualizations/>
+                <Visualizations index_clicked_w=index_clicked_w service_data_r=service_data_r end_date_w=end_date_w/>
+                {a}
+                {date}
                 <ServiceSelector/>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
-                        <TraceGrid/>
+                        <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
+                            <TracesGrid current_selected_datetime=current_selected_datetime/>
+                        </div>
                     </div>
                     <div id="filters">
                         <PathFilter/>
@@ -197,16 +245,10 @@ fn SeverityFilter() -> impl IntoView {
     }
 }
 
-#[component]
-fn TraceGrid() -> impl IntoView {
-    view! {
-        <div>
-            <InstanceUpdateRow/>
-        </div>
-    }
-}
-
-fn service_graph(execution_summary: &Summaries) -> AnyView {
+fn service_graph(
+    execution_summary: &Summaries,
+    index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
+) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     info!("{execution_summary:#?}");
     let series = GraphSeries {
@@ -216,7 +258,7 @@ fn service_graph(execution_summary: &Summaries) -> AnyView {
             .iter()
             .map(|f| {
                 let f = f.with_timezone(&chrono::Local);
-                f.format("%H:%M").to_string()
+                f.format("%H:%M %d/%m/%Y").to_string()
             })
             .collect(),
         y_values: execution_summary.execution.values.clone(),
@@ -229,7 +271,7 @@ fn service_graph(execution_summary: &Summaries) -> AnyView {
         y_name: "TestY".to_string(),
         x_name: "TestX".to_string(),
         series: vec![series],
-        click_event_timestamp_receiver: None,
+        click_event_timestamp_receiver: Some(index_clicked_w),
     };
     let (trace_warning_graph, trace_warning_graph_id) =
         crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
@@ -415,11 +457,11 @@ fn duration_graph(execution_summary: &Summaries) -> AnyView {
 }
 
 #[component]
-fn Visualizations() -> impl IntoView {
-    let (service_data_r, service_data_w) =
-        signal_local::<Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>>(None);
-    let _api_service_list_request_sender =
-        LocalResource::new(move || get_and_write_get_service_data_result(service_data_w));
+fn Visualizations(
+    index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
+    service_data_r: ReadSignal<Option<Result<Summaries, TrackedGlooError>>, LocalStorage>,
+    end_date_w: WriteSignal<chrono::DateTime<Utc>, LocalStorage>,
+) -> impl IntoView {
     let service_graph = move || match service_data_r.get() {
         None => {
             info!("empty");
@@ -429,7 +471,7 @@ fn Visualizations() -> impl IntoView {
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => service_graph(&data),
+            Ok(data) => service_graph(&data, index_clicked_w),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -486,14 +528,15 @@ fn Visualizations() -> impl IntoView {
             .into_any(),
         },
     };
-
+    let on_click_back = move |_| end_date_w.update(|d| *d = (d.sub(Duration::minutes(60))));
+    let on_click_forward =
+        move |_| end_date_w.update(|d| *d = min(d.add(Duration::minutes(60)), chrono::Utc::now()));
     view! {
          <div id="visualizations" style="resize: vertical; height: 370px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
-                    <h3 style="display: inline; margin: 0 3px 0 0">"Rolled Over "</h3>
-                    <select style="margin: 0 5px 0 5px" id="time-range-selector">
-                            <option value="60">"1 min"</option>
-                            <option value="60">"5 min"</option>
-                    </select>
+                    <div style="display: flex; justify-content: center;">
+                        <button style="margin: 0 5px 0 0" on:click=on_click_back>"<- 1h"</button>
+                        <button on:click=on_click_forward>"1h ->"</button>
+                    </div>
                     <div id="charts" style="display: grid; grid-template-columns: 3fr 3fr;">
                         {service_graph}
                         {reqs_graph}
@@ -588,25 +631,20 @@ fn GlobalSelector() -> impl IntoView {
             </div>
     }
 }
-#[component]
-fn InstanceUpdateRow() -> impl IntoView {
-    view! {
-        <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
-            // <div>
-            //     <p style="margin: 0">"Dev - Some Service - Instance Id: 132"</p>
-            // </div>
-            <InstanceUpdateTrace/>
-        </div>
-    }
-}
 
 #[component]
-fn InstanceUpdateTrace() -> impl IntoView {
+fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) -> impl IntoView {
     let (service_data_r, service_data_w) = signal_local::<
         Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
     >(None);
-    let _api_service_list_request_sender =
-        LocalResource::new(move || get_and_write_get_execution_headers_result(service_data_w));
+    let _api_service_list_request_sender = LocalResource::new(move || {
+        get_and_write_get_execution_headers_result(
+            current_selected_datetime
+                .get()
+                .unwrap_or(chrono::Utc::now()),
+            service_data_w,
+        )
+    });
     let view = move || match service_data_r.get() {
         None => view! {"Loading..."}.into_any(),
         Some(result) => match result {
@@ -959,35 +997,40 @@ fn grid_row(header: ExecutionHeader) -> impl IntoView {
 //
 
 async fn get_and_write_get_execution_headers_result(
+    datetime: chrono::DateTime<Utc>,
     w: WriteSignal<
         Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
         LocalStorage,
     >,
 ) {
     info!("Sending get_service_data req");
-    let res = get_executions_headers_impl().await;
+    let res = get_executions_headers_impl(datetime).await;
     info!("Got get_service_data data back");
     w.set(Some(res));
 }
 
 async fn get_and_write_get_service_data_result(
+    end_date: chrono::DateTime<Utc>,
     w: WriteSignal<
         Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>,
         LocalStorage,
     >,
 ) {
     info!("Sending get_service_data req");
-    let res = get_services_impl().await;
+
+    let res = get_services_impl(end_date).await;
     info!("Got get_service_data data back");
     w.set(Some(res));
 }
 
-async fn get_services_impl() -> Result<Summaries, TrackedGlooError> {
+async fn get_services_impl(end_date: chrono::DateTime<Utc>) -> Result<Summaries, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
         "/api/ui/service/data"
     ))
+    .json(&api_structs::ui::service::Filters { end_date })
+    .unwrap()
     .send()
     .await?
     .json()
@@ -995,12 +1038,16 @@ async fn get_services_impl() -> Result<Summaries, TrackedGlooError> {
     Ok(services)
 }
 
-async fn get_executions_headers_impl() -> Result<Vec<ExecutionHeader>, TrackedGlooError> {
+async fn get_executions_headers_impl(
+    datetime: DateTime<Utc>,
+) -> Result<Vec<ExecutionHeader>, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
         "/api/ui/service/execution_list"
     ))
+    .json(&ExecutionListFilters { bucket: datetime })
+    .unwrap()
     .send()
     .await?
     .json()

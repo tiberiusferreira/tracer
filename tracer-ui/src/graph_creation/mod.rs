@@ -1,12 +1,16 @@
 use charming::component::{Axis, Grid, Title};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
-    AxisTick, AxisType, Color, ItemStyle, NameLocation, SplitLine, TextAlign, Tooltip, Trigger,
-    TriggerOn,
+    AxisLabel, AxisTick, AxisType, Color, Formatter, FormatterFunction, ItemStyle, NameLocation,
+    SplitLine, TextAlign, Tooltip, Trigger, TriggerOn,
 };
 use charming::{Chart, WasmRenderer};
+use js_sys::wasm_bindgen::closure::Closure;
 use leptos::html::Div;
 use leptos::prelude::*;
+use tracing::info;
+use web_sys::wasm_bindgen::{JsCast, JsValue};
+
 #[derive(Debug, Clone)]
 pub struct GraphSeries {
     pub name: String,
@@ -38,7 +42,7 @@ pub struct GraphData {
     pub x_name: String,
     pub series: Vec<GraphSeries>,
     #[allow(unused)]
-    pub click_event_timestamp_receiver: Option<WriteSignal<Option<u64>>>,
+    pub click_event_timestamp_receiver: Option<WriteSignal<Option<u64>, LocalStorage>>,
 }
 
 pub fn create_dom_el_ref_and_graph_call_action(
@@ -66,6 +70,14 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 // .title(Title::new().text("Some").text_align(TextAlign::Left))
                 .x_axis(
                     Axis::new()
+                        .axis_label(
+                            AxisLabel::new()
+                                // .formatter(Formatter::Function("value => value + ' ml'".into())),
+                                .formatter(FormatterFunction::new_with_args(
+                                    "value",
+                                    "return value.substring(0,5)",
+                                )),
+                        )
                         .type_(AxisType::Category)
                         .name_location(NameLocation::Middle) // .name_text_style(TextStyle::new().font_size(18.))
                         // .name(&graph_data.x_name)
@@ -111,7 +123,6 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 chart = chart.series(
                     charming::series::Bar::new()
                         .bar_width(18)
-                        // .symbol_size(6.5)
                         .item_style(ItemStyle::new().opacity(1.0))
                         .data(
                             series
@@ -128,44 +139,6 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                         )
                         .name(&series.name),
                 );
-                // chart = chart.series(
-                //     charming::series::Line::new()
-                //         // .symbol_size(6.5)
-                //         // .item_style(ItemStyle::new().opacity(1.0))
-                //         .data(
-                //             series
-                //                 .x_values
-                //                 .iter()
-                //                 .zip(series.y_values.iter())
-                //                 .map(|(a, _b)| {
-                //                     CompositeValue::Array(vec![
-                //                         CompositeValue::String(a.to_string()),
-                //                         CompositeValue::Number(NumericValue::Float(20.)),
-                //                     ])
-                //                 })
-                //                 .collect::<Vec<CompositeValue>>(),
-                //         )
-                //         .name(format!("{}-min-threshold", &series.name)),
-                // );
-                // chart = chart.series(
-                //     charming::series::Line::new()
-                //         // .symbol_size(6.5)
-                //         // .item_style(ItemStyle::new().opacity(1.0))
-                //         .data(
-                //             series
-                //                 .x_values
-                //                 .iter()
-                //                 .zip(series.y_values.iter())
-                //                 .map(|(a, _b)| {
-                //                     CompositeValue::Array(vec![
-                //                         CompositeValue::String(a.to_string()),
-                //                         CompositeValue::Number(NumericValue::Float(600.)),
-                //                     ])
-                //                 })
-                //                 .collect::<Vec<CompositeValue>>(),
-                //         )
-                //         .name(format!("{}-max-threshold", &series.name)),
-                // );
             }
             let el = web_sys::window()
                 .unwrap()
@@ -177,17 +150,35 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
             let height = el.scroll_height();
             let renderer = WasmRenderer::new(width as u32, height as u32);
 
-            let _chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
-            // let listener = graph_data.click_event_timestamp_receiver.take();
-            // let series = graph_data.series;
-            // WasmRenderer::on_event(&chart_instance, "click", move |c| {
-            //     let timestamp = series[c.series_index].original_x_values[c.data_index];
-            //     info!("Clicked on {:#?}", timestamp);
-            //     info!("{:#?}", c);
-            //     if let Some(l) = listener {
-            //         l.set(Some(timestamp));
-            //     }
-            // });
+            let chart_instance = renderer.render(el_id.to_string().as_str(), &chart).unwrap();
+            let closure = Closure::wrap(Box::new(move |params: JsValue| {
+                let params = params.dyn_into::<js_sys::Object>().unwrap();
+                let value = js_sys::Reflect::get(&params, &JsValue::from_str("dataIndex")).unwrap();
+                let index = value.as_f64().unwrap();
+                if let Some(w) = graph_data.click_event_timestamp_receiver {
+                    info!("setting value to {index} in callback");
+                    if w.try_set(Some(index as u64)).is_some() {
+                        panic!("got some!")
+                    }
+                    // w.set(Some(index as u64));
+                }
+                info!("index = {index}")
+            }) as Box<dyn FnMut(JsValue)>);
+            let js_function = closure.into_js_value();
+
+            // The chart
+            let js_value: JsValue = chart_instance.into();
+
+            // The `on` method
+            let on = js_sys::Reflect::get(&js_value, &"on".into())
+                .expect("Object should have 'on' method")
+                .dyn_into::<js_sys::Function>()
+                .expect("'on' should be a function");
+
+            // The call
+            on.call2(&js_value, &"click".into(), &js_function)
+                .expect("Failed to call 'on' method");
+            std::mem::forget(js_function);
             ()
         }
     })

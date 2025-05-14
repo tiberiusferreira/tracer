@@ -1,12 +1,13 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
+use api_structs::instance::update::Parameter;
 use api_structs::ui::service::{
     DurationSummary, ExecutionHeader, ExecutionSummary, RequestsSummary, SizeBytesSummary,
     Summaries,
 };
 use axum::Json;
 use axum::extract::State;
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, max_by};
 use std::collections::HashMap;
@@ -14,7 +15,11 @@ use std::ops::{AddAssign, DerefMut};
 
 pub(crate) async fn execution_list(
     State(app_state): State<AppState>,
+    Json(filters): Json<api_structs::ui::service::ExecutionListFilters>,
 ) -> Result<Json<Vec<ExecutionHeader>>, ApiError> {
+    let bucket = filters.bucket;
+    let start = bucket;
+    let end = bucket + Duration::minutes(5);
     let db = app_state.execution_io_provider.database();
 
     let query = "select Execution{
@@ -45,15 +50,32 @@ pub(crate) async fn execution_list(
     limit 1
   )._value
 }
-  order by .started_at desc  limit 10";
+filter
+    .started_at <= <datetime>$end_date and
+    .last_seen_at >= <datetime>$start_date
+  order by .started_at asc limit 20";
 
-    let executions: Vec<ExecutionHeader> = db.query(query, HashMap::from([])).await?;
+    let executions: Vec<ExecutionHeader> = db
+        .query(
+            query,
+            HashMap::from([
+                ("start_date", Parameter::Datetime(start)),
+                ("end_date", Parameter::Datetime(end)),
+            ]),
+        )
+        .await?;
     Ok(Json(executions))
 }
+
 pub(crate) async fn data(
     State(app_state): State<AppState>,
-    // Json(_new_filter): Json<api_structs::ui::service::NewFiltersRequest>,
+    Json(filters): Json<api_structs::ui::service::Filters>,
 ) -> Result<Json<Summaries>, ApiError> {
+    println!("{}", filters.end_date);
+    let rollover_window_minutes = 5;
+    let look_back_minutes = 180;
+    let start_datetime = filters.end_date - Duration::minutes(look_back_minutes);
+    let end_datetime = filters.end_date;
     let db = app_state.execution_io_provider.database();
     let query = "select Execution{
   id,
@@ -68,18 +90,28 @@ pub(crate) async fn data(
     limit 1
   )._value
 }
-  order by .started_at limit 10000";
-    let rollover_window_minutes = 5;
-    let look_back_minutes = 180;
+  filter
+    .started_at <= <datetime>$end_date and
+    .last_seen_at >= <datetime>$start_date
+  order by .started_at asc limit 10000";
+
     #[derive(Serialize, Deserialize, Debug, Clone)]
     pub struct Execution {
         pub id: uuid::Uuid,
-        pub started_at: chrono::DateTime<chrono::Utc>,
-        pub last_seen_at: chrono::DateTime<chrono::Utc>,
+        pub started_at: DateTime<Utc>,
+        pub last_seen_at: DateTime<Utc>,
         pub size_bytes: u64,
         pub status_code: Option<String>,
     }
-    let executions: Vec<Execution> = db.query(query, HashMap::from([])).await?;
+    let executions: Vec<Execution> = db
+        .query(
+            query,
+            HashMap::from([
+                ("start_date", Parameter::Datetime(start_datetime)),
+                ("end_date", Parameter::Datetime(end_datetime)),
+            ]),
+        )
+        .await?;
     let mut summaries = Summaries {
         buckets: vec![],
         execution: ExecutionSummary {
@@ -103,9 +135,9 @@ pub(crate) async fn data(
             max_values: vec![],
         },
     };
-    let end = Utc::now();
-    let minutes_since_window_start = end.minute() % rollover_window_minutes;
-    let end = end - chrono::Duration::minutes(minutes_since_window_start as i64);
+    let end_datetime = end_datetime;
+    let minutes_since_window_start = end_datetime.minute() % rollover_window_minutes;
+    let end = end_datetime - chrono::Duration::minutes(minutes_since_window_start as i64);
     let end = end.with_nanosecond(0).unwrap().with_second(0).unwrap();
     let start = end - chrono::Duration::minutes(look_back_minutes as i64);
     let mut curr = start;

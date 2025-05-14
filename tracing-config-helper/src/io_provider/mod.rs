@@ -258,8 +258,12 @@ impl DatabaseIoProvider {
     pub async fn query<T: Serialize + DeserializeOwned + Clone>(
         &self,
         query: &str,
-        parameters: HashMap<String, Parameter>,
+        parameters: HashMap<&str, Parameter>,
     ) -> Result<T, Error> {
+        let parameters: HashMap<String, Parameter> = parameters
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
         let execution_id = get_current_execution().unwrap();
         let client = match &self {
             DatabaseIoProvider::Recorded(_) => {
