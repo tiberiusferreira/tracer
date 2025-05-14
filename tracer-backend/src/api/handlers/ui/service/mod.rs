@@ -1,7 +1,8 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
 use api_structs::ui::service::{
-    DurationSummary, ExecutionSummary, RequestsSummary, SizeBytesSummary, Summaries,
+    DurationSummary, ExecutionHeader, ExecutionSummary, RequestsSummary, SizeBytesSummary,
+    Summaries,
 };
 use axum::Json;
 use axum::extract::State;
@@ -11,6 +12,44 @@ use std::cmp::{max, max_by};
 use std::collections::HashMap;
 use std::ops::{AddAssign, DerefMut};
 
+pub(crate) async fn execution_list(
+    State(app_state): State<AppState>,
+) -> Result<Json<Vec<ExecutionHeader>>, ApiError> {
+    let db = app_state.execution_io_provider.database();
+
+    let query = "select Execution{
+  id,
+  service_name := .service_instance.service.name,
+  started_at,
+  duration_ms,
+  size_bytes,
+  status_code := (
+    select .<execution[is Attributes]{
+      _value
+      }
+    filter .name = 'status_code'
+    limit 1
+  )._value,
+  path := (
+    select .<execution[is Attributes]{
+      _value
+      }
+    filter .name = 'uri'
+    limit 1
+  )._value,
+  method := (
+    select .<execution[is Attributes]{
+      _value
+      }
+    filter .name = 'method'
+    limit 1
+  )._value
+}
+  order by .started_at desc  limit 10";
+
+    let executions: Vec<ExecutionHeader> = db.query(query, HashMap::from([])).await?;
+    Ok(Json(executions))
+}
 pub(crate) async fn data(
     State(app_state): State<AppState>,
     // Json(_new_filter): Json<api_structs::ui::service::NewFiltersRequest>,
@@ -29,7 +68,7 @@ pub(crate) async fn data(
     limit 1
   )._value
 }
-  order by .started_at";
+  order by .started_at limit 10000";
     let rollover_window_minutes = 5;
     let look_back_minutes = 180;
     #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -40,6 +79,7 @@ pub(crate) async fn data(
         pub size_bytes: u64,
         pub status_code: Option<String>,
     }
+    let executions: Vec<Execution> = db.query(query, HashMap::from([])).await?;
     let mut summaries = Summaries {
         buckets: vec![],
         execution: ExecutionSummary {
@@ -63,7 +103,6 @@ pub(crate) async fn data(
             max_values: vec![],
         },
     };
-    let executions: Vec<Execution> = db.query(query, HashMap::from([])).await?;
     let end = Utc::now();
     let minutes_since_window_start = end.minute() % rollover_window_minutes;
     let end = end - chrono::Duration::minutes(minutes_since_window_start as i64);

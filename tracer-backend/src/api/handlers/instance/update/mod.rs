@@ -89,57 +89,6 @@ impl From<Error> for gel_tokio::Error {
         UserError::with_source(value)
     }
 }
-async fn update_instance_update_count_and_log_level(
-    tx: &mut RetryingTransaction,
-    instance_snapshot: &InstanceSnapshot,
-) -> Result<InstanceUpdatedData, gel_tokio::Error> {
-    unimplemented!()
-    //    let args = named_args! {
-    //      "instance_id" => instance_snapshot.instance_id,
-    //      "new_log_filter" => instance_snapshot.log_filter.as_str(),
-    //    };
-    //    let instance_update_data: Option<InstanceUpdatedData> = tx
-    //        .query_single(
-    //            r#"
-    // with
-    //  instance_id := <uuid>$instance_id,
-    //  new_log_filter_value := <str>$new_log_filter,
-    //  new_log_filter := (
-    //      insert LogFilter {
-    //        _value := new_log_filter_value
-    //      } unless conflict on (._value)
-    //      else
-    //        (select LogFilter)
-    //  ),
-    //  service_instance := (
-    //   update ServiceInstance filter .id=instance_id
-    //   set {
-    //     received_update_count := .received_update_count + 1,
-    //     latest_log_filter := new_log_filter
-    //   }
-    // )
-    // select {
-    //   new_update_count := service_instance.received_update_count,
-    //   desired_log_filter := service_instance.service.log_filter._value,
-    // };
-    //    "#,
-    //            &args,
-    //        )
-    //        .await?;
-    //    let instance_update_data = instance_update_data.ok_or(Error(TrackedError::from(
-    //        ErrorVariants::InstanceNotRegistered,
-    //    )))?;
-    //    if instance_snapshot.update_count != instance_update_data.new_update_count as u64 {
-    //        return Err(Error(TrackedError::from(
-    //            ErrorVariants::UnexpectedUpdateCount {
-    //                expected: instance_update_data.new_update_count,
-    //                actual: instance_snapshot.update_count,
-    //            },
-    //        )))?;
-    //    }
-    //
-    //    Ok(instance_update_data)
-}
 
 async fn insert_new_instance_update(
     tx: &mut RetryingTransaction,
@@ -251,7 +200,6 @@ async fn process_execution_recording(
                         ("name", Parameter::String(name.clone())),
                         ("_value", Parameter::String(value.clone())),
                     ]);
-                    println!("inserted attribute");
                     let _id = tx.insert("Attributes", params).await?;
                 }
             }

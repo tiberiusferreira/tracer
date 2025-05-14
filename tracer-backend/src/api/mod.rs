@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
 use crate::api::state::AppState;
@@ -50,6 +51,22 @@ enum MyMethod {
     Trace,
     Connect,
     Patch,
+}
+
+impl Display for MyMethod {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MyMethod::Options => f.write_str("options"),
+            MyMethod::Get => f.write_str("get"),
+            MyMethod::Post => f.write_str("post"),
+            MyMethod::Put => f.write_str("put"),
+            MyMethod::Delete => f.write_str("delete"),
+            MyMethod::Head => f.write_str("head"),
+            MyMethod::Trace => f.write_str("trace"),
+            MyMethod::Connect => f.write_str("connect"),
+            MyMethod::Patch => f.write_str("patch"),
+        }
+    }
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct MyParts {
@@ -139,6 +156,7 @@ async fn my_middleware(
         |my_request| async {
             let uri = my_request.parts.uri.clone();
             record_single_attribute("uri".to_string(), uri);
+            record_single_attribute("method".to_string(), my_request.parts.method.to_string());
             let axum_req = my_request_to_axum(my_request);
             let resp = next.run(axum_req).await;
             let status = resp.status();
@@ -165,8 +183,12 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
     .fallback(tower_http::services::ServeFile::new(
         "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html",
     ));
-    let service_routes =
-        axum::Router::new().route("/data", axum::routing::post(handlers::ui::service::data));
+    let service_routes = axum::Router::new()
+        .route("/data", axum::routing::post(handlers::ui::service::data))
+        .route(
+            "/execution_list",
+            axum::routing::post(handlers::ui::service::execution_list),
+        );
     let instance_routes = axum::Router::new()
         .route(
             "/register",

@@ -46,6 +46,17 @@ pub struct NewFiltersRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ExecutionHeader {
+    pub id: uuid::Uuid,
+    pub started_at: DateTime<Utc>,
+    pub duration_ms: u64,
+    pub size_bytes: u64,
+    pub status_code: Option<String>,
+    pub path: Option<String>,
+    pub method: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Summaries {
     pub buckets: Vec<DateTime<Utc>>,
     pub execution: ExecutionSummary,

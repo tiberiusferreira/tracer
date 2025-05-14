@@ -1,10 +1,11 @@
 use crate::error::TrackedGlooError;
 use crate::graph_creation::{GraphData, GraphSeries};
 use api_structs::Endpoint;
-use api_structs::ui::service::{ExecutionSummary, Summaries};
+use api_structs::ui::service::{ExecutionHeader, ExecutionSummary, Summaries};
 use chrono::NaiveTime;
 use leptos::prelude::*;
 use leptos::tachys::prelude::*;
+use std::fmt::Display;
 use tracing::info;
 
 #[component]
@@ -200,7 +201,6 @@ fn SeverityFilter() -> impl IntoView {
 fn TraceGrid() -> impl IntoView {
     view! {
         <div>
-            <InstanceUpdateRow/>
             <InstanceUpdateRow/>
         </div>
     }
@@ -487,73 +487,8 @@ fn Visualizations() -> impl IntoView {
         },
     };
 
-    let mut x: Vec<String> = vec![];
-    let mut y: Vec<f64> = vec![];
-    let start = chrono::NaiveDate::from_ymd_opt(2025, 2, 17)
-        .unwrap()
-        .and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-    let mut curr = start;
-    for i in 0..50 {
-        x.push(curr.format("%H:%M:%S").to_string());
-        curr += chrono::Duration::minutes(5);
-        if i % 2 == 0 {
-            y.push(500.);
-        } else {
-            y.push(100.);
-        }
-    }
-    let graph_series: Vec<GraphSeries> = vec![GraphSeries {
-        name: "series 1".to_string(),
-        x_values: x,
-        y_values: y,
-    }];
-    let data = crate::graph_creation::GraphData {
-        dom_id_to_render_to: "some".to_string(),
-        y_name: "traces".to_string(),
-        x_name: "minutes ago".to_string(),
-        series: graph_series.clone(),
-        click_event_timestamp_receiver: None,
-    };
-    let data2 = crate::graph_creation::GraphData {
-        dom_id_to_render_to: "some2".to_string(),
-        y_name: "traces".to_string(),
-        x_name: "minutes ago".to_string(),
-        series: graph_series.clone(),
-        click_event_timestamp_receiver: None,
-    };
-
-    let data3 = crate::graph_creation::GraphData {
-        dom_id_to_render_to: "some3".to_string(),
-        y_name: "duration".to_string(),
-        x_name: "minutes ago".to_string(),
-        series: graph_series.clone(),
-        click_event_timestamp_receiver: None,
-    };
-
-    let data4 = crate::graph_creation::GraphData {
-        dom_id_to_render_to: "some4".to_string(),
-        y_name: "duration".to_string(),
-        x_name: "minutes ago".to_string(),
-        series: graph_series,
-        click_event_timestamp_receiver: None,
-    };
-    let action = crate::graph_creation::create_create_chart_action();
-    let (trace_warning_graph, trace_warning_graph_id) =
-        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
-
-    let action2 = crate::graph_creation::create_create_chart_action();
-    let (trace_warning_graph2, trace_warning_graph_id2) =
-        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data2, action2);
-
-    let action3 = crate::graph_creation::create_create_chart_action();
-    let (trace_warning_graph3, trace_warning_graph_id3) =
-        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data3, action3);
-
-    let action4 = crate::graph_creation::create_create_chart_action();
-    let (trace_warning_graph4, trace_warning_graph_id4) =
-        crate::graph_creation::create_dom_el_ref_and_graph_call_action(data4, action4);
     view! {
-         <div id="visualizations" style="resize: vertical; height: 200px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
+         <div id="visualizations" style="resize: vertical; height: 370px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
                     <h3 style="display: inline; margin: 0 3px 0 0">"Rolled Over "</h3>
                     <select style="margin: 0 5px 0 5px" id="time-range-selector">
                             <option value="60">"1 min"</option>
@@ -564,13 +499,6 @@ fn Visualizations() -> impl IntoView {
                         {reqs_graph}
                         {size_graph}
                         {duration_graph}
-
-
-
-
-
-
-
                     </div>
                 </div>
     }
@@ -664,9 +592,9 @@ fn GlobalSelector() -> impl IntoView {
 fn InstanceUpdateRow() -> impl IntoView {
     view! {
         <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
-            <div>
-                <p style="margin: 0">"Dev - Some Service - Instance Id: 132"</p>
-            </div>
+            // <div>
+            //     <p style="margin: 0">"Dev - Some Service - Instance Id: 132"</p>
+            // </div>
             <InstanceUpdateTrace/>
         </div>
     }
@@ -674,81 +602,76 @@ fn InstanceUpdateRow() -> impl IntoView {
 
 #[component]
 fn InstanceUpdateTrace() -> impl IntoView {
+    let (service_data_r, service_data_w) = signal_local::<
+        Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
+    >(None);
+    let _api_service_list_request_sender =
+        LocalResource::new(move || get_and_write_get_execution_headers_result(service_data_w));
+    let view = move || match service_data_r.get() {
+        None => view! {"Loading..."}.into_any(),
+        Some(result) => match result {
+            Ok(result) => {
+                info!("gor data: {result:?}");
+                let mut rows = vec![];
+                for r in result {
+                    rows.push(grid_row(r));
+                }
+                view! {
+                    <div>
+                        <table class="trace-table">
+                            <tr>
+                                <th class="trace-table__cell">"Last Seen (minutes ago)"</th>
+                                <th class="trace-table__cell">"Duration (ms)"</th>
+                                <th class="trace-table__cell">"Size KB"</th>
+                                <th class="trace-table__cell">"Status Code"</th>
+                                <th class="trace-table__cell">"Path"</th>
+                                <th class="trace-table__cell">"Method"</th>
+                                <th class="trace-table__cell">""</th>
+                            </tr>
+                            // <tr>
+                            //     <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
+                            //         <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 50px; margin-left: 50px">
+                            //         </div>
+                            //     </td>
+                            // </tr>
+                            {rows}
+
+                        </table>
+                    </div>
+                }
+                .into_any()
+            }
+            Err(err) => view! { <div><p>{format!("{err:#?}")}</p></div>}.into_any(),
+        },
+    };
+    view
+}
+
+fn grid_row(header: ExecutionHeader) -> impl IntoView {
+    /*
+        #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct ExecutionHeader {
+        pub id: uuid::Uuid,
+        pub started_at: DateTime<Utc>,
+        pub duration_ms: u64,
+        pub size_bytes: u64,
+        pub status_code: Option<String>,
+        pub path: Option<String>,
+        pub method: Option<String>,
+    }
+
+        */
     view! {
-        <div>
-            <table class="trace-table">
-                <tr>
-                    <th class="trace-table__cell">"name"</th>
-                    <th class="trace-table__cell">"method"</th>
-                    <th class="trace-table__cell">"path"</th>
-                    <th class="trace-table__cell">"status"</th>
-                    <th class="trace-table__cell">"duration"</th>
-                    <th class="trace-table__cell">"size"</th>
-                    <th class="trace-table__cell">"created at"</th>
-                    <th class="trace-table__cell">"key"</th>
-                    <th class="trace-table__cell">"value"</th>
-                    <th class="trace-table__cell">"log"</th>
-                    <th class="trace-table__cell">""</th>
-                </tr>
-                <tr>
-                    <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
-                        <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 50px; margin-left: 50px">
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td class="trace-table__cell">"handler"</td>
-                    <td class="trace-table__cell">"GET"</td>
-                    <td class="trace-table__cell">"/api/path"</td>
-                    <td class="trace-table__cell">"200"</td>
-                    <td class="trace-table__cell">"1325ms"</td>
-                    <td class="trace-table__cell">"1kb"</td>
-                    <td class="trace-table__cell" title="dawdo">"2min ago"</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">"➔"</td>
-                </tr>
-                <tr>
-                    <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
-                        <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 15px; margin-left: 100px">
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td class="trace-table__cell">"handler"</td>
-                    <td class="trace-table__cell">"GET"</td>
-                    <td class="trace-table__cell">"/api/path"</td>
-                    <td class="trace-table__cell">"200"</td>
-                    <td class="trace-table__cell">"1325ms"</td>
-                    <td class="trace-table__cell">"1kb"</td>
-                    <td class="trace-table__cell" title="dawdo">"2min ago"</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">"➔"</td>
-                </tr>
-                <tr>
-                    <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
-                        <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 25px; margin-left: 100px">
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td class="trace-table__cell">"handler"</td>
-                    <td class="trace-table__cell">"GET"</td>
-                    <td class="trace-table__cell">"/api/path"</td>
-                    <td class="trace-table__cell">"200"</td>
-                    <td class="trace-table__cell">"1325ms"</td>
-                    <td class="trace-table__cell">"1kb"</td>
-                    <td class="trace-table__cell" title="dawdo">"2min ago"</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">""</td>
-                    <td class="trace-table__cell">"➔"</td>
-                </tr>
-            </table>
-        </div>
+
+        <tr>
+            <td class="trace-table__cell">{(chrono::Utc::now() - header.started_at).num_minutes()}</td>
+            <td class="trace-table__cell">{header.duration_ms}</td>
+            <td class="trace-table__cell">{header.size_bytes/1000}</td>
+            <td class="trace-table__cell">{header.status_code}</td>
+            <td class="trace-table__cell">{header.path}</td>
+            <td class="trace-table__cell">{header.method}</td>
+            <td class="trace-table__cell">"➔"</td>
+        </tr>
     }
 }
 
@@ -1035,6 +958,18 @@ fn InstanceUpdateTrace() -> impl IntoView {
 // }
 //
 
+async fn get_and_write_get_execution_headers_result(
+    w: WriteSignal<
+        Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
+        LocalStorage,
+    >,
+) {
+    info!("Sending get_service_data req");
+    let res = get_executions_headers_impl().await;
+    info!("Got get_service_data data back");
+    w.set(Some(res));
+}
+
 async fn get_and_write_get_service_data_result(
     w: WriteSignal<
         Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>,
@@ -1052,6 +987,19 @@ async fn get_services_impl() -> Result<Summaries, TrackedGlooError> {
         "{}{}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
         "/api/ui/service/data"
+    ))
+    .send()
+    .await?
+    .json()
+    .await?;
+    Ok(services)
+}
+
+async fn get_executions_headers_impl() -> Result<Vec<ExecutionHeader>, TrackedGlooError> {
+    let services = gloo_net::http::Request::post(&format!(
+        "{}{}",
+        crate::API_SERVER_URL_NO_TRAILING_SLASH,
+        "/api/ui/service/execution_list"
     ))
     .send()
     .await?

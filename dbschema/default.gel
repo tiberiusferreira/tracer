@@ -19,6 +19,7 @@ module default {
         };
         required started_at: datetime;
         required last_seen_at: datetime;
+        required duration_ms := <int64>(duration_to_seconds(duration_truncate(.last_seen_at-.started_at, "milliseconds"))*1000);
         required ended: bool {
             default := false
         };
