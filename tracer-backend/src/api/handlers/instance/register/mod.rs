@@ -4,49 +4,7 @@ use api_structs::ServiceId;
 use api_structs::instance::registration::RegistrationResponse;
 use axum::Json;
 use axum::extract::State;
-use gel_tokio::{RetryingTransaction, Transaction};
 use std::collections::HashMap;
-use tracing::{info, instrument};
-
-// edgedb_query!(
-//     insert_service,
-//     "
-// with
-//   env := <str>$env,
-//   name := <str>$name,
-//   service := (
-//       insert Service{
-//               env := env,
-//               name := name,
-//               log_filter := (
-//                 insert LogFilter {
-//                   _value := 'info'
-//                 }
-//               )
-//             }
-//       unless conflict on (.env, .name)
-//       else
-//         (select Service)
-//   ),
-//   service_instance := (
-//     insert ServiceInstance{
-//       service := service,
-//       latest_log_filter := (
-//         insert LogFilter {
-//                   _value := 'info'
-//             }
-//       )
-//     }
-//   )
-// select {
-//   service := service {
-//     log_filter_value:= service.log_filter._value
-//   },
-//   service_existed := (service in Service),
-//   service_instance := service_instance
-// };
-// "
-// );
 
 use api_structs::instance::update::{Error, Parameter};
 use gel_tokio::Queryable;
@@ -108,24 +66,16 @@ select Service{
     })
 }
 
-#[instrument(skip_all)]
 pub async fn handler(
     app_state: State<AppState>,
     service_id: Json<ServiceId>,
 ) -> Result<Json<RegistrationResponse>, ApiError> {
     let service_id = service_id.0;
-    info!(service.name=service_id.name, service.env=?service_id.env,  "registration request for service");
-    println!("Some!");
     let db = app_state.execution_io_provider.database.clone();
     let mut tx = db.transaction_start().await;
-    println!("Some!2");
     let instance_insertion_data =
         register_instance(&mut tx, &service_id.env, &service_id.name).await?;
     tx.commit().await?;
-    info!(
-        service_instance_id = %instance_insertion_data.service_instance_id,
-        "registered"
-    );
     Ok(Json(RegistrationResponse {
         instance_id: instance_insertion_data.service_instance_id,
     }))

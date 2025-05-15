@@ -65,7 +65,7 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
         let graph_data = graph_data.clone();
         async move {
             let mut chart = Chart::new()
-                // .grid(Grid::new())
+                // .grid(   Grid::new())
                 .grid(Grid::new().left(45.).right(20.).bottom(30.).top(10.))
                 // .title(Title::new().text("Some").text_align(TextAlign::Left))
                 .x_axis(

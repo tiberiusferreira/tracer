@@ -3,12 +3,11 @@ use reqwest::Response;
 use reqwest::header::InvalidHeaderValue;
 use std::fmt::Formatter;
 use thiserror::Error;
-use tracing::{error, instrument};
 use tracked_error::{ReqwestError, error_chain_to_pretty_formatted};
 
 pub mod database;
 
-#[instrument(skip_all)]
+#[expect(unused)]
 pub async fn send_to_slack_and_update_database(
     // _con: &PgPool,
     _notification: &str,
@@ -46,7 +45,6 @@ pub async fn send_to_slack_and_update_database(
     unimplemented!()
 }
 
-#[instrument(skip_all)]
 async fn send_slack_msg(
     bot_token: &str,
     channel_id: &str,
@@ -90,7 +88,6 @@ struct SlackResponse {
     error: Option<String>,
 }
 
-#[instrument(skip_all)]
 async fn check_response(text_send_resp: Response) -> Result<(), String> {
     let status = text_send_resp.status();
     let body = text_send_resp.text().await.map_err(|e| e.to_string())?;
@@ -109,13 +106,12 @@ async fn send_slack_msg_logging_error(
     channel_id: &str,
     notification: &str,
 ) -> Result<(), String> {
-    return if let Err(e) = send_slack_msg(bot_token, channel_id, &notification).await {
+    if let Err(e) = send_slack_msg(bot_token, channel_id, &notification).await {
         let error_str = error_chain_to_pretty_formatted(e);
-        error!("{error_str}");
         Err(error_str)
     } else {
         Ok(())
-    };
+    }
 }
 
 #[derive(Clone)]

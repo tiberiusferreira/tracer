@@ -194,7 +194,7 @@ impl Transaction {
     pub async fn commit(self) -> Result<(), Error> {
         let execution_id = get_current_execution().unwrap();
         let global_collector = get_global_collector();
-        let mut tx = match self.tx {
+        let tx = match self.tx {
             TransactionIoProvider::Recorded(_) => {
                 unimplemented!()
             }

@@ -5,22 +5,6 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
-pub struct InstanceUpdateEndpoint;
-impl crate::Endpoint for InstanceUpdateEndpoint {
-    const PATH: &'static str = "/api/instance/update";
-    const METHOD: &'static str = "POST";
-    type RequestBody = InstanceSnapshot;
-    type QueryParameters = ();
-    type ResponseBody = ConfigChange;
-}
-
-pub const ROOT_SPAN_COUNT_ID: u64 = 1;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ConfigChange {
-    pub log_filter: Option<String>,
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InstanceSnapshot {
     /// This id should be incremented sequentially after a given update is successfully sent.

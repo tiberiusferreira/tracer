@@ -8,11 +8,12 @@ use api_structs::ui::service::{
 use axum::Json;
 use axum::extract::State;
 use chrono::{DateTime, Duration, Timelike, Utc};
+use my_macro::time;
 use serde::{Deserialize, Serialize};
-use std::cmp::{max, max_by};
+use std::cmp::max_by;
 use std::collections::HashMap;
-use std::ops::{AddAssign, DerefMut};
-
+use std::ops::AddAssign;
+use tracing_config_helper::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
 pub(crate) async fn execution_list(
     State(app_state): State<AppState>,
     Json(filters): Json<api_structs::ui::service::ExecutionListFilters>,
@@ -53,7 +54,7 @@ pub(crate) async fn execution_list(
 filter
     .started_at <= <datetime>$end_date and
     .last_seen_at >= <datetime>$start_date
-  order by .started_at asc limit 20";
+  order by .started_at asc limit 100";
 
     let executions: Vec<ExecutionHeader> = db
         .query(
@@ -67,11 +68,11 @@ filter
     Ok(Json(executions))
 }
 
+#[time]
 pub(crate) async fn data(
     State(app_state): State<AppState>,
     Json(filters): Json<api_structs::ui::service::Filters>,
 ) -> Result<Json<Summaries>, ApiError> {
-    println!("{}", filters.end_date);
     let rollover_window_minutes = 5;
     let look_back_minutes = 180;
     let start_datetime = filters.end_date - Duration::minutes(look_back_minutes);

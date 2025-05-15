@@ -1,10 +1,9 @@
-use crate::io_provider::TransactionIoProvider;
 use crate::io_provider::execution_recorder::function_instrumentation::track_task;
 use api_structs::instance::update::{
     Error, ExecutionRecording, QueryResult, QueryWithParameters, QueryWithResult, Transaction,
     TransactionResult,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use pin_project_lite::pin_project;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -56,7 +55,10 @@ impl DataCollector {
             .cloned()
             .collect();
         let mut w_guard = self.executions.write().unwrap();
-        w_guard.retain(|k, val| !val.ended);
+        w_guard.retain(|_k, val| !val.ended);
+        if !w_guard.is_empty() {
+            println!("{} executions still running", w_guard.len());
+        }
         data
     }
     pub fn register_new_execution(
@@ -271,17 +273,6 @@ pin_project! {
         inner: F,
         is_playing_a_recording: bool,
     }
-    //  impl<T> PinnedDrop for Fut<T> {
-    //     fn drop(this: Pin<&mut Self>) {
-    //         let this = this.project();
-    //         if let Some(function_id) = *this.function_id {
-    //             let Some(current_execution) = get_current_execution() else {
-    //                 panic!("tried to end function {function_id} without execution context");
-    //             };
-    //             get_global_collector().end_function(current_execution, function_id);
-    //         }
-    //     }
-    // }
 }
 impl<E, T: Future<Output = Result<(), E>>> Future for NoDatabaseRecording<T> {
     type Output = T::Output;

@@ -3,26 +3,19 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
 use crate::api::state::AppState;
-use api_structs::instance::update::ReplayData;
-use api_structs::{Endpoint, InstanceGlobalId};
+use api_structs::InstanceGlobalId;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
 use chrono::NaiveDateTime;
-use http::{Method, Request, Response, StatusCode};
+use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use tokio::task::JoinHandle;
-use tower::{Layer, Service};
+use tower::Layer;
 use tower_http::normalize_path::NormalizePath;
-use tracing::Span;
-use tracing::field::Empty;
-use tracing::{error, info, instrument};
 use tracing_config_helper::io_provider::execution_recorder::{
     DataCollector, GLOBAL_DATA_COLLECTOR, record_single_attribute,
 };
-use tracing_config_helper::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
 use tracked_error::error_chain_to_pretty_formatted;
-use valuable::Valuable;
 
 pub mod handlers;
 pub mod state;
@@ -135,9 +128,6 @@ async fn my_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    // Service A -> Tracer update endpoint -> generates execution recording -> Tracer self-tracing endpoint
-    // Service B -> Tracer update endpoint
-    // Tracer -> Tracer self-tracing endpoint that records the data without generating a new execution recording
     let my_request = axum_request_to_serializable(request).await;
     let recording_enabled = if my_request.parts.uri == "/api/instance/update"
         && my_request
@@ -170,13 +160,12 @@ async fn my_middleware(
 }
 
 pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
-    info!("Starting API, checking if index.html UI file exist");
+    println!("Starting API, checking if index.html UI file exist");
     if std::fs::read("/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html")
         .is_err()
     {
         panic!("Failed to read ./tracer-ui/dist/index.html");
     }
-    info!("it does");
     let serve_ui = tower_http::services::ServeDir::new(
         "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist",
     )
@@ -198,25 +187,11 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
             "/update",
             axum::routing::post(handlers::instance::update::handler),
         );
-    let trace_routes = axum::Router::new()
-        .route(
-            "/search",
-            axum::routing::get(handlers::ui::trace::event_search::search),
-        )
-        .route(
-            "/keys",
-            axum::routing::post(handlers::ui::trace::event_search::trace_keys),
-        );
     GLOBAL_DATA_COLLECTOR.set(DataCollector::new()).unwrap();
-    let app = axum::Router::new()
+    let app = Router::new()
         .route("/api/ready", axum::routing::get(ready_get))
-        .route(
-            <api_structs::ui::series::GetSeries as Endpoint>::PATH,
-            axum::routing::get(handlers::ui::series::get_all_series),
-        )
         .nest("/api/ui/service", service_routes)
         .nest("/api/instance", instance_routes)
-        .nest("/api/ui/trace", trace_routes)
         .with_state(app_state)
         .fallback_service(serve_ui)
         .layer(axum::middleware::from_fn(my_middleware))
@@ -227,7 +202,6 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     app
 }
-#[instrument(skip_all)]
 pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     // List, Overview and Manage Services
     let app = create_router(app_state);
@@ -308,8 +282,7 @@ impl IntoResponse for ApiError {
 }
 
 impl From<tracked_error::SerdeJsonError> for ApiError {
-    fn from(err: tracked_error::SerdeJsonError) -> Self {
-        error!("{:?}", error_chain_to_pretty_formatted(err));
+    fn from(_err: tracked_error::SerdeJsonError) -> Self {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: "Serialization error when handling the request".to_string(),
@@ -319,7 +292,6 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
 
 impl From<api_structs::instance::update::Error> for ApiError {
     fn from(err: api_structs::instance::update::Error) -> Self {
-        error!("{:?}", error_chain_to_pretty_formatted(&err));
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: error_chain_to_pretty_formatted(&err),
@@ -330,8 +302,7 @@ impl From<api_structs::instance::update::Error> for ApiError {
 impl From<gel_tokio::Error> for ApiError {
     #[track_caller]
     fn from(err: gel_tokio::Error) -> Self {
-        let tracked = tracked_error::TrackedError::from(err);
-        error!("{:?}", error_chain_to_pretty_formatted(tracked));
+        let _tracked = tracked_error::TrackedError::from(err);
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: "GelDB error when handling the request".to_string(),
@@ -340,8 +311,7 @@ impl From<gel_tokio::Error> for ApiError {
 }
 
 impl From<tracked_error::EdgeDBError> for ApiError {
-    fn from(err: tracked_error::EdgeDBError) -> Self {
-        error!("{:?}", error_chain_to_pretty_formatted(err));
+    fn from(_err: tracked_error::EdgeDBError) -> Self {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: "EdgeDB error when handling the request".to_string(),
@@ -359,163 +329,3 @@ async fn ready_get() -> impl IntoResponse {
         "ok".to_string(),
     )
 }
-
-const REPLAY_DATA: &str = r#"{
-  "input": {
-    "body": [
-      123,
-      34,
-      110,
-      97,
-      109,
-      101,
-      34,
-      58,
-      34,
-      116,
-      114,
-      97,
-      99,
-      101,
-      114,
-      45,
-      98,
-      97,
-      99,
-      107,
-      101,
-      110,
-      100,
-      34,
-      44,
-      34,
-      101,
-      110,
-      118,
-      34,
-      58,
-      34,
-      108,
-      111,
-      99,
-      97,
-      108,
-      34,
-      125
-    ],
-    "parts": {
-      "uri": "/api/instance/register",
-      "method": "Post",
-      "headers": {
-        "host": "127.0.0.1:4200",
-        "accept": "*/*",
-        "content-type": "application/json",
-        "content-length": "39",
-        "accept-encoding": "br"
-      }
-    }
-  },
-  "database_recording": {
-    "transactions": [
-      {
-        "id": 0,
-        "result": {
-          "result": {
-            "Ok": null
-          },
-          "ended_at": "2025-05-11T07:24:29.054351Z"
-        },
-        "queries": [
-          {
-            "id": 0,
-            "result": {
-              "result": {
-                "Ok": {
-                  "id": "eeea0606-2e27-11f0-bb39-972ef7ea354b"
-                }
-              },
-              "ended_at": "2025-05-11T07:24:29.026296Z"
-            },
-            "started_at": "2025-05-11T07:24:29.010125Z",
-            "query_with_parameters": {
-              "parameters": {
-                "env": {
-                  "String": "local"
-                },
-                "service": {
-                  "String": "tracer-backend"
-                }
-              },
-              "query_text": "with\n    env := <str>$env,\n    name := <str>$service,\nselect Service{\n  id\n} filter .env = env and .name = name;"
-            }
-          },
-          {
-            "id": 1,
-            "result": {
-              "result": {
-                "Ok": {
-                  "id": "f9aea7c0-2e38-11f0-8373-574a6aaedde4"
-                }
-              },
-              "ended_at": "2025-05-11T07:24:29.035577Z"
-            },
-            "started_at": "2025-05-11T07:24:29.026351Z",
-            "query_with_parameters": {
-              "parameters": {
-                "service": {
-                  "Uuid": {
-                    "val": "eeea0606-2e27-11f0-bb39-972ef7ea354b",
-                    "cast_to_table": "Service"
-                  }
-                }
-              },
-              "query_text": "insert ServiceInstance{\n    service := <Service><uuid>$service\n}"
-            }
-          },
-          {
-            "id": 2,
-            "result": {
-              "result": {
-                "Ok": {
-                  "id": "f9afcb96-2e38-11f0-8373-0f91737742a5"
-                }
-              },
-              "ended_at": "2025-05-11T07:24:29.042822Z"
-            },
-            "started_at": "2025-05-11T07:24:29.035632Z",
-            "query_with_parameters": {
-              "parameters": {
-                "new": {
-                  "Json": {
-                    "service": "eeea0606-2e27-11f0-bb39-972ef7ea354b"
-                  }
-                },
-                "entity_id": {
-                  "Uuid": {
-                    "val": "f9aea7c0-2e38-11f0-8373-574a6aaedde4",
-                    "cast_to_table": null
-                  }
-                },
-                "entity_name": {
-                  "String": "ServiceInstance"
-                },
-                "execution_id": {
-                  "Uuid": {
-                    "val": "c8b100aa-92dc-4d17-9594-a9e6192155b1",
-                    "cast_to_table": null
-                  }
-                }
-              },
-              "query_text": "insert EntityChange{\n    entity_name := <str>$entity_name,\n    entity_id := <uuid>$entity_id,\n    execution := <uuid>$execution_id,\n    new := <json>$new\n};"
-            }
-          }
-        ],
-        "started_at": "2025-05-11T07:24:29.010114Z",
-        "queries_count": 3
-      }
-    ],
-    "standalone_queries": [],
-    "transactions_count": 1,
-    "standalone_queries_count": 0
-  }
-}"#;

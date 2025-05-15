@@ -70,45 +70,24 @@ pub fn Services() -> impl IntoView {
         get_and_write_get_service_data_result(end_date_r.get(), service_data_w)
     });
     let current_selected_datetime = Signal::derive(move || {
-        info!("called");
         match index_clicked_r.get() {
             None => {
                 info!("no value");
             }
             Some(index) => {
-                info!("index at services = {index}");
                 if let Some(Ok(summaries)) = service_data_r.get_untracked() {
                     let new_date = summaries.buckets[index as usize];
-                    info!("{}", new_date);
                     return Some(new_date);
                 }
             }
         }
         return None;
     });
-    let date = move || {
-        info!("called in date");
-        current_selected_datetime
-            .get()
-            .unwrap_or_default()
-            .to_string()
-    };
-    let a = move || {
-        let index = index_clicked_r.get().unwrap_or_default();
-        view! {
-            <p>{index.to_string()}</p>
-        }
-    };
-    let date = view! {
-        <p>{date}</p>
-    };
     view! {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
                 <Visualizations index_clicked_w=index_clicked_w service_data_r=service_data_r end_date_w=end_date_w/>
-                {a}
-                {date}
                 <ServiceSelector/>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
@@ -250,7 +229,6 @@ fn service_graph(
     index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
-    info!("{execution_summary:#?}");
     let series = GraphSeries {
         name: "my series".to_string(),
         x_values: execution_summary
@@ -299,7 +277,6 @@ fn service_graph(
 
 fn requests_graph(execution_summary: &Summaries) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
-    info!("{execution_summary:#?}");
     let series = GraphSeries {
         name: "requests".to_string(),
         x_values: execution_summary
@@ -348,7 +325,6 @@ fn requests_graph(execution_summary: &Summaries) -> AnyView {
 
 fn size_graph(execution_summary: &Summaries) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
-    info!("{execution_summary:#?}");
     let series = GraphSeries {
         name: "size".to_string(),
         x_values: execution_summary
@@ -402,7 +378,6 @@ fn size_graph(execution_summary: &Summaries) -> AnyView {
 
 fn duration_graph(execution_summary: &Summaries) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
-    info!("{execution_summary:#?}");
     let series = GraphSeries {
         name: "duration".to_string(),
         x_values: execution_summary
@@ -649,7 +624,6 @@ fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) 
         None => view! {"Loading..."}.into_any(),
         Some(result) => match result {
             Ok(result) => {
-                info!("gor data: {result:?}");
                 let mut rows = vec![];
                 for r in result {
                     rows.push(grid_row(r));
@@ -658,6 +632,7 @@ fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) 
                     <div>
                         <table class="trace-table">
                             <tr>
+                                <th class="trace-table__cell">"id"</th>
                                 <th class="trace-table__cell">"Last Seen (minutes ago)"</th>
                                 <th class="trace-table__cell">"Duration (ms)"</th>
                                 <th class="trace-table__cell">"Size KB"</th>
@@ -702,6 +677,7 @@ fn grid_row(header: ExecutionHeader) -> impl IntoView {
     view! {
 
         <tr>
+            <td class="trace-table__cell">{header.id.to_string()}</td>
             <td class="trace-table__cell">{(chrono::Utc::now() - header.started_at).num_minutes()}</td>
             <td class="trace-table__cell">{header.duration_ms}</td>
             <td class="trace-table__cell">{header.size_bytes/1000}</td>
@@ -1003,9 +979,7 @@ async fn get_and_write_get_execution_headers_result(
         LocalStorage,
     >,
 ) {
-    info!("Sending get_service_data req");
     let res = get_executions_headers_impl(datetime).await;
-    info!("Got get_service_data data back");
     w.set(Some(res));
 }
 
@@ -1016,10 +990,7 @@ async fn get_and_write_get_service_data_result(
         LocalStorage,
     >,
 ) {
-    info!("Sending get_service_data req");
-
     let res = get_services_impl(end_date).await;
-    info!("Got get_service_data data back");
     w.set(Some(res));
 }
 

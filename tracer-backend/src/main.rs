@@ -5,28 +5,14 @@ use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
 use tokio::task::spawn_local;
-use tracing::{Instrument, info, info_span, instrument};
 use tracing_config_helper::TracerConfig;
 use tracing_config_helper::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
 use valuable_derive::Valuable;
 
 mod api;
 mod background_tasks;
-mod error;
 mod notification_worthy_events;
 mod series;
-
-pub const BYTES_IN_1MB: usize = 1_000_000;
-pub const SINGLE_EVENT_CHARS_LIMIT: usize = 1_500_000;
-pub const DB_INTERNAL_ERROR_CHAR_LIMIT: usize = 4096;
-pub const SINGLE_KEY_VALUE_VALUE_CHARS_LIMIT: usize = 1_500_000;
-pub const SINGLE_KEY_VALUE_KEY_CHARS_LIMIT: usize = 256;
-pub const DEAD_INSTANCE_RETENTION_TIME_SECONDS: usize = 12 * 60 * 60;
-pub const DEAD_INSTANCE_MAX_STATS_HISTORY_DATA_COUNT: usize = 50;
-pub const CONSIDER_DEAD_INSTANCE_AFTER_NO_DATA_FOR_SECONDS: usize = 12 * 60 * 60;
-
-pub const MAX_STATS_HISTORY_DATA_COUNT: usize = 500;
-pub const MAX_NOTIFICATION_SIZE_CHARS: usize = 2048;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -59,13 +45,11 @@ async fn main() {
 }
 
 // This should not run forever, otherwise we lose the trace of starting up
-#[instrument(level = "error", skip_all)]
 async fn start_api_and_background_tasks(
     config: LaunchConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState {
-        gel_client: edgedb_client.clone(),
         execution_io_provider: ExecutionIoProvider {
             database: DatabaseIoProvider::Live(edgedb_client),
         },
@@ -74,12 +58,11 @@ async fn start_api_and_background_tasks(
     spawn_local(async move {
         // Sleep before tasks so they start after tracer is setup and we dont lose any traces
         tokio::time::sleep(Duration::from_secs(3)).await;
-        // info!(config = config.as_value(), "Using config");
 
         loop {
             async {
                 // let state = app_state.clone();
-                info!("Checking for check_for_alerts_and_send");
+                println!("Checking for check_for_alerts_and_send");
 
                 // if let Err(e) =
                 //     background_tasks::alerts::checker::execute_series_and_check_for_alerts(
@@ -105,9 +88,8 @@ async fn start_api_and_background_tasks(
                 // background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
                 // background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
             }
-            .instrument(info_span!("background_task"))
             .await;
-            tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+            tokio::time::sleep(Duration::from_secs(60 * 60 * 60)).await;
         }
     });
 

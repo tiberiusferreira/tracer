@@ -318,6 +318,7 @@ async fn trace_export_loop(
             .await
             {
                 Ok(()) => {
+                    update_count += 1;
                     break;
                 }
                 Err(err) => {

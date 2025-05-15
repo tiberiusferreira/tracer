@@ -13,12 +13,10 @@ uuid.workspace = true
 gel-tokio.workspace = true
 gel-protocol.workspace = true
 gel-errors.workspace = true
-pin-project-lite = "0.2.16"
 my_macro = { path = "../my_macro" }
 axum = { version = "0.8.3", features = ['query', 'macros'] }
 tower-http = { version = "0.6.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
 valuable = { workspace = true }
-tracing = { workspace = true, features = ["valuable"] }
 valuable-derive.workspace = true
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }

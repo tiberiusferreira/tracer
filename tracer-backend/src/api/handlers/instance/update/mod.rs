@@ -1,23 +1,14 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
-use api_structs::instance::update::{
-    ConfigChange, ExecutionRecording, InstanceSnapshot, Parameter,
-};
+use api_structs::instance::update::{ExecutionRecording, InstanceSnapshot, Parameter};
 use axum::Json;
 use axum::extract::State;
-use gel_errors::{ErrorKind, UserError};
-use gel_protocol::named_args;
-use gel_tokio::{QueryExecutor, Queryable, RetryingTransaction};
+use my_macro::time;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use thiserror::Error;
-use tracing::{info, instrument};
 use tracing_config_helper::io_provider::Transaction;
-use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
-use tracked_error::TrackedError;
+use tracing_config_helper::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
 use uuid::Uuid;
-
-mod trace;
 
 #[allow(unused)]
 pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
@@ -32,90 +23,6 @@ pub fn shorten_for_logging(text: &str, max_len: usize) -> String {
         text.to_string()
     }
 }
-//
-// edgedb_query!(
-//     increase_instance_update_count_get_log,
-//     "
-// with service_instance := (
-//   update ServiceInstance filter .id=<uuid>$instance_id
-//   set {
-//     received_update_count := .received_update_count + 1
-//   }
-// )
-// select {
-//   received_update_count := service_instance.received_update_count,
-//   log_filter := service_instance.service.log_filter._value,
-// };
-// "
-// );
-//
-// edgedb_query!(
-//     instance_update_insertion,
-//     "
-// with
-// instance_update := (
-//   insert ServiceInstanceUpdate {
-//     service_instance := (
-//       select ServiceInstance filter .id=<uuid>$instance_id
-//     ),
-//     export_buffer_size_bytes := <int64>$export_buffer_size_bytes
-//   }
-// )
-// select {
-//   instance_update_id := instance_update.id
-// };
-// "
-// );
-
-#[derive(Queryable)]
-struct InstanceUpdatedData {
-    new_update_count: i64,
-}
-
-#[derive(Error, Debug, Clone)]
-enum ErrorVariants {
-    #[error("Instance not registered")]
-    InstanceNotRegistered,
-    #[error("Unexpected update count. Expected: {expected}, actual: {actual}")]
-    UnexpectedUpdateCount { expected: i64, actual: u64 },
-}
-
-#[derive(Error, Debug, Clone)]
-#[error(transparent)]
-struct Error(TrackedError<ErrorVariants>);
-
-impl From<Error> for gel_tokio::Error {
-    fn from(value: Error) -> Self {
-        UserError::with_source(value)
-    }
-}
-
-async fn insert_new_instance_update(
-    tx: &mut RetryingTransaction,
-    instance_snapshot: &InstanceSnapshot,
-) -> Result<(), gel_tokio::Error> {
-    let args = named_args! {
-      "instance_id" => instance_snapshot.instance_id,
-      "export_buffer_size_bytes" => instance_snapshot.export_buffer_size_bytes as i64,
-      "produced_at" => gel_protocol::model::Datetime::try_from(chrono::Utc::now()).expect("chrono date time to always be valid"),
-    };
-    tx.execute(
-        r#"
- with
-  instance_id := <uuid>$instance_id,
-  export_buffer_size_bytes := <int64>$export_buffer_size_bytes,
-  produced_at := <datetime>$produced_at,
-  insert ServiceInstanceUpdate{
-    export_buffer_size_bytes := export_buffer_size_bytes,
-    produced_at := produced_at,
-    service_instance := <ServiceInstance>instance_id
-  }
-    "#,
-        &args,
-    )
-    .await?;
-    Ok(())
-}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DbPartialExecution {
@@ -124,6 +31,7 @@ pub struct DbPartialExecution {
     pub ended: bool,
 }
 
+#[time]
 async fn process_execution_recording(
     tx: &mut Transaction,
     instance_id: Uuid,
@@ -157,7 +65,7 @@ async fn process_execution_recording(
             ]),
         )
         .await?;
-    let execution_id = match existing_execution {
+    let _execution_id = match existing_execution {
         None => {
             let params = HashMap::from([
                 (
@@ -212,38 +120,23 @@ async fn process_execution_recording(
     };
     Ok(())
 }
+#[time]
 async fn process_update(
     tx: &mut Transaction,
     instance_snapshot: &InstanceSnapshot,
 ) -> Result<(), api_structs::instance::update::Error> {
     for recording in &instance_snapshot.execution_recordings {
-        // let is_from_self = recording
-        //     .attributes
-        //     .get("uri")
-        //     .is_some_and(|uri| uri.contains("/api/instance/update"));
-        // if is_from_self {
-        //     let state = tx.state();
-        //     tracing_config_helper::io_provider::execution_recorder::run_without_query_recording(
-        //         &state,
-        //         async {
-        //             process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording)
-        //                 .await
-        //         },
-        //     )
-        //     .await?;
-        // } else {
         process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording).await?;
-        // }
     }
     Ok(())
 }
-#[instrument(level = "error", skip_all, err(Debug))]
+
+#[time]
 pub async fn handler(
     State(app_state): State<AppState>,
     instance_snapshot: Json<InstanceSnapshot>,
 ) -> Result<(), ApiError> {
     let io_provider = app_state.execution_io_provider;
-
     let instance_snapshot = instance_snapshot.0;
     let db = io_provider.database().clone();
     let mut tx = db.transaction_start().await;
