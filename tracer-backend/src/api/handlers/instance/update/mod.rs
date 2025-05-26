@@ -1,12 +1,12 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
-use api_structs::instance::update::{ExecutionRecording, InstanceSnapshot, Parameter};
+use api_structs::instance::update::{ExecutionRecording, InstanceSnapshot};
 use axum::Json;
 use axum::extract::State;
-use my_macro::time;
+use function_timer::time;
+use gel_io_recorder::{Parameter, Transaction2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing_config_helper::io_provider::Transaction;
 use tracing_config_helper::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
 use uuid::Uuid;
 
@@ -33,10 +33,10 @@ pub struct DbPartialExecution {
 
 #[time]
 async fn process_execution_recording(
-    tx: &mut Transaction,
+    tx: &mut Transaction2,
     instance_id: Uuid,
     recording: &ExecutionRecording,
-) -> Result<(), api_structs::instance::update::Error> {
+) -> Result<(), gel_io_recorder::Error> {
     let existing_execution: Option<DbPartialExecution> = tx
         .query_optional(
             "select Execution{
@@ -122,9 +122,9 @@ async fn process_execution_recording(
 }
 #[time]
 async fn process_update(
-    tx: &mut Transaction,
+    tx: &mut Transaction2,
     instance_snapshot: &InstanceSnapshot,
-) -> Result<(), api_structs::instance::update::Error> {
+) -> Result<(), gel_io_recorder::Error> {
     for recording in &instance_snapshot.execution_recordings {
         process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording).await?;
     }

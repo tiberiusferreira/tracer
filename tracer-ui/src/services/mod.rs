@@ -633,6 +633,7 @@ fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) 
                         <table class="trace-table">
                             <tr>
                                 <th class="trace-table__cell">"id"</th>
+                                <th class="trace-table__cell">"Service"</th>
                                 <th class="trace-table__cell">"Last Seen (minutes ago)"</th>
                                 <th class="trace-table__cell">"Duration (ms)"</th>
                                 <th class="trace-table__cell">"Size KB"</th>
@@ -661,23 +662,10 @@ fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) 
 }
 
 fn grid_row(header: ExecutionHeader) -> impl IntoView {
-    /*
-        #[derive(Serialize, Deserialize, Debug, Clone)]
-    pub struct ExecutionHeader {
-        pub id: uuid::Uuid,
-        pub started_at: DateTime<Utc>,
-        pub duration_ms: u64,
-        pub size_bytes: u64,
-        pub status_code: Option<String>,
-        pub path: Option<String>,
-        pub method: Option<String>,
-    }
-
-        */
     view! {
-
         <tr>
             <td class="trace-table__cell">{header.id.to_string()}</td>
+            <td class="trace-table__cell">{header.service_name}</td>
             <td class="trace-table__cell">{(chrono::Utc::now() - header.started_at).num_minutes()}</td>
             <td class="trace-table__cell">{header.duration_ms}</td>
             <td class="trace-table__cell">{header.size_bytes/1000}</td>

@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::State;
 use std::collections::HashMap;
 
-use api_structs::instance::update::{Error, Parameter};
+use gel_io_recorder::Parameter;
 use gel_tokio::Queryable;
 use serde::{Deserialize, Serialize};
 
@@ -20,10 +20,10 @@ pub struct Id {
     pub id: uuid::Uuid,
 }
 async fn register_instance(
-    tx: &mut tracing_config_helper::io_provider::Transaction,
+    tx: &mut gel_io_recorder::Transaction2,
     env: &str,
     service: &str,
-) -> Result<InstanceInsertionData, Error> {
+) -> Result<InstanceInsertionData, gel_io_recorder::Error> {
     let params = HashMap::from([
         ("env".to_string(), Parameter::String(env.to_string())),
         (

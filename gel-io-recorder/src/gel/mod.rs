@@ -1,4 +1,4 @@
-use api_structs::instance::update::Parameter;
+use crate::Parameter;
 use gel_protocol::value::Value;
 use gel_protocol::value_opt::ValueOpt;
 use std::collections::HashMap;
@@ -18,6 +18,7 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
             Parameter::Json(_json) => "<json>".to_string(),
             Parameter::Datetime(_) => "<datetime>".to_string(),
             Parameter::Bool(_) => "<bool>".to_string(),
+            Parameter::Date(_) => "<cal::local_date>".to_string(),
         };
         column_set_queries.push(format!("{name} := {bind_type}${name}"));
     }
@@ -44,6 +45,9 @@ pub fn params_to_gel(parameters: HashMap<String, Parameter>) -> HashMap<String, 
                 gel_protocol::model::Datetime::try_from(val).unwrap(),
             )),
             Parameter::Bool(val) => ValueOpt::from(Value::Bool(val)),
+            Parameter::Date(val) => ValueOpt::from(Value::LocalDate(
+                gel_protocol::model::LocalDate::try_from(val).unwrap(),
+            )),
         };
         hashmap.insert(k, a);
     }

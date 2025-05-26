@@ -6,16 +6,20 @@
 use base64::Engine;
 use pprof::ProfilerGuard;
 use std::fmt::Debug;
+use std::io::Write;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::io_provider::execution_recorder::get_global_collector;
+use crate::io_provider::execution_recorder::{
+    DataCollector, GLOBAL_DATA_COLLECTOR, get_global_collector,
+};
 use api_structs::instance::registration::RegistrationResponse;
 pub use api_structs::{Env, InstanceGlobalId, ServiceId, Severity};
 pub use print_debugging::print_if_dbg;
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod io_provider;
+pub use api_structs::instance::update::{ExecutionRecording, ReplayData};
 mod print_debugging;
 mod server_connection;
 #[derive(Debug, Clone)]
@@ -61,6 +65,7 @@ pub struct TracerHandle {
 }
 
 pub async fn setup_tracer_client_in_background_or_panic(config: TracerConfig) -> TracerHandle {
+    GLOBAL_DATA_COLLECTOR.set(DataCollector::new()).unwrap();
     println!("Starting up using: {config:#?}");
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
     // runtime starved from CPU time.
@@ -123,6 +128,16 @@ impl FlushRequest {
 #[derive(Debug, Clone)]
 pub struct ExportNowRequester {
     sender_channel: Sender<FlushRequest>,
+}
+
+impl Drop for ExportNowRequester {
+    fn drop(&mut self) {
+        println!("Trying to export last data");
+        if let Err(e) = self.try_export_dont_wait_result() {
+            println!("{e:#?}");
+        }
+        std::thread::sleep(Duration::new(5, 0));
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -324,6 +339,15 @@ async fn trace_export_loop(
                 Err(err) => {
                     let err = error_chain_to_pretty_formatted(err);
                     println!("{context} - {err}");
+                    let file_path = "./data_being_exported.json";
+                    let mut file = std::fs::File::create(file_path).expect("failed to create file");
+                    println!(
+                        "Data being exported size: {}, saved to file {file_path}",
+                        export_data_json.len()
+                    );
+                    file.write_all(export_data_json.as_bytes())
+                        .expect("failed to write to file");
+                    drop(file);
                     let sleep_sec = Duration::from_secs(10);
                     println!("sleeping 10s");
                     tokio::time::sleep(sleep_sec).await;

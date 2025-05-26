@@ -12,9 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tower::Layer;
 use tower_http::normalize_path::NormalizePath;
-use tracing_config_helper::io_provider::execution_recorder::{
-    DataCollector, GLOBAL_DATA_COLLECTOR, record_single_attribute,
-};
+use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod handlers;
@@ -187,7 +185,6 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
             "/update",
             axum::routing::post(handlers::instance::update::handler),
         );
-    GLOBAL_DATA_COLLECTOR.set(DataCollector::new()).unwrap();
     let app = Router::new()
         .route("/api/ready", axum::routing::get(ready_get))
         .nest("/api/ui/service", service_routes)
@@ -225,13 +222,13 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
 
 #[tokio::test]
 async fn a() {
-    let replay_data: ReplayData = serde_json::from_str(REPLAY_DATA).unwrap();
+    let replay_data: api_structs::instance::update::ReplayData =
+        serde_json::from_str("{}").unwrap();
     let req: MyRequest = serde_json::from_value(replay_data.input).unwrap();
     let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState {
-        gel_client: edgedb_client.clone(),
-        execution_io_provider: ExecutionIoProvider {
-            database: DatabaseIoProvider::Live(edgedb_client),
+        execution_io_provider: tracing_config_helper::io_provider::ExecutionIoProvider {
+            database: tracing_config_helper::io_provider::DatabaseIoProvider::Live(edgedb_client),
         },
     };
     let mut app = create_router(app_state);
@@ -290,8 +287,8 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
     }
 }
 
-impl From<api_structs::instance::update::Error> for ApiError {
-    fn from(err: api_structs::instance::update::Error) -> Self {
+impl From<gel_io_recorder::Error> for ApiError {
+    fn from(err: gel_io_recorder::Error) -> Self {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: error_chain_to_pretty_formatted(&err),

@@ -4,10 +4,9 @@ use std::time::Duration;
 use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
+use gel_io_recorder::{DatabaseIoRecorder, ExecutionIoProvider};
 use tokio::task::spawn_local;
 use tracing_config_helper::TracerConfig;
-use tracing_config_helper::io_provider::{DatabaseIoProvider, ExecutionIoProvider};
-use valuable_derive::Valuable;
 
 mod api;
 mod background_tasks;
@@ -34,9 +33,10 @@ async fn main() {
                 format!("http://127.0.0.1:{}", launch_config.api_listen_port),
             );
 
-            let _tracer_flush_request =
+            let tracer_flush_request =
                 tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)
                     .await;
+            std::mem::forget(tracer_flush_request);
             join_handle
                 .await
                 .expect("api and background tasks shouldn't ever return");
@@ -51,7 +51,7 @@ async fn start_api_and_background_tasks(
     let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState {
         execution_io_provider: ExecutionIoProvider {
-            database: DatabaseIoProvider::Live(edgedb_client),
+            database: DatabaseIoRecorder::Live(edgedb_client),
         },
     };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
@@ -96,7 +96,7 @@ async fn start_api_and_background_tasks(
     Ok(api_handle)
 }
 
-#[derive(Debug, Clone, clap::Parser, Valuable)]
+#[derive(Debug, Clone, clap::Parser)]
 pub struct LaunchConfig {
     #[clap(flatten)]
     pub db: DbConfig,
@@ -108,7 +108,7 @@ pub struct LaunchConfig {
     pub environment: String,
 }
 
-#[derive(Clone, clap::Parser, Valuable)]
+#[derive(Clone, clap::Parser)]
 pub struct DbConfig {
     #[clap(long, env = "DATABASE_URL")]
     pub url: String,

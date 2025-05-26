@@ -10,5 +10,5 @@ services:
       - "./dbschema:/dbschema"
       - "./gel/data:/var/lib/gel/data"
     ports:
-      - "5656:5656"
+      - "5657:5656"
 

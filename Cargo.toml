@@ -2,11 +2,13 @@
 resolver = "2"
 members = [
     "tracer-backend",
-    "my_macro",
+    "function-timer",
     "tracer-ui",
     "api-structs",
     "tracing-config-helper",
     "tracked_error",
+    "datetime-io-recorder",
+    "gel-io-recorder",
 ]
 
 
@@ -15,9 +17,8 @@ api-structs = { path = "./api-structs" }
 
 
 tracked_error = { path = "./tracked_error", default-features = false }
+tracing-config-helper = { path = "./tracing-config-helper" }
 base64 = "0.22.1"
-valuable = "0.1"
-valuable-derive = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
 serde = { version = "1", features = ["derive"] }
 deepsize = "0.2.0"
@@ -29,11 +30,9 @@ tracing = { version = "0.1", features = ["valuable"] }
 tracing-subscriber = { version = "0.3", features = ['env-filter', 'json'] }
 thiserror = "2"
 futures = "0.3"
-parking_lot = "0.12"
 chrono = { version = "0.4", features = ['serde'] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ['brotli', "json"] }
 brotli = "8"
-maplit = "1"
 tokio = { version = "1", features = ["macros", "sync"] }
 dotenvy = "0.15.7"

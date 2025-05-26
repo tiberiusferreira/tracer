@@ -1,6 +1,5 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
-use api_structs::instance::update::Parameter;
 use api_structs::ui::service::{
     DurationSummary, ExecutionHeader, ExecutionSummary, RequestsSummary, SizeBytesSummary,
     Summaries,
@@ -8,7 +7,8 @@ use api_structs::ui::service::{
 use axum::Json;
 use axum::extract::State;
 use chrono::{DateTime, Duration, Timelike, Utc};
-use my_macro::time;
+use function_timer::time;
+use gel_io_recorder::Parameter;
 use serde::{Deserialize, Serialize};
 use std::cmp::max_by;
 use std::collections::HashMap;
@@ -169,25 +169,22 @@ pub(crate) async fn data(
                 } else {
                     summaries.requests.with_non_200_status_count += 1;
                 }
-                summaries
-                    .size_bytes
-                    .values
-                    .last_mut()
-                    .unwrap()
-                    .add_assign(e.size_bytes as f64);
-                summaries.size_bytes.total += e.size_bytes;
-                let duration_ms = (e.last_seen_at - e.started_at).num_milliseconds() as f64;
-                summaries.duration.max_ms =
-                    max_by(duration_ms, summaries.duration.max_ms, |a, b| {
-                        a.partial_cmp(b).unwrap()
-                    });
-                let last_value = *summaries.duration.max_values.last().unwrap();
-                *summaries.duration.max_values.last_mut().unwrap() =
-                    max_by(last_value, duration_ms, |a, b| a.partial_cmp(b).unwrap());
             }
+            summaries
+                .size_bytes
+                .values
+                .last_mut()
+                .unwrap()
+                .add_assign(e.size_bytes as f64);
+            summaries.size_bytes.total += e.size_bytes;
+            let duration_ms = (e.last_seen_at - e.started_at).num_milliseconds() as f64;
+            summaries.duration.max_ms = max_by(duration_ms, summaries.duration.max_ms, |a, b| {
+                a.partial_cmp(b).unwrap()
+            });
+            let last_value = *summaries.duration.max_values.last().unwrap();
+            *summaries.duration.max_values.last_mut().unwrap() =
+                max_by(last_value, duration_ms, |a, b| a.partial_cmp(b).unwrap());
         }
-
-        // execution_summary.values.push(value as f64);
         curr = bucket_end;
     }
 

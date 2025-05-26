@@ -1,27 +1,29 @@
-
 ## Problems with Open Telemetry
 
 #### Spans are only exported when closed
 
 Spans are exported in ***reverse order*** and ***only when finished***: https://github.com/open-telemetry/opentelemetry-specification/issues/373
 
-This makes us always see the past state of a system. 
+This makes us always see the past state of a system.
 
-We see what is _currently_ being executed, making it much harder to debug application stuck situations. 
+We see what is _currently_ being executed, making it much harder to debug application stuck situations.
 
-This also means we don't see the root span until the whole trace is exported, and the root span usually has the most important information such as the Http Path, Headers, Body and Status Code.
+This also means we don't see the root span until the whole trace is exported, and the root span usually has the most important information such as the Http Path, Headers,
+Body and Status Code.
 
 "Infinite" traces from background workers or event listeners are not well supported, their root span is never exported.
 
 #### Traces shouldn't be the root information
 
-Otel also treats Traces as the "root" information, being uniquely identified by an UUID. This makes it hard to get feedback from the instance itself about how things are going: export buffer usage, instance log level etc.
+Otel also treats Traces as the "root" information, being uniquely identified by an UUID. This makes it hard to get feedback from the instance itself about how things are
+going: export buffer usage, instance log level etc.
 
 Tracer however treats Traces as entities that come from a service instance and can't be uniquely identified outside one.
 
-Service instance need to be first registered before they can export traces. 
+Service instance need to be first registered before they can export traces.
 
-The registration phase is important for the auto configuration of the instance, such as log levels and whatever else is needed. We can send the instance id back as part of the registration, then we can control the instance IDs better.
+The registration phase is important for the auto configuration of the instance, such as log levels and whatever else is needed. We can send the instance id back as part
+of the registration, then we can control the instance IDs better.
 
 During startup the traces and logs can be buffered for after registration.
 
@@ -39,26 +41,28 @@ We can use https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/f
 
 ## Sampling and How to Deal With Full Buffer
 
-
 #### Second guessing data
 
-We want traces and logs to be as reliable as the ones written stdout or a local file. We don't want to second guess if we have missing information because the trace was sampled, dropped or corrupt.
+We want traces and logs to be as reliable as the ones written stdout or a local file. We don't want to second guess if we have missing information because the trace was
+sampled, dropped or corrupt.
 
 #### Deriving Metrics
 
 Traces are used to derive metrics, which won't be reliable if there is missing data.
-In this sense, Tracer take the unconventional approach of ***not sampling at all***. 
+In this sense, Tracer take the unconventional approach of ***not sampling at all***.
 
 #### Managing Data Volume
 
-Users are encouraged to use ***Runtime Log Filters*** to adjust the volume of data being generated and monitor the ***Export Buffer Usage*** of each instance to make sure it's not generating more data than can be exported.
+Users are encouraged to use ***Runtime Log Filters*** to adjust the volume of data being generated and monitor the ***Export Buffer Usage*** of each instance to make sure
+it's not generating more data than can be exported.
 
 The main reason the ***Export Buffer*** full is due to connection issues with Tracer. When this happens, Tracer assumes the instance is dead.
 
-An instance unaccounted for in Tracer and without log to explain its behavior is not a healthy one. For this reason when the Export Buffer gets filled, the whole service will get blocked until it can export data and make room in its buffer.
+An instance unaccounted for in Tracer and without log to explain its behavior is not a healthy one. For this reason when the Export Buffer gets filled, the whole service
+will get blocked until it can export data and make room in its buffer.
 
-This also acts as a form of back pressure for cases when the instance is generating logs faster than they can be exported and can be monitored by the ***Export Buffer Usage*** metric.
-
+This also acts as a form of back pressure for cases when the instance is generating logs faster than they can be exported and can be monitored by the
+***Export Buffer Usage*** metric.
 
 ## Exported Data
 
@@ -121,24 +125,19 @@ enum Severity {
 
 ```
 
-
-
 # Overall Architecture
-
 
 The hierarchy of entities being:
 
 - Service
-	- Has an env: Dev, Stage, Production or a Custom name
-	- Has a name: Frontend, Billing, Delivery etc
-	- A service can have zero or more instances
+    - Has an env: Dev, Stage, Production or a Custom name
+    - Has a name: Frontend, Billing, Delivery etc
+    - A service can have zero or more instances
 - Instance
-	- Represents a deployed piece of code
-	- Exports telemetry data: traces and logs
+    - Represents a deployed piece of code
+    - Exports telemetry data: traces and logs
 - Trace
-	- Represents an execution flow
-
-
+    - Represents an execution flow
 
 # Instance Exported Data
 
@@ -149,35 +148,36 @@ Instances exports two types of data:
 - CPU profiles
 - Memory profiles
 
-
 ## Traces
 
 Traces are the primary data exported and represent an execution path.
 
-Designed to allow streaming from single events to spans, even if they are still open. This is useful for tracking long running or stuck execution paths (be it a request or a background job).
-
+Designed to allow streaming from single events to spans, even if they are still open. This is useful for tracking long running or stuck execution paths (be it a request
+or a background job).
 
 Traces are uniquely identified by the combination of:
-1. Instance Id
-	1. Type: UUIDv7 
-	2. Generated by the instance
-	3. Globally identifies the instance among all others
-2. Trace Id
-	1. Type: u32
-	2. Sequencial number, without gaps, generated by the instance starting from 0
-	3. Uniquely identifies the trace _within_ the instance
 
-Traces consist of spans. 
+1. Instance Id
+    1. Type: UUIDv7
+    2. Generated by the instance
+    3. Globally identifies the instance among all others
+2. Trace Id
+    1. Type: u32
+    2. Sequencial number, without gaps, generated by the instance starting from 0
+    3. Uniquely identifies the trace _within_ the instance
+
+Traces consist of spans.
 
 ### Spans
 
 Spans represent a segment of the execution path, usually a function call.
 
 Spans are uniquely identified by a Span Id which is comprised of:
+
 1. Span Id:
-	1. Type: u32
-	2. Sequencial number, without gaps, generated by the instance starting from 0 for each trace
-	3. Uniquely identifies the span _within_ a trace
+    1. Type: u32
+    2. Sequencial number, without gaps, generated by the instance starting from 0 for each trace
+    3. Uniquely identifies the span _within_ a trace
 
 Additionally, each span has a name and may contain attributes as Key-Values pairs.
 
@@ -200,6 +200,7 @@ Spans can link to other span from other traces.
 Events represent an event in the execution path.
 
 Events are composed of:
+
 1. Optional message
 2. Optional Key-Value pairs, just like spans
 
@@ -211,63 +212,58 @@ Spans can be linked to a span from ***another*** trace by setting a key-value pa
 ```tracer.links_to.trace_id=32```
 ```tracer.links_to.span_id=2```
 
-
 ## Trace Search
 
 Traces can be narrowed down by:
+
 1. Service - exact search with autocomplete
 2. A timespan
 3. Name - exact search with autocomplete
-	1. Note that span names are static and for HTTP servers all traces may end up with "http_request" or similar name, since they are all created in the same function
+    1. Note that span names are static and for HTTP servers all traces may end up with "http_request" or similar name, since they are all created in the same function
 4. Trace-Level Key Value - exact search with autocomplete
-	1. Endpoint (url.path)
-	2. Status Code (http.response.status_code)
-	3. Query (url.query)
-	4. Custom user key-values
+    1. Endpoint (url.path)
+    2. Status Code (http.response.status_code)
+    3. Query (url.query)
+    4. Custom user key-values
 6. Duration
 7. Warning count
 8. Has Error
-9. Total Size (Kb) - great than or lower than, showing min - max range 
+9. Total Size (Kb) - great than or lower than, showing min - max range
 
 Traces can also be Deep Searched, which is a slower search looking at their individual spans and events.
-1. Span name 
+
+1. Span name
 2. Span key-value
 3. Event message
 4. Event key-value
 
-
-
-
-
-
 ## Tracer Self Tracing Problem
-
 
 Tracer Received Data from Instance A.
 
 It ingests it and emits a trace about ingesting A's Trace.
 
-Tracer Received Data from itself. 
+Tracer Received Data from itself.
 
 It ingests it and emits a trace about ingesting its own Trace. <- should not emit this trace
 
 When ingesting traces from an instance of service Tracer, it should not emit a new trace.
 
-
 ## Trace Filtering
 
-Common use cases involve getting basic information from traces under normal conditions. Enough to generate metrics and alert about problems with warnings and errors. 
+Common use cases involve getting basic information from traces under normal conditions. Enough to generate metrics and alert about problems with warnings and errors.
 
-When debugging, we usually want to increase the details we get. Increasing it for the whole application can get very noisy and impact performance. 
+When debugging, we usually want to increase the details we get. Increasing it for the whole application can get very noisy and impact performance.
 
 User Story:
 
-An endpoint is behaving unexpectedly only when called by a specific user. 
+An endpoint is behaving unexpectedly only when called by a specific user.
 
-This is a heavily used endpoint, we can't increase the log level for all executions of it. Instead we want to increase it conditionally on the user_id received as header attribute.
+This is a heavily used endpoint, we can't increase the log level for all executions of it. Instead we want to increase it conditionally on the user_id received as header
+attribute.
 
-
-Maybe the user_id is inside the request body, or maybe we can't use the user_id and instead need to use the user_email, which is only available in the middle of the endpoint execution.
+Maybe the user_id is inside the request body, or maybe we can't use the user_id and instead need to use the user_email, which is only available in the middle of the
+endpoint execution.
 
 > We need to be able to defer event and span logging until later
 
@@ -303,13 +299,13 @@ All root spans are always recorded.
 }
 ```
 
-
-Final thoughts: it's hard to know what to filter on if we don't see the full trace data in the first place. Also, being able to see all the details is often very desirable. It's hard to know what will be needed before the fact. 
+Final thoughts: it's hard to know what to filter on if we don't see the full trace data in the first place. Also, being able to see all the details is often very
+desirable. It's hard to know what will be needed before the fact.
 Crucial to make this feasible is having a good visualization of how much data is being generated and the performance of the system: CPU and Memory profiles.
 
 ## Trace Creation Best Practices
 
-### Attributes 
+### Attributes
 
 Attributes are key value pairs and should represent an object. Attributes are equivalent to keys on a top level object.
 
@@ -318,6 +314,7 @@ Example:
 ```info!(id=trace.id, name=trace.name "new trace");```
 
 which would generate:
+
 ```
 {
 	"id": "30e696ea-d442-11ef-b6f8-b3160be8db13"
@@ -328,6 +325,7 @@ which would generate:
 ### Open Telemetry Semantic Conventions
 
 They are of the form *name_1.name_2* example:
+
 - http.request.method = GET
 - http.request.body.size = 3495
 - url.query = q=OpenTelemetry
@@ -375,12 +373,11 @@ The way this is done is via the attribute key: "otel_semantic_convention".
 }
 ```
 
-
-
-Nested objects can be follow the same format. 
+Nested objects can be follow the same format.
 ```info!(method=request.method, headers=request.headers, "new request");```
 
 which would generate:
+
 ```
 {
 	"method": "POST",
@@ -406,13 +403,12 @@ which would generate:
 }
 ```
 
-
-
 ### UI Dashboard
 
 #### User Defined Queries
 
 User defines a query which must take `start_datetime` and `end_datetime` as arguments and return the following shape:
+
 ```json5
 [
   {
@@ -431,29 +427,29 @@ sample query:
 
 ```json5
 with
-  start_datetime := <datetime>$start_datetime,
-  end_datetime   := <datetime>$end_datetime,
-  recent_service_updates := (
-    select ServiceInstanceUpdate
-      filter 
-        .created_at >= start_datetime and
-        .created_at <= end_datetime
-      order by .created_at desc
-  ),
-  recent_service_updates_by_service_name := (
-     group recent_service_updates {
-	   created_at,
-	   export_buffer_size_bytes
-     }
-     using service_name := .service_instance.service.name
-     by service_name
-  ),
+start_datetime := <datetime>$start_datetime ,
+end_datetime: = <datetime>$end_datetime ,
+recent_service_updates:= (
+select ServiceInstanceUpdate
+filter
+.created_at >= start_datetime and
+.created_at <= end_datetime
+order by .created_at desc
+) ,
+recent_service_updates_by_service_name:= (
+group recent_service_updates {
+created_at ,
+export_buffer_size_bytes
+}
+using service_name: = .service_instance.service.name
+by service_name
+) ,
 select recent_service_updates_by_service_name {
-  series_name := .key.service_name,
-  data_points := .elements {
-    date := .created_at,
-    value := .export_buffer_size_bytes  
-  },
+series_name: = .key.service_name ,
+data_points: = .elements {
+date: = .created_at ,
+value: = .export_buffer_size_bytes
+} ,
 }
 ```
 
@@ -462,23 +458,24 @@ select recent_service_updates_by_service_name {
 The user can create a chart by specifying:
 
 The data:
+
 - Name
 - Query
 - Look back window
 - Alerts:
-	- max_interval_without_data
-	- min_value_threshold
-	- max_value_threshold
+    - max_interval_without_data
+    - min_value_threshold
+    - max_value_threshold
 
 Dashboard:
+
 - Name
 - Charts:
-	- Name
-	- Data
-	- Y label
-	- Width and Height
-	- Index
-
+    - Name
+    - Data
+    - Y label
+    - Width and Height
+    - Index
 
 The UI shows the list of dashboards.
 
@@ -496,18 +493,12 @@ Duration P95
 Filter by: Service, endpoint, method, status_code, trace_name
 Group by: Service, endpoint, method, status_code, trace_name
 
-
 Service
-
 
 - Per Minute Trace Count:
 - Warning
 - Errors
 - Max Duration and p95
-
-
-
-
 
 ```
 with traces := (
@@ -571,9 +562,8 @@ select <json>traces{
 }
 ```
 
-
 Alerts on Total over 5 minutes:
-Trace Count - Min Max 
+Trace Count - Min Max
 
 Request Count - Min Max
 
@@ -581,13 +571,3 @@ Size Bytes - Min Max
 
 Where to put the Check Runs Results and alert list
 
-
-![[Screenshot 2025-02-07 at 04.39.23.png]]
-![[Screenshot 2025-02-07 at 05.31.26.png]]
-
-
-![[Screenshot 2025-02-07 at 05.30.44.png]]
-
-
-
-![[Screenshot 2025-02-17 at 03.21.38.png]]

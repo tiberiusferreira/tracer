@@ -12,12 +12,10 @@ uuid.workspace = true
 
 gel-tokio.workspace = true
 gel-protocol.workspace = true
-gel-errors.workspace = true
-my_macro = { path = "../my_macro" }
-axum = { version = "0.8.3", features = ['query', 'macros'] }
-tower-http = { version = "0.6.2", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
-valuable = { workspace = true }
-valuable-derive.workspace = true
+function-timer = { path = "../function-timer" }
+gel-io-recorder = { path = "../gel-io-recorder" }
+axum = { version = "0.8", features = ['query', 'macros'] }
+tower-http = { version = "0.6", features = ['cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenvy.workspace = true

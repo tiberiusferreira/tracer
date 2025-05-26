@@ -19,9 +19,6 @@ pprof = { version = "0.14", features = ["flamegraph", "frame-pointer", "prost-co
 base64.workspace = true
 chrono.workspace = true
 
-gel-tokio.workspace = true
-gel-protocol.workspace = true
-gel-errors.workspace = true
 pin-project-lite = "0.2.16"
-my_macro = { path = "../my_macro" }
+function-timer = { path = "../function-timer" }
 uuid.workspace = true

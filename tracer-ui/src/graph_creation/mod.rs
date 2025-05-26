@@ -1,7 +1,7 @@
 use charming::component::{Axis, Grid, Title};
 use charming::datatype::{CompositeValue, NumericValue};
 use charming::element::{
-    AxisLabel, AxisTick, AxisType, Color, Formatter, FormatterFunction, ItemStyle, NameLocation,
+    AxisLabel, AxisTick, AxisType, Color, Formatter, ItemStyle, JsFunction, NameLocation,
     SplitLine, TextAlign, Tooltip, Trigger, TriggerOn,
 };
 use charming::{Chart, WasmRenderer};
@@ -73,10 +73,10 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                         .axis_label(
                             AxisLabel::new()
                                 // .formatter(Formatter::Function("value => value + ' ml'".into())),
-                                .formatter(FormatterFunction::new_with_args(
+                                .formatter(Formatter::Function(JsFunction::new_with_args(
                                     "value",
                                     "return value.substring(0,5)",
-                                )),
+                                ))),
                         )
                         .type_(AxisType::Category)
                         .name_location(NameLocation::Middle) // .name_text_style(TextStyle::new().font_size(18.))

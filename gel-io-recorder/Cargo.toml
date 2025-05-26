@@ -1,0 +1,15 @@
+[package]
+name = "gel-io-recorder"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing-config-helper.workspace = true
+uuid.workspace = true
+gel-tokio.workspace = true
+gel-protocol.workspace = true
+tracked_error.workspace = true
+thiserror.workspace = true

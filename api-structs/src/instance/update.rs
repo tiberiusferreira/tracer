@@ -2,7 +2,6 @@ pub use crate::Severity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -18,11 +17,13 @@ pub struct InstanceSnapshot {
     pub cpu_profile_base64: Option<String>,
 }
 
+pub type IoRecorderName = String;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayData {
     pub input: serde_json::Value,
-    pub database_recording: DatabaseRecording,
+    pub io_providers_events: HashMap<IoRecorderName, Vec<serde_json::Value>>,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExecutionRecording {
     pub id: Uuid,
@@ -38,8 +39,6 @@ pub struct ExecutionRecording {
     // retry_count => ["1", "2", "3"]
     pub replay_data: ReplayData,
     pub executed_functions: Vec<ExecutingFunction>,
-    pub warnings: Vec<String>,
-    pub errors: Vec<String>,
     pub attributes: HashMap<String, HashSet<String>>,
     // support data
     pub current_call_stack: Vec<u64>,
@@ -54,56 +53,17 @@ impl ExecutionRecording {
             function_count: 0,
             replay_data: ReplayData {
                 input,
-                database_recording: DatabaseRecording::default(),
+                io_providers_events: Default::default(),
             },
             started_at: Utc::now(),
             last_seen_at: Utc::now(),
             ended: false,
-            warnings: Default::default(),
-            errors: Default::default(),
             executed_functions: vec![],
             current_call_stack: vec![],
             attributes: Default::default(),
             recording_enabled,
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct QueryWithResult {
-    pub id: u64,
-    pub started_at: DateTime<Utc>,
-    pub query_with_parameters: QueryWithParameters,
-    pub result: Option<QueryResult>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct QueryResult {
-    pub ended_at: DateTime<Utc>,
-    pub result: Result<serde_json::Value, Error>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Transaction {
-    pub id: u64,
-    pub started_at: DateTime<Utc>,
-    pub queries_count: u64,
-    pub queries: Vec<QueryWithResult>,
-    pub result: Option<TransactionResult>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransactionResult {
-    pub ended_at: DateTime<Utc>,
-    pub result: Result<(), Error>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct DatabaseRecording {
-    pub standalone_queries_count: u64,
-    pub standalone_queries: Vec<QueryWithResult>,
-    pub transactions_count: u64,
-    pub transactions: Vec<Transaction>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -123,31 +83,4 @@ pub struct Location {
     pub module: Option<String>,
     pub filename: Option<String>,
     pub line: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Error)]
-pub enum Error {
-    #[error("Internal {msg} at {location}")]
-    Internal { msg: String, location: String },
-    #[error("Serde {msg} at {location}")]
-    Serde { msg: String, location: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryWithParameters {
-    pub query_text: String,
-    pub parameters: HashMap<String, Parameter>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Parameter {
-    Uuid {
-        val: Uuid,
-        cast_to_table: Option<String>,
-    },
-    String(String),
-    Datetime(DateTime<Utc>),
-    Bool(bool),
-    Json(serde_json::Value),
-    I32(i32),
 }
