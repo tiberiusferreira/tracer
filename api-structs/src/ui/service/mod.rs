@@ -1,6 +1,7 @@
 use crate::Endpoint;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 pub struct GetService;
 
@@ -27,8 +28,8 @@ pub struct Service {
 pub struct Instance {
     pub id: i32,
     pub log_filter: Option<String>,
-    pub registered_at: chrono::DateTime<chrono::Utc>,
-    pub last_updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub registered_at: DateTime<Utc>,
+    pub last_updated_at: Option<DateTime<Utc>>,
     pub export_buffer_size_bytes: Option<u64>,
     pub has_profile_data: bool,
 }
@@ -40,13 +41,16 @@ pub struct ProfileData {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Filters {
+pub struct SummaryFilters {
+    pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
+    pub attributes: HashMap<String, Option<String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExecutionListFilters {
     pub bucket: DateTime<Utc>,
+    pub attributes: HashMap<String, Option<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -62,12 +66,19 @@ pub struct ExecutionHeader {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Summaries {
+pub struct AttributeSummary {
+    pub name: String,
+    pub count: u32,
+    pub values: HashSet<String>,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SummariesForGraph {
     pub buckets: Vec<DateTime<Utc>>,
     pub execution: ExecutionSummary,
     pub requests: RequestsSummary,
     pub size_bytes: SizeBytesSummary,
     pub duration: DurationSummary,
+    pub attributes: HashMap<String, AttributeSummary>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

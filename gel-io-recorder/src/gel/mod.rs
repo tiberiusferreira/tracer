@@ -19,6 +19,7 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
             Parameter::Datetime(_) => "<datetime>".to_string(),
             Parameter::Bool(_) => "<bool>".to_string(),
             Parameter::Date(_) => "<cal::local_date>".to_string(),
+            Parameter::NoneString => "<str>".to_string(),
         };
         column_set_queries.push(format!("{name} := {bind_type}${name}"));
     }
@@ -48,6 +49,7 @@ pub fn params_to_gel(parameters: HashMap<String, Parameter>) -> HashMap<String, 
             Parameter::Date(val) => ValueOpt::from(Value::LocalDate(
                 gel_protocol::model::LocalDate::try_from(val).unwrap(),
             )),
+            Parameter::NoneString => ValueOpt::from(Option::<String>::None),
         };
         hashmap.insert(k, a);
     }

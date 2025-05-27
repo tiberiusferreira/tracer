@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use gel_protocol::value_opt::ValueOpt;
 use gel_tokio::RawTransaction;
 use serde::de::DeserializeOwned;
@@ -102,6 +102,7 @@ pub enum Parameter {
         cast_to_table: Option<String>,
     },
     String(String),
+    NoneString,
     Date(NaiveDate),
     Datetime(DateTime<Utc>),
     Bool(bool),
@@ -204,6 +205,9 @@ impl Transaction2 {
                 }
                 Parameter::Date(val) => {
                     new.insert(k.to_string(), serde_json::Value::String(val.to_string()));
+                }
+                Parameter::NoneString => {
+                    new.insert(k.to_string(), serde_json::Value::Null);
                 }
             }
         }
@@ -518,33 +522,6 @@ impl DatabaseIoRecorder {
         );
         result
     }
-}
-
-async fn run_query_required_single<T: Serialize + DeserializeOwned + Clone>(
-    client: &gel_tokio::Client,
-    query: &str,
-    parameters: HashMap<String, Parameter>,
-) -> Result<T, Error> {
-    let gel_params = gel::params_to_gel(parameters);
-    let gel_params: HashMap<&str, ValueOpt> = gel_params
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
-        .collect();
-
-    let query_result: gel_protocol::model::Json = client
-        .query_required_single_json(query, &gel_params)
-        .await
-        .map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: std::panic::Location::caller().to_string(),
-            }
-        })?;
-    let query_result: T = serde_json::from_str(&query_result)
-        .unwrap_or_else(|_e| panic!("failed to deserialize query from {query:#?})"));
-    Ok(query_result)
 }
 
 async fn run_query<T: Serialize + DeserializeOwned + Clone>(

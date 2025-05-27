@@ -17,10 +17,6 @@ use tracing_subscriber_wasm::MakeConsoleWriter;
 #[allow(unused)]
 const API_SERVER_URL_NO_TRAILING_SLASH: &str = env!("API_SERVER_URL_NO_TRAILING_SLASH");
 pub const PAGE_ROOT_URL: &str = "/";
-pub const TRACE_BROWSER_PATH: &str = "trace/browser";
-pub const TRACE_CHUNK_PATH: &str = "trace/chunk";
-pub const ORPHAN_EVENTS_PATH: &str = "orphan_events";
-pub const DASHBOARD_PATH: &str = "dashboard";
 pub const ALERTS_PATH: &str = "alerts";
 
 fn main() {
@@ -54,15 +50,9 @@ pub fn App() -> impl IntoView {
                         >
                             "Alerts"
                         </a>
-                        <a
-                            class="navigation__button"
-                            href=format!("{PAGE_ROOT_URL}{ORPHAN_EVENTS_PATH}")
-                        >
-                            "Orphan Events"
-                        </a>
                     </nav>
                 </header>
-                <Routes fallback=|| view!{<p style="color: white">"Not found."</p>} >
+                <Routes fallback=|| view!{<p style="color: white">"This page doesn't exist."</p>} >
                     <Route path=leptos_router::StaticSegment("/") view=services::Services />
                     <Route path=(
                         leptos_router::StaticSegment("/"),

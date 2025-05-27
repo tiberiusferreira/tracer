@@ -37,7 +37,6 @@ module default {
         required execution: Execution;
         required name: str;
         required _value: str;
-
     }
 
 #    type TransactionRecording {

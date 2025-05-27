@@ -3,12 +3,9 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
 use crate::api::state::AppState;
-use api_structs::InstanceGlobalId;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
-use chrono::NaiveDateTime;
 use http::{Method, StatusCode};
-use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tower::Layer;
 use tower_http::normalize_path::NormalizePath;
@@ -17,13 +14,6 @@ use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod handlers;
 pub mod state;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LiveServiceInstance {
-    pub id: InstanceGlobalId,
-    pub last_seen_timestamp: u64,
-    pub filters: String,
-}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct MyRequest {
@@ -171,7 +161,10 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
         "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html",
     ));
     let service_routes = axum::Router::new()
-        .route("/data", axum::routing::post(handlers::ui::service::data))
+        .route(
+            "/data",
+            axum::routing::post(handlers::ui::service::summaries_for_graph),
+        )
         .route(
             "/execution_list",
             axum::routing::post(handlers::ui::service::execution_list),
@@ -218,52 +211,6 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
         .await
         .expect("http server launch to not fail")
     })
-}
-
-#[tokio::test]
-async fn a() {
-    let replay_data: api_structs::instance::update::ReplayData =
-        serde_json::from_str("{}").unwrap();
-    let req: MyRequest = serde_json::from_value(replay_data.input).unwrap();
-    let edgedb_client = gel_tokio::create_client().await.unwrap();
-    let app_state = AppState {
-        execution_io_provider: tracing_config_helper::io_provider::ExecutionIoProvider {
-            database: tracing_config_helper::io_provider::DatabaseIoProvider::Live(edgedb_client),
-        },
-    };
-    let mut app = create_router(app_state);
-    let axum_req = my_request_to_axum(req);
-    println!("{:?}", axum_req);
-    let resp = app.call(axum_req);
-    let w = resp.await.unwrap();
-    println!("{:?}", w);
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct RawGridErrorSample {
-    span_name: String,
-    span_attributes: HashMap<String, String>,
-    event: String,
-    event_attributes: HashMap<String, String>,
-    event_timestamp: NaiveDateTime,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct GridErrorSample {
-    span_name: String,
-    span_attributes: HashMap<String, String>,
-    event: String,
-    event_attributes: HashMap<String, String>,
-    event_timestamp_unix_ms: i64,
-}
-
-#[allow(unused)]
-pub fn u64_nanos_to_db_i64(val: u64) -> Result<i64, ApiError> {
-    let as_i64 = i64::try_from(val).map_err(|_| ApiError {
-        code: StatusCode::BAD_REQUEST,
-        message: "Invalid timestamp, doesnt fit into i64".to_string(),
-    })?;
-    Ok(as_i64)
 }
 
 #[derive(Debug)]

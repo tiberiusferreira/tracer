@@ -2,12 +2,13 @@ use crate::error::TrackedGlooError;
 use crate::graph_creation::{GraphData, GraphSeries};
 use api_structs::Endpoint;
 use api_structs::ui::service::{
-    ExecutionHeader, ExecutionListFilters, ExecutionSummary, Filters, Summaries,
+    ExecutionHeader, ExecutionListFilters, ExecutionSummary, SummariesForGraph, SummaryFilters,
 };
 use chrono::{DateTime, Datelike, Duration, NaiveTime, Timelike, Utc};
 use leptos::prelude::*;
 use leptos::tachys::prelude::*;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Add, Sub};
 use tracing::info;
@@ -63,12 +64,38 @@ pub fn ServiceSummary(mut service: api_structs::ui::service::Service) -> impl In
 #[component]
 pub fn Services() -> impl IntoView {
     let (index_clicked_r, index_clicked_w) = signal_local::<Option<u64>>(None);
-    let (end_date_r, end_date_w) = signal_local::<chrono::DateTime<Utc>>(Utc::now());
-    let (service_data_r, service_data_w) =
-        signal_local::<Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>>(None);
-    let _api_service_list_request_sender = LocalResource::new(move || {
-        get_and_write_get_service_data_result(end_date_r.get(), service_data_w)
+    let (end_date_r, end_date_w) = signal_local::<DateTime<Utc>>(Utc::now());
+    let (selected_attribute_1_name_r, selected_attribute_1_name_w) =
+        signal_local::<String>("".to_string());
+    let (selected_attribute_1_val_r, selected_attribute_1_val_w) =
+        signal_local::<String>("".to_string());
+    let attributes_r = Signal::derive_local(move || {
+        let mut map: HashMap<String, Option<String>> = HashMap::new();
+        let attr_1_name = selected_attribute_1_name_r.get();
+        let attr_1_val = selected_attribute_1_val_r.get();
+        if !attr_1_name.is_empty() {
+            if !attr_1_val.is_empty() {
+                map.insert(attr_1_name, Some(attr_1_val));
+            } else {
+                map.insert(attr_1_name, None);
+            }
+        }
+        map
     });
+    // let (attributes_r, attributes_w) =
+    //     signal_local::<HashMap<String, Option<String>>>(HashMap::new());
+    let start_date_r = Signal::derive(move || end_date_r.get() - Duration::minutes(180));
+    let (service_data_r, service_data_w) =
+        signal_local::<Option<Result<SummariesForGraph, TrackedGlooError>>>(None);
+    let _api_service_list_request_sender = LocalResource::new(move || {
+        get_and_write_get_service_data_result(
+            start_date_r.get(),
+            end_date_r.get(),
+            attributes_r.get(),
+            service_data_w,
+        )
+    });
+
     let current_selected_datetime = Signal::derive(move || {
         match index_clicked_r.get() {
             None => {
@@ -83,16 +110,97 @@ pub fn Services() -> impl IntoView {
         }
         return None;
     });
+
+    let attribute_name_list_view = move || match service_data_r.get() {
+        Some(Ok(data)) => {
+            let mut els = vec![];
+            for (k, v) in data.attributes {
+                let label = format!("{k} - {}", v.count);
+                els.push(view! {
+                    <option value={k} label={label}></option>
+                });
+            }
+            view! {
+                <datalist id="attribute-name-list">
+                    {els}
+                </datalist>
+            }
+            .into_any()
+        }
+        _ => view! {
+            <datalist id="attribute-name-list">
+            </datalist>
+        }
+        .into_any(),
+    };
+
+    let attribute_value_list_view = move || {
+        let attr_name = selected_attribute_1_name_r.get();
+        if attr_name.is_empty() {
+            return view! {
+                <datalist id="attribute-val-list">
+                </datalist>
+            }
+            .into_any();
+        }
+        match service_data_r.get() {
+            Some(Ok(data)) => {
+                let mut els = vec![];
+                for val in &data.attributes.get(&attr_name).unwrap().values {
+                    let label = val.clone();
+                    els.push(view! {
+                        <option value={val} label={label}></option>
+                    });
+                }
+                view! {
+                    <datalist id="attribute-val-list">
+                        {els}
+                    </datalist>
+                }
+                .into_any()
+            }
+            _ => view! {
+                <datalist id="attribute-val-list">
+                </datalist>
+            }
+            .into_any(),
+        }
+    };
+
     view! {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
                 <Visualizations index_clicked_w=index_clicked_w service_data_r=service_data_r end_date_w=end_date_w/>
                 <ServiceSelector/>
+                <div>
+                    <div id="attributes-selecto" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
+                        <div style="margin: 0px 0 10px 0">
+                            <input type="text" bind:value=(selected_attribute_1_name_r, selected_attribute_1_name_w) id="attr-name" list="attribute-name-list" placeholder="Attribute" name="attribute-selector" />
+                        </div>
+                        {attribute_name_list_view}
+
+                        <div style="margin: 0px 0 10px 0">
+                            <input type="text" bind:value=(selected_attribute_1_val_r, selected_attribute_1_val_w) id="service-name" list="attribute-val-list" placeholder="Attribute Val" name="attribute-val-selector" />
+                        </div>
+                        {attribute_value_list_view}
+                        // <datalist id="attribute-list">
+                        //     <option value="Chocolate"></option>
+                        //     <option value="Coconut"></option>
+                        //     <option value="Mint"></option>
+                        //     <option value="Strawberry"></option>
+                        //     <option value="Vanilla"></option>
+                        // </datalist>
+                        // <div id="env-service-list">
+                        //     <ServiceInfo/>
+                        //     <ServiceInfo/>
+                        // </div>
+                    </div>
+                </div>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
                         <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
-                            <TracesGrid current_selected_datetime=current_selected_datetime/>
+                            <TracesGrid current_selected_datetime=current_selected_datetime attributes=attributes_r.into()/>
                         </div>
                     </div>
                     <div id="filters">
@@ -225,7 +333,7 @@ fn SeverityFilter() -> impl IntoView {
 }
 
 fn service_graph(
-    execution_summary: &Summaries,
+    execution_summary: &SummariesForGraph,
     index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
@@ -275,7 +383,7 @@ fn service_graph(
     }.into_any()
 }
 
-fn requests_graph(execution_summary: &Summaries) -> AnyView {
+fn requests_graph(execution_summary: &SummariesForGraph) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
         name: "requests".to_string(),
@@ -323,7 +431,7 @@ fn requests_graph(execution_summary: &Summaries) -> AnyView {
     }.into_any()
 }
 
-fn size_graph(execution_summary: &Summaries) -> AnyView {
+fn size_graph(execution_summary: &SummariesForGraph) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
         name: "size".to_string(),
@@ -376,7 +484,7 @@ fn size_graph(execution_summary: &Summaries) -> AnyView {
     }.into_any()
 }
 
-fn duration_graph(execution_summary: &Summaries) -> AnyView {
+fn duration_graph(execution_summary: &SummariesForGraph) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
         name: "duration".to_string(),
@@ -434,7 +542,7 @@ fn duration_graph(execution_summary: &Summaries) -> AnyView {
 #[component]
 fn Visualizations(
     index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
-    service_data_r: ReadSignal<Option<Result<Summaries, TrackedGlooError>>, LocalStorage>,
+    service_data_r: ReadSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
     end_date_w: WriteSignal<chrono::DateTime<Utc>, LocalStorage>,
 ) -> impl IntoView {
     let service_graph = move || match service_data_r.get() {
@@ -608,7 +716,10 @@ fn GlobalSelector() -> impl IntoView {
 }
 
 #[component]
-fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) -> impl IntoView {
+fn TracesGrid(
+    current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>,
+    attributes: Signal<HashMap<String, Option<String>>, LocalStorage>,
+) -> impl IntoView {
     let (service_data_r, service_data_w) = signal_local::<
         Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
     >(None);
@@ -617,6 +728,7 @@ fn TracesGrid(current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>) 
             current_selected_datetime
                 .get()
                 .unwrap_or(chrono::Utc::now()),
+            attributes.get(),
             service_data_w,
         )
     });
@@ -962,33 +1074,41 @@ fn grid_row(header: ExecutionHeader) -> impl IntoView {
 
 async fn get_and_write_get_execution_headers_result(
     datetime: chrono::DateTime<Utc>,
+    attributes: HashMap<String, Option<String>>,
     w: WriteSignal<
         Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
         LocalStorage,
     >,
 ) {
-    let res = get_executions_headers_impl(datetime).await;
+    let res = get_executions_headers_impl(datetime, attributes).await;
     w.set(Some(res));
 }
 
 async fn get_and_write_get_service_data_result(
-    end_date: chrono::DateTime<Utc>,
-    w: WriteSignal<
-        Option<Result<api_structs::ui::service::Summaries, TrackedGlooError>>,
-        LocalStorage,
-    >,
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    attributes: HashMap<String, Option<String>>,
+    w: WriteSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
 ) {
-    let res = get_services_impl(end_date).await;
+    let res = get_services_impl(start_date, end_date, attributes).await;
     w.set(Some(res));
 }
 
-async fn get_services_impl(end_date: chrono::DateTime<Utc>) -> Result<Summaries, TrackedGlooError> {
+async fn get_services_impl(
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    attributes: HashMap<String, Option<String>>,
+) -> Result<SummariesForGraph, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
         "/api/ui/service/data"
     ))
-    .json(&api_structs::ui::service::Filters { end_date })
+    .json(&SummaryFilters {
+        start_date,
+        end_date,
+        attributes,
+    })
     .unwrap()
     .send()
     .await?
@@ -999,13 +1119,17 @@ async fn get_services_impl(end_date: chrono::DateTime<Utc>) -> Result<Summaries,
 
 async fn get_executions_headers_impl(
     datetime: DateTime<Utc>,
+    attributes: HashMap<String, Option<String>>,
 ) -> Result<Vec<ExecutionHeader>, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
         "/api/ui/service/execution_list"
     ))
-    .json(&ExecutionListFilters { bucket: datetime })
+    .json(&ExecutionListFilters {
+        bucket: datetime,
+        attributes,
+    })
     .unwrap()
     .send()
     .await?
