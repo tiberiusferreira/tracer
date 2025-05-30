@@ -23,48 +23,113 @@ pub(crate) async fn execution_list(
     let end = bucket + Duration::minutes(5);
     let db = app_state.execution_io_provider.database();
 
-    let query = "select Execution{
+    let query = "with
+attr_name_1 := <optional str>$attr_name_1,
+attr_value_1 := <optional str>$attr_val_1,
+attr_name_2 := <optional str>$attr_name_2,
+attr_value_2 := <optional str>$attr_val_2,
+select Execution{
   id,
   service_name := .service_instance.service.name,
   started_at,
   duration_ms,
   size_bytes,
   status_code := (
-    select .<execution[is Attributes]{
+    select .<execution[is ExecutionAttribute]{
       _value
       }
     filter .name = 'status_code'
     limit 1
   )._value,
   path := (
-    select .<execution[is Attributes]{
+    select .<execution[is ExecutionAttribute]{
       _value
       }
     filter .name = 'uri'
     limit 1
   )._value,
   method := (
-    select .<execution[is Attributes]{
+    select .<execution[is ExecutionAttribute]{
       _value
       }
     filter .name = 'method'
     limit 1
-  )._value
+  )._value,
+    matching_attributes := (
+    select .<execution[is ExecutionAttribute]{
+      name,
+      _value
+    } filter
+      (
+        not exists attr_name_1
+        or (
+          .name ?= attr_name_1
+        and
+          (not exists attr_value_1 or ._value ?= attr_value_1)
+        )
+      )
+      and
+      (
+        not exists attr_name_2
+        or (
+          .name ?= attr_name_2
+        and
+          (not exists attr_value_2 or ._value ?= attr_value_2)
+        )
+      )
+  )
 }
 filter
     .started_at <= <datetime>$end_date and
     .last_seen_at >= <datetime>$start_date
+and (
+      not exists (attr_name_1 union attr_name_2)
+      or exists .matching_attributes
+    )
   order by .started_at asc limit 100";
 
-    let executions: Vec<ExecutionHeader> = db
-        .query(
-            query,
-            HashMap::from([
-                ("start_date", Parameter::Datetime(start)),
-                ("end_date", Parameter::Datetime(end)),
-            ]),
-        )
-        .await?;
+    let mut params = HashMap::from([
+        ("start_date", Parameter::Datetime(start)),
+        ("end_date", Parameter::Datetime(end)),
+    ]);
+    let mut attributes = filters.attributes.iter();
+    let first = attributes.next();
+    let second = attributes.next();
+    match first {
+        None => {
+            params.insert("attr_name_1", Parameter::NoneString);
+            params.insert("attr_val_1", Parameter::NoneString);
+        }
+        Some((k, v)) => {
+            params.insert("attr_name_1", Parameter::String(k.to_string()));
+            match v {
+                None => {
+                    params.insert("attr_val_1", Parameter::NoneString);
+                }
+                Some(v) => {
+                    params.insert("attr_val_1", Parameter::String(v.to_string()));
+                }
+            }
+        }
+    }
+    match second {
+        None => {
+            params.insert("attr_name_2", Parameter::NoneString);
+            params.insert("attr_val_2", Parameter::NoneString);
+        }
+        Some((k, v)) => {
+            params.insert("attr_name_2", Parameter::String(k.to_string()));
+            match v {
+                None => {
+                    params.insert("attr_val_2", Parameter::NoneString);
+                }
+                Some(v) => {
+                    params.insert("attr_val_2", Parameter::String(v.to_string()));
+                }
+            }
+        }
+    }
+    let executions: Vec<ExecutionHeader> = db.query(query, params).await?;
     Ok(Json(executions))
 }
 
@@ -78,7 +143,7 @@ pub async fn summaries_for_graph(
     let end_datetime = filters.end_date;
     let minutes_since_end_window_start = end_datetime.minute() % rollover_window_minutes;
     let end_rounded_to_window_start =
-        end_datetime - chrono::Duration::minutes(minutes_since_end_window_start as i64);
+        end_datetime - Duration::minutes(minutes_since_end_window_start as i64);
     let end_rounded_to_window_start = end_rounded_to_window_start
         .with_nanosecond(0)
         .unwrap()
@@ -87,7 +152,7 @@ pub async fn summaries_for_graph(
     //
     let minutes_since_start_window_start = start_datetime.minute() % rollover_window_minutes;
     let start_rounded_to_window_start =
-        start_datetime - chrono::Duration::minutes(minutes_since_start_window_start as i64);
+        start_datetime - Duration::minutes(minutes_since_start_window_start as i64);
     let start_rounded_to_window_start = start_rounded_to_window_start
         .with_nanosecond(0)
         .unwrap()
@@ -106,20 +171,20 @@ select Execution{
   last_seen_at,
   size_bytes,
   status_code := (
-    select .<execution[is Attributes]{
+    select .<execution[is ExecutionAttribute]{
       _value
       }
     filter .name = 'status_code'
     limit 1
   )._value,
   all_attributes := (
-    select .<execution[is Attributes]{
+    select .<execution[is ExecutionAttribute]{
       name,
       _value
     }
   ),
   matching_attributes := (
-    select .<execution[is Attributes]{
+    select .<execution[is ExecutionAttribute]{
       name,
       _value
     } filter
@@ -219,10 +284,11 @@ select Execution{
                 .or_insert(AttributeSummary {
                     name: a.name.clone(),
                     count: 0,
-                    values: HashSet::new(),
+                    values: HashMap::new(),
                 });
             entry.count += 1;
-            entry.values.insert(a._value.clone());
+            let mut value_count = entry.values.entry(a._value.clone()).or_insert(0);
+            *value_count += 1;
         }
     }
     let mut summaries = SummariesForGraph {

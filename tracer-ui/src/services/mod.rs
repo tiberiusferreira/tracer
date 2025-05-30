@@ -2,15 +2,19 @@ use crate::error::TrackedGlooError;
 use crate::graph_creation::{GraphData, GraphSeries};
 use api_structs::Endpoint;
 use api_structs::ui::service::{
-    ExecutionHeader, ExecutionListFilters, ExecutionSummary, SummariesForGraph, SummaryFilters,
+    AttributeSummary, ExecutionHeader, ExecutionListFilters, ExecutionSummary, SummariesForGraph,
+    SummaryFilters,
 };
-use chrono::{DateTime, Datelike, Duration, NaiveTime, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Timelike, Utc};
 use leptos::prelude::*;
 use leptos::tachys::prelude::*;
+use leptos_router::NavigateOptions;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::net::Shutdown::Write;
 use std::ops::{Add, Sub};
+use std::thread::current;
 use tracing::info;
 
 #[component]
@@ -61,37 +65,102 @@ pub fn ServiceSummary(mut service: api_structs::ui::service::Service) -> impl In
     }
 }
 
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SelectedAttribute {
+    name: String,
+    value: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ServiceState {
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    current_selected_bucket: Option<DateTime<Utc>>,
+    partial_attribute_name: String,
+    partial_attribute_value: String,
+    selected_attributes: Vec<SelectedAttribute>,
+}
+
+impl Default for ServiceState {
+    fn default() -> Self {
+        let end_time = Utc::now();
+        let start_time = end_time - Duration::minutes(180);
+        ServiceState {
+            start_time,
+            end_time,
+            current_selected_bucket: None,
+            partial_attribute_name: "".to_string(),
+            partial_attribute_value: "".to_string(),
+            selected_attributes: vec![],
+        }
+    }
+}
+
 #[component]
 pub fn Services() -> impl IntoView {
+    let (query_params_r, query_params_w) =
+        leptos_router::hooks::query_signal_with_options::<String>("state", {
+            let mut default = NavigateOptions::default();
+            default.scroll = false;
+            default
+        });
+    let set_new_state: SignalSetter<ServiceState, LocalStorage> =
+        SignalSetter::map(move |new: ServiceState| {
+            query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        });
+    if query_params_r.get_untracked().is_none() {
+        set_new_state.set(ServiceState::default());
+    }
+    let state_r = Signal::derive_local(move || {
+        query_params_r
+            .get()
+            .map(|state| serde_json::from_str(&state).unwrap())
+            .unwrap_or(ServiceState::default())
+    });
+
+    let get_partial_attribute_name =
+        Signal::derive_local(move || state_r.with(|s| s.partial_attribute_name.clone()));
+    let get_partial_attribute_value =
+        Signal::derive_local(move || state_r.with(|s| s.partial_attribute_value.clone()));
+    let set_partial_attribute_name: SignalSetter<String, LocalStorage> =
+        SignalSetter::map(move |val: String| {
+            let mut new = state_r.get_untracked();
+            new.partial_attribute_name = val;
+            query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        });
+    let set_partial_attribute_value: SignalSetter<String, LocalStorage> =
+        SignalSetter::map(move |val: String| {
+            let mut new = state_r.get_untracked();
+            new.partial_attribute_value = val;
+            query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        });
+
     let (index_clicked_r, index_clicked_w) = signal_local::<Option<u64>>(None);
-    let (end_date_r, end_date_w) = signal_local::<DateTime<Utc>>(Utc::now());
-    let (selected_attribute_1_name_r, selected_attribute_1_name_w) =
-        signal_local::<String>("".to_string());
-    let (selected_attribute_1_val_r, selected_attribute_1_val_w) =
-        signal_local::<String>("".to_string());
-    let attributes_r = Signal::derive_local(move || {
+
+    let partial_attributes_r = Signal::derive_local(move || {
         let mut map: HashMap<String, Option<String>> = HashMap::new();
-        let attr_1_name = selected_attribute_1_name_r.get();
-        let attr_1_val = selected_attribute_1_val_r.get();
-        if !attr_1_name.is_empty() {
-            if !attr_1_val.is_empty() {
-                map.insert(attr_1_name, Some(attr_1_val));
+        let state = state_r.get();
+        let attr_name = state.partial_attribute_name;
+        let attr_val = state.partial_attribute_value;
+        if !attr_name.is_empty() {
+            if !attr_val.is_empty() {
+                map.insert(attr_name, Some(attr_val));
             } else {
-                map.insert(attr_1_name, None);
+                map.insert(attr_name, None);
             }
         }
         map
     });
-    // let (attributes_r, attributes_w) =
-    //     signal_local::<HashMap<String, Option<String>>>(HashMap::new());
-    let start_date_r = Signal::derive(move || end_date_r.get() - Duration::minutes(180));
     let (service_data_r, service_data_w) =
         signal_local::<Option<Result<SummariesForGraph, TrackedGlooError>>>(None);
     let _api_service_list_request_sender = LocalResource::new(move || {
+        let state = state_r.get();
+        let attributes: HashMap<String, Option<String>> = partial_attributes_r.get();
         get_and_write_get_service_data_result(
-            start_date_r.get(),
-            end_date_r.get(),
-            attributes_r.get(),
+            state.start_time,
+            state.end_time,
+            attributes,
             service_data_w,
         )
     });
@@ -111,57 +180,74 @@ pub fn Services() -> impl IntoView {
         return None;
     });
 
-    let attribute_name_list_view = move || match service_data_r.get() {
+    let attribute_name_selection_list = move || match service_data_r.get() {
         Some(Ok(data)) => {
+            let mut data: Vec<(String, AttributeSummary)> = data.attributes.into_iter().collect();
+            data.sort_by_key(|e| e.0.clone());
             let mut els = vec![];
-            for (k, v) in data.attributes {
+            for (k, v) in data {
                 let label = format!("{k} - {}", v.count);
                 els.push(view! {
-                    <option value={k} label={label}></option>
+                    <button on:click=move |_|{
+                        set_partial_attribute_name.set(k.clone());
+                    } style="display: block; margin: 5px 0 5px 0" class="button-as-text">{label}</button>
                 });
             }
             view! {
-                <datalist id="attribute-name-list">
+                <div id="attr-name-checkbox-list">
                     {els}
-                </datalist>
+                </div>
             }
             .into_any()
         }
         _ => view! {
-            <datalist id="attribute-name-list">
-            </datalist>
+            <div id="attr-name-checkbox-list">
+
+            </div>
         }
         .into_any(),
     };
 
-    let attribute_value_list_view = move || {
-        let attr_name = selected_attribute_1_name_r.get();
+    let attribute_value_selection_view = move || {
+        let attr_name = get_partial_attribute_name.get();
         if attr_name.is_empty() {
             return view! {
-                <datalist id="attribute-val-list">
-                </datalist>
+                <div id="attr-value-checkbox-list">
+                </div>
             }
             .into_any();
         }
         match service_data_r.get() {
-            Some(Ok(data)) => {
+            Some(Ok(mut data)) => {
                 let mut els = vec![];
-                for val in &data.attributes.get(&attr_name).unwrap().values {
-                    let label = val.clone();
+                let mut values: Vec<(String, u32)> = data
+                    .attributes
+                    .remove(&attr_name)
+                    .map(|v| v.values)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+                values.sort_by_key(|e| e.0.clone());
+                for (val, count) in &values {
+                    let val_2 = val.clone();
+                    let label = format!("{val} - {count}");
                     els.push(view! {
-                        <option value={val} label={label}></option>
+                        <button on:click=move |_|{
+                            set_partial_attribute_value.set(val_2.clone());
+                        }
+                        style="display: block; margin: 5px 0 5px 0" class="button-as-text">{label}</button>
                     });
                 }
                 view! {
-                    <datalist id="attribute-val-list">
+                    <div id="attr-value-checkbox-list">
                         {els}
-                    </datalist>
+                    </div>
                 }
                 .into_any()
             }
             _ => view! {
-                <datalist id="attribute-val-list">
-                </datalist>
+                <div id="attr-value-checkbox-list">
+                </div>
             }
             .into_any(),
         }
@@ -171,36 +257,31 @@ pub fn Services() -> impl IntoView {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
-                <Visualizations index_clicked_w=index_clicked_w service_data_r=service_data_r end_date_w=end_date_w/>
+                <Visualizations index_clicked_w=index_clicked_w service_data_r=service_data_r state_r=state_r query_params_w=query_params_w/>
                 <ServiceSelector/>
                 <div>
-                    <div id="attributes-selecto" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
-                        <div style="margin: 0px 0 10px 0">
-                            <input type="text" bind:value=(selected_attribute_1_name_r, selected_attribute_1_name_w) id="attr-name" list="attribute-name-list" placeholder="Attribute" name="attribute-selector" />
-                        </div>
-                        {attribute_name_list_view}
+                    <div id="attributes-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
+                        <div style="display: flex">
+                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px">
+                                <input type="text" size="40" bind:value=(get_partial_attribute_name, set_partial_attribute_name) id="attr-name" list="attribute-name-list" placeholder="Attribute Name" name="attribute-selector" />
+                                <div style="overflow: scroll; height: 90px">
+                                    {attribute_name_selection_list}
+                                </div>
+                            </div>
 
-                        <div style="margin: 0px 0 10px 0">
-                            <input type="text" bind:value=(selected_attribute_1_val_r, selected_attribute_1_val_w) id="service-name" list="attribute-val-list" placeholder="Attribute Val" name="attribute-val-selector" />
+                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px">
+                                <input type="text" size="110" bind:value=(get_partial_attribute_value, set_partial_attribute_value) id="attribute-value" list="attribute-val-list" placeholder="Attribute Value" name="attribute-val-selector" />
+                                <div style="overflow: scroll; height: 90px">
+                                    {attribute_value_selection_view}
+                                </div>
+                            </div>
                         </div>
-                        {attribute_value_list_view}
-                        // <datalist id="attribute-list">
-                        //     <option value="Chocolate"></option>
-                        //     <option value="Coconut"></option>
-                        //     <option value="Mint"></option>
-                        //     <option value="Strawberry"></option>
-                        //     <option value="Vanilla"></option>
-                        // </datalist>
-                        // <div id="env-service-list">
-                        //     <ServiceInfo/>
-                        //     <ServiceInfo/>
-                        // </div>
                     </div>
                 </div>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
                         <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
-                            <TracesGrid current_selected_datetime=current_selected_datetime attributes=attributes_r.into()/>
+                            <TracesGrid current_selected_datetime=current_selected_datetime attributes=partial_attributes_r.into()/>
                         </div>
                     </div>
                     <div id="filters">
@@ -543,7 +624,8 @@ fn duration_graph(execution_summary: &SummariesForGraph) -> AnyView {
 fn Visualizations(
     index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
     service_data_r: ReadSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
-    end_date_w: WriteSignal<chrono::DateTime<Utc>, LocalStorage>,
+    state_r: Signal<ServiceState, LocalStorage>,
+    query_params_w: SignalSetter<Option<String>>,
 ) -> impl IntoView {
     let service_graph = move || match service_data_r.get() {
         None => {
@@ -611,9 +693,18 @@ fn Visualizations(
             .into_any(),
         },
     };
-    let on_click_back = move |_| end_date_w.update(|d| *d = (d.sub(Duration::minutes(60))));
-    let on_click_forward =
-        move |_| end_date_w.update(|d| *d = min(d.add(Duration::minutes(60)), chrono::Utc::now()));
+    let on_click_back = move |_| {
+        let mut new = state_r.get_untracked();
+        new.start_time = new.start_time.sub(Duration::minutes(60));
+        new.end_time = new.end_time.sub(Duration::minutes(60));
+        query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+    };
+    let on_click_forward = move |_| {
+        let mut new = state_r.get_untracked();
+        new.start_time = new.start_time.add(Duration::minutes(60));
+        new.end_time = new.end_time.add(Duration::minutes(60));
+        query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+    };
     view! {
          <div id="visualizations" style="resize: vertical; height: 370px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
                     <div style="display: flex; justify-content: center;">

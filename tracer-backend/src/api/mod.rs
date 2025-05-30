@@ -6,6 +6,7 @@ use crate::api::state::AppState;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
 use http::{Method, StatusCode};
+use rand::random;
 use tokio::task::JoinHandle;
 use tower::Layer;
 use tower_http::normalize_path::NormalizePath;
@@ -125,7 +126,8 @@ async fn my_middleware(
             .is_some_and(|h| h == "127.0.0.1:4200")
     {
         // about to store data from ourselves
-        false
+        let rand_f32: f32 = random();
+        if rand_f32 < 0.05 { true } else { false }
     } else {
         true
     };
@@ -147,7 +149,7 @@ async fn my_middleware(
     response
 }
 
-pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
+pub fn create_router(app_state: AppState) -> Router<()> {
     println!("Starting API, checking if index.html UI file exist");
     if std::fs::read("/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html")
         .is_err()
@@ -184,12 +186,11 @@ pub fn create_router(app_state: AppState) -> NormalizePath<Router<()>> {
         .nest("/api/instance", instance_routes)
         .with_state(app_state)
         .fallback_service(serve_ui)
+        .layer(axum::extract::DefaultBodyLimit::max(10_000_000))
         .layer(axum::middleware::from_fn(my_middleware))
         .layer(tower_http::cors::CorsLayer::very_permissive())
         .layer(tower_http::compression::CompressionLayer::new())
-        .layer(axum::extract::DefaultBodyLimit::max(104_857_600))
         .layer(tower_http::decompression::RequestDecompressionLayer::new());
-    let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     app
 }
 pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {

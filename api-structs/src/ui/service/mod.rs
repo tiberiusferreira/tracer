@@ -69,7 +69,7 @@ pub struct ExecutionHeader {
 pub struct AttributeSummary {
     pub name: String,
     pub count: u32,
-    pub values: HashSet<String>,
+    pub values: HashMap<String, u32>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SummariesForGraph {

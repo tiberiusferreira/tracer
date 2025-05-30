@@ -95,8 +95,60 @@ async fn process_execution_recording(
                 ),
             ]);
             let execution_id = tx.insert("Execution", params).await?;
-            for (name, values) in &recording.attributes {
-                for value in values {
+            for (attr_name, attr_values) in &recording.attributes {
+                #[derive(Debug, Clone, Serialize, Deserialize)]
+                struct AttrName {
+                    id: Uuid,
+                }
+
+                let attr_name_id: Option<AttrName> = tx
+                    .query_optional(
+                        "select AttributeName{
+  id
+} filter ._value=<str>$attr_name",
+                        HashMap::from([(
+                            "attr_name".to_string(),
+                            Parameter::String(attr_name.clone()),
+                        )]),
+                    )
+                    .await?;
+                let attr_name_id = match attr_name_id {
+                    None => {
+                        let params =
+                            HashMap::from([("_value", Parameter::String(attr_name.to_string()))]);
+                        let id = tx.insert("AttributeName", params).await?;
+                        id
+                    }
+                    Some(id) => id.id,
+                };
+                for attr_value in attr_values {
+                    #[derive(Debug, Clone, Serialize, Deserialize)]
+                    struct AttrVal {
+                        id: Uuid,
+                    }
+
+                    let attr_val_id: Option<AttrVal> = tx
+                        .query_optional(
+                            "select AttributeValue{
+  id
+} filter ._value=<str>$attr_val",
+                            HashMap::from([(
+                                "attr_val".to_string(),
+                                Parameter::String(attr_value.clone()),
+                            )]),
+                        )
+                        .await?;
+                    let attr_val_id = match attr_val_id {
+                        None => {
+                            let params = HashMap::from([(
+                                "_value",
+                                Parameter::String(attr_value.to_string()),
+                            )]);
+                            let id = tx.insert("AttributeValue", params).await?;
+                            id
+                        }
+                        Some(id) => id.id,
+                    };
                     let params = HashMap::from([
                         (
                             "execution",
@@ -105,10 +157,22 @@ async fn process_execution_recording(
                                 cast_to_table: Some("Execution".to_string()),
                             },
                         ),
-                        ("name", Parameter::String(name.clone())),
-                        ("_value", Parameter::String(value.clone())),
+                        (
+                            "normalized_name",
+                            Parameter::Uuid {
+                                val: attr_name_id,
+                                cast_to_table: Some("AttributeName".to_string()),
+                            },
+                        ),
+                        (
+                            "normalized_value",
+                            Parameter::Uuid {
+                                val: attr_val_id,
+                                cast_to_table: Some("AttributeValue".to_string()),
+                            },
+                        ),
                     ]);
-                    let _id = tx.insert("Attributes", params).await?;
+                    let _id = tx.insert("ExecutionAttribute", params).await?;
                 }
             }
             execution_id
@@ -118,6 +182,7 @@ async fn process_execution_recording(
             existing_execution.id
         }
     };
+    println!("done!");
     Ok(())
 }
 #[time]

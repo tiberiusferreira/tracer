@@ -33,32 +33,29 @@ module default {
 
     }
 
-    type Attributes {
-        required execution: Execution;
-        required name: str;
-        required _value: str;
+    type AttributeName {
+        required _value: str {
+            constraint exclusive;
+        };
     }
 
-#    type TransactionRecording {
-#        required external_id: int64;
-#        required started_at: datetime;
-#        multi queries: QueryWithResult;
-#        ended_at: datetime;
-#        result: json;
-#    }
-#
-#    type QueryWithResult {
-#        required external_id: int64;
-#        required started_at: datetime;
-#        required query_with_parameters: json;
-#        result: json;
-#        ended_at: datetime;
-#        required created_at: datetime {
-#           default := datetime_of_statement();
-#           readonly := true;
-#        };
-#    }
+    type AttributeValue {
+        required _value: str {
+            constraint exclusive;
+        };
+    }
 
+    type ExecutionAttribute {
+        required execution: Execution;
+        required normalized_name: AttributeName;
+        required name := .normalized_name._value;
+        normalized_value: AttributeValue;
+        _value := .normalized_value._value;
+        required created_at: datetime {
+            default := datetime_of_statement();
+            readonly := true;
+        };
+    }
 
 
     type UiLayout {
@@ -124,53 +121,9 @@ module default {
     }
 
 
-    # Attributes are repeated over and over
-    type NormalizedAttributeName{
-       required _value: str {
-        constraint max_len_value(1024);
-        constraint exclusive;
-      };
-    }
+
 
 
 
 };
 
-#
-#
-# insert TimeSeries{
-#   name:= "dawd",
-#   look_back_window_seconds := 60,
-#   query := "with
-#   start_datetime := <datetime>$start_datetime;
-#   end_datetime   := <datetime>$end_datetime;
-#   recent_service_updates := (
-#     select ServiceInstanceUpdate
-#       filter
-#         .created_at >= start_datetime and
-#         .created_at <= end_datetime
-#       order by .created_at desc
-#   ),
-# recent_service_updates_by_service_name := (
-#   group recent_service_updates {
-#     created_at,
-#     export_buffer_size_bytes
-#   }
-#   using service_name := .service_instance.service.name
-#   by service_name
-#   ),
-# select recent_service_updates_by_service_name {
-#   series_name := .key.service_name,
-#   data_points := .elements {
-#     date := .created_at,
-#     value := .export_buffer_size_bytes
-#   },
-# }",
-#   max_interval_without_data_seconds := 10,
-#   min_value_threshold := 0,
-#   max_value_threshold := 10_000,
-# };
-#
-#
-#
-#

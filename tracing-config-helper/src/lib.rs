@@ -39,7 +39,7 @@ impl TracerConfig {
     pub fn new(service_id: ServiceId, collector_url: String) -> TracerConfig {
         TracerConfig {
             collector_url,
-            export_timeout: Duration::from_secs(10),
+            export_timeout: Duration::from_secs(30),
             duration_between_exports: Duration::from_secs(2),
             min_duration_between_profile_exports: Duration::from_secs(60),
             service_id,
