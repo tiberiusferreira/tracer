@@ -12,6 +12,9 @@ pub struct Attribute {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Execution {
     pub id: Uuid,
+    pub service_instance_id: Uuid,
+    pub service_env: String,
+    pub service_name: String,
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub ended: bool,

@@ -25,6 +25,9 @@ pub(crate) async fn get_single_execution(
         .query_optional(
             "select Execution{
   id,
+  service_instance_id := .service_instance.id,
+  service_env := .service_instance.service.env,
+  service_name := .service_instance.service.name,
   started_at,
   last_seen_at,
   ended,

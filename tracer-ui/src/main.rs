@@ -7,9 +7,9 @@ pub mod datetime;
 // mod orphan_events;
 mod alerts;
 mod error;
+mod execution_details;
 mod graph_creation;
 mod services;
-// mod trace;
 
 use tracing_subscriber::fmt;
 use tracing_subscriber_wasm::MakeConsoleWriter;
@@ -17,6 +17,7 @@ use tracing_subscriber_wasm::MakeConsoleWriter;
 #[allow(unused)]
 const API_SERVER_URL_NO_TRAILING_SLASH: &str = env!("API_SERVER_URL_NO_TRAILING_SLASH");
 pub const PAGE_ROOT_URL: &str = "/";
+pub const EXECUTION_DETAILS_PATH: &str = "execution-details";
 pub const ALERTS_PATH: &str = "alerts";
 
 fn main() {
@@ -59,6 +60,14 @@ pub fn App() -> impl IntoView {
                         leptos_router::StaticSegment(ALERTS_PATH)
                     )
                         view=alerts::Alerts
+                    />
+                    <Route path=(
+                        leptos_router::StaticSegment("/"),
+                        leptos_router::StaticSegment(EXECUTION_DETAILS_PATH),
+                        leptos_router::ParamSegment("execution_id"),
+
+                    )
+                        view=execution_details::ExecutionDetails
                     />
                 </Routes>
             </Router>

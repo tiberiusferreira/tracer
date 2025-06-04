@@ -217,3 +217,31 @@ header {
     }
   }
 }
+
+.trace-layout {
+  display: flex;
+  gap: 1rem;
+}
+
+.trace-container {
+  position: relative;
+  width: 70%;
+  height: 600px;
+  border: 1px solid #ccc;
+  overflow: auto;
+}
+
+.trace-bar {
+  position: absolute;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.event-details {
+  width: 30%;
+  border: 1px solid #ccc;
+  padding: 1rem;
+  overflow: auto;
+  max-height: 600px;
+}
