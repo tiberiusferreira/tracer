@@ -1,5 +1,5 @@
 use crate::io_provider::execution_recorder::function_instrumentation::track_task;
-use api_structs::instance::update::ExecutionRecording;
+use api_structs::instance::update::{ExecutionRecording, IoEvent};
 use chrono::Utc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -81,7 +81,9 @@ impl DataCollector {
         execution_id: Uuid,
         io_provider_name: &str,
         event: serde_json::Value,
-    ) {
+        is_error: bool,
+        is_response_of: Option<Uuid>,
+    ) -> Uuid {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution = exec_context_w_guard.get_mut(&execution_id).unwrap();
         assert!(!execution.ended);
@@ -90,7 +92,15 @@ impl DataCollector {
             .io_providers_events
             .entry(io_provider_name.to_owned())
             .or_default();
-        recorded_ios.push(event);
+        let event_id = Uuid::new_v4();
+        recorded_ios.push(IoEvent {
+            id: event_id,
+            created_at: Utc::now(),
+            is_response_of,
+            is_error,
+            value: event,
+        });
+        event_id
     }
 
     pub fn record_single_attribute(&self, execution_id: Uuid, name: String, value: String) {

@@ -10,10 +10,13 @@ pub async fn export_instance_update(
     collector_url: &str,
     export_data_json: &str,
     export_timeout: core::time::Duration,
+    service_name: String,
 ) -> Result<(), Error> {
     let context = "export_instance_update";
     let export_endpoint = format!("{}{}", collector_url, UPDATE_ENDPOINT);
-    let request = client.post(&export_endpoint);
+    let request = client
+        .post(&export_endpoint)
+        .header("service-name", service_name);
     print_if_dbg(
         context,
         format!("sending request to {export_endpoint} with timeout: {export_timeout:?}"),

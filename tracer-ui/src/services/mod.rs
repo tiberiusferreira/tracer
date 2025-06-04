@@ -17,54 +17,6 @@ use std::ops::{Add, Sub};
 use std::thread::current;
 use tracing::info;
 
-#[component]
-pub fn ServiceSummary(mut service: api_structs::ui::service::Service) -> impl IntoView {
-    let mut instances = vec![];
-    service.instances.sort_by_key(|i| i.last_updated_at);
-    service.instances.reverse();
-    for i in service.instances {
-        let since_registration = chrono::Utc::now().signed_duration_since(i.registered_at);
-        let hours_since_registration = since_registration.num_hours();
-        let min_since_registration = since_registration.num_minutes() % 60;
-        let last_updated_at = match i.last_updated_at {
-            None => "Never".to_string(),
-            Some(last_updated_at) => {
-                let since_update = chrono::Utc::now().signed_duration_since(last_updated_at);
-                let hours_since_update = since_update.num_hours();
-                let min_since_update = since_update.num_minutes() % 60;
-                format!(
-                    "Last Seen: {}h {}min ago",
-                    hours_since_update, min_since_update
-                )
-            }
-        };
-        let log_filter = i.log_filter.unwrap_or_else(|| "<None>".to_string());
-        let export_buffer_as_str = i
-            .export_buffer_size_bytes
-            .map(|e| (e / 1_000).to_string())
-            .unwrap_or_else(|| "<None>".to_string());
-        instances.push(view! {
-            <div style="flex-shrink: 0">
-                <p style="margin: 5px 0px;">{format!("Instance: {}", i.id)}</p>
-                <p style="margin: 5px 0px;">{format!("Registered: {}h {}min ago", hours_since_registration, min_since_registration)}</p>
-                <p style="margin: 5px 0px;">{last_updated_at}</p>
-                <p style="margin: 5px 0px;">{format!("Log Filter: {log_filter}")}</p>
-                <p style="margin: 5px 0px;">{format!("Export buffer size kb: {export_buffer_as_str}")}</p>
-                <p style="margin: 5px 0px;">{format!("Has CPU Profile: {}", i.has_profile_data)}</p>
-            </div>
-        });
-    }
-    view! {
-        <div>
-            <h3>{service.name}</h3>
-            <h4>{format!("Log Filter: {}", service.log_filter)}</h4>
-            <div id="instance-container" style="display: flex; overflow: auto; gap: 15px">
-                {instances}
-            </div>
-        </div>
-    }
-}
-
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SelectedAttribute {
@@ -74,12 +26,15 @@ struct SelectedAttribute {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ServiceState {
+    time_range: TimeRange,
+    current_selected_bucket: Option<DateTime<Utc>>,
+    selected_attributes: Vec<SelectedAttribute>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct TimeRange {
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
-    current_selected_bucket: Option<DateTime<Utc>>,
-    partial_attribute_name: String,
-    partial_attribute_value: String,
-    selected_attributes: Vec<SelectedAttribute>,
 }
 
 impl Default for ServiceState {
@@ -87,11 +42,11 @@ impl Default for ServiceState {
         let end_time = Utc::now();
         let start_time = end_time - Duration::minutes(180);
         ServiceState {
-            start_time,
-            end_time,
+            time_range: TimeRange {
+                start_time,
+                end_time,
+            },
             current_selected_bucket: None,
-            partial_attribute_name: "".to_string(),
-            partial_attribute_value: "".to_string(),
             selected_attributes: vec![],
         }
     }
@@ -118,37 +73,32 @@ pub fn Services() -> impl IntoView {
             .map(|state| serde_json::from_str(&state).unwrap())
             .unwrap_or(ServiceState::default())
     });
-
-    let get_partial_attribute_name =
-        Signal::derive_local(move || state_r.with(|s| s.partial_attribute_name.clone()));
-    let get_partial_attribute_value =
-        Signal::derive_local(move || state_r.with(|s| s.partial_attribute_value.clone()));
+    let time_range_r = Signal::derive_local(move || state_r.with(|s| s.time_range.clone()));
+    let (partial_name_r, partial_name_w) = signal_local("".to_string());
+    let (partial_value_r, partial_value_w) = signal_local("".to_string());
+    let current_time_bucket =
+        Signal::derive_local(move || state_r.with(|s| s.current_selected_bucket.clone()));
+    let set_time_range: SignalSetter<TimeRange, LocalStorage> =
+        SignalSetter::map(move |val: TimeRange| {
+            let mut new = state_r.get_untracked();
+            new.time_range = val;
+            query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        });
     let set_partial_attribute_name: SignalSetter<String, LocalStorage> =
         SignalSetter::map(move |val: String| {
-            let mut new = state_r.get_untracked();
-            new.partial_attribute_name = val;
-            query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+            partial_name_w.set(val);
         });
     let set_partial_attribute_value: SignalSetter<String, LocalStorage> =
         SignalSetter::map(move |val: String| {
-            let mut new = state_r.get_untracked();
-            new.partial_attribute_value = val;
-            query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+            partial_value_w.set(val);
         });
 
-    let (index_clicked_r, index_clicked_w) = signal_local::<Option<u64>>(None);
-
-    let partial_attributes_r = Signal::derive_local(move || {
+    let selected_attributes_r = Signal::derive_local(move || {
         let mut map: HashMap<String, Option<String>> = HashMap::new();
         let state = state_r.get();
-        let attr_name = state.partial_attribute_name;
-        let attr_val = state.partial_attribute_value;
-        if !attr_name.is_empty() {
-            if !attr_val.is_empty() {
-                map.insert(attr_name, Some(attr_val));
-            } else {
-                map.insert(attr_name, None);
-            }
+        let attributes = state.selected_attributes;
+        for a in attributes {
+            map.insert(a.name, a.value);
         }
         map
     });
@@ -156,28 +106,62 @@ pub fn Services() -> impl IntoView {
         signal_local::<Option<Result<SummariesForGraph, TrackedGlooError>>>(None);
     let _api_service_list_request_sender = LocalResource::new(move || {
         let state = state_r.get();
-        let attributes: HashMap<String, Option<String>> = partial_attributes_r.get();
-        get_and_write_get_service_data_result(
-            state.start_time,
-            state.end_time,
-            attributes,
-            service_data_w,
-        )
+        let attributes: HashMap<String, Option<String>> = selected_attributes_r.get();
+        get_and_write_get_service_data_result(state.time_range, attributes, service_data_w)
     });
 
-    let current_selected_datetime = Signal::derive(move || {
-        match index_clicked_r.get() {
-            None => {
-                info!("no value");
-            }
-            Some(index) => {
-                if let Some(Ok(summaries)) = service_data_r.get_untracked() {
-                    let new_date = summaries.buckets[index as usize];
-                    return Some(new_date);
-                }
-            }
+    let apply_filter = move |_| {
+        let mut new_state = state_r.get();
+        let new_attr_name = partial_name_r.get();
+        if new_attr_name.is_empty() {
+            return;
         }
-        return None;
+        let mut new_attr_val = partial_value_r.get();
+        let new_attr_val = if new_attr_val.is_empty() {
+            None
+        } else {
+            Some(new_attr_val)
+        };
+        new_state
+            .selected_attributes
+            .retain(|a| a.name != new_attr_name);
+        new_state.selected_attributes.push(SelectedAttribute {
+            name: new_attr_name,
+            value: new_attr_val,
+        });
+        set_new_state.set(new_state);
+        set_partial_attribute_name.set("".to_string());
+        set_partial_attribute_value.set("".to_string());
+    };
+
+    let selected_attribute_row_view = move || {
+        let mut row = vec![];
+        let attributes = selected_attributes_r.get();
+        for (name, val) in attributes {
+            let val = val.unwrap_or_default();
+            let clear = {
+                let name = name.clone();
+                move |_| {
+                    let mut state = state_r.get();
+                    state.selected_attributes.retain(|a| a.name != name);
+                    set_new_state.set(state);
+                }
+            };
+            row.push(view! {
+                <tr>
+                    <td class="trace-table__cell">{name}</td>
+                    <td class="trace-table__cell">{val}</td>
+                    <td class="trace-table__cell"><button on:click=clear>"Clear"</button></td>
+                </tr>
+            });
+        }
+        row
+    };
+
+    let set_time_bucket = SignalSetter::map(move |time_bucket: Option<DateTime<Utc>>| {
+        let mut new = state_r.get_untracked();
+        new.current_selected_bucket = time_bucket;
+        query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
     });
 
     let attribute_name_selection_list = move || match service_data_r.get() {
@@ -185,16 +169,23 @@ pub fn Services() -> impl IntoView {
             let mut data: Vec<(String, AttributeSummary)> = data.attributes.into_iter().collect();
             data.sort_by_key(|e| e.0.clone());
             let mut els = vec![];
+            let partial_name = partial_name_r.get();
             for (k, v) in data {
+                if !k.contains(&partial_name) {
+                    continue;
+                }
                 let label = format!("{k} - {}", v.count);
                 els.push(view! {
-                    <button on:click=move |_|{
-                        set_partial_attribute_name.set(k.clone());
-                    } style="display: block; margin: 5px 0 5px 0" class="button-as-text">{label}</button>
+                    <div on:click=move |_| {
+                            set_partial_attribute_name.set(k.clone());
+                            set_partial_attribute_value.set("".to_string());
+                        }
+                        class="text-as-button" style="display: block; margin: 10px 5px 10px 5px; max-height:100px; white-space: pre; overflow: scroll; background-color: rgba(255,255,255,0.1)">{label}
+                    </div>
                 });
             }
             view! {
-                <div id="attr-name-checkbox-list">
+                <div style="max-height:100%; overflow: scroll" id="attr-name-checkbox-list">
                     {els}
                 </div>
             }
@@ -209,7 +200,7 @@ pub fn Services() -> impl IntoView {
     };
 
     let attribute_value_selection_view = move || {
-        let attr_name = get_partial_attribute_name.get();
+        let attr_name = partial_name_r.get();
         if attr_name.is_empty() {
             return view! {
                 <div id="attr-value-checkbox-list">
@@ -227,15 +218,20 @@ pub fn Services() -> impl IntoView {
                     .unwrap_or_default()
                     .into_iter()
                     .collect();
+                let partial_value = partial_value_r.get();
                 values.sort_by_key(|e| e.0.clone());
                 for (val, count) in &values {
+                    if !val.contains(&partial_value) {
+                        continue;
+                    }
                     let val_2 = val.clone();
                     let label = format!("{val} - {count}");
                     els.push(view! {
-                        <button on:click=move |_|{
-                            set_partial_attribute_value.set(val_2.clone());
-                        }
-                        style="display: block; margin: 5px 0 5px 0" class="button-as-text">{label}</button>
+                        <div on:click=move |_| {
+                                set_partial_attribute_value.set(val_2.clone());
+                            }
+                            class="text-as-button" style="display: block; margin: 15px 5px 15px 5px; max-height:100px; white-space: pre; overflow: scroll; background-color: rgba(255,255,255,0.1)">{label}
+                        </div>
                     });
                 }
                 view! {
@@ -257,31 +253,40 @@ pub fn Services() -> impl IntoView {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
-                <Visualizations index_clicked_w=index_clicked_w service_data_r=service_data_r state_r=state_r query_params_w=query_params_w/>
+                <Visualizations set_time_bucket=set_time_bucket service_data_r=service_data_r time_range_r=time_range_r set_time_range=set_time_range/>
                 <ServiceSelector/>
                 <div>
-                    <div id="attributes-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
-                        <div style="display: flex">
-                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px">
-                                <input type="text" size="40" bind:value=(get_partial_attribute_name, set_partial_attribute_name) id="attr-name" list="attribute-name-list" placeholder="Attribute Name" name="attribute-selector" />
-                                <div style="overflow: scroll; height: 90px">
+                    <div id="attributes-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 350px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll" >
+                        <div style="display: flex; height:60%">
+                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px; overflow: hidden; max-height:100%">
+                                <input type="text" size="40" bind:value=(partial_name_r, partial_name_w) id="attr-name" list="attribute-name-list" placeholder="Attribute Name" name="attribute-selector" />
+                                <div style="overflow: scroll">
                                     {attribute_name_selection_list}
                                 </div>
                             </div>
 
-                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px">
-                                <input type="text" size="110" bind:value=(get_partial_attribute_value, set_partial_attribute_value) id="attribute-value" list="attribute-val-list" placeholder="Attribute Value" name="attribute-val-selector" />
-                                <div style="overflow: scroll; height: 90px">
+                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px; overflow: hidden">
+                                <input type="text" size="110" bind:value=(partial_value_r, partial_value_w) id="attribute-value" list="attribute-val-list" placeholder="Attribute Value" name="attribute-val-selector" />
+                                <button style="margin-left: 5px" on:click=apply_filter >"Apply"</button>
+                                <div style="max-height:100%; overflow: scroll">
                                     {attribute_value_selection_view}
                                 </div>
                             </div>
+                        </div>
+                        <div style="overflow: scroll; height:35%; margin: 0px 0px 5px 0px; border: white 1px solid; border-radius: 5px; padding: 3px;">
+                            <table class="trace-table">
+                                <tr>
+                                    <th colspan="3" class="trace-table__cell">"Attribute Filters"</th>
+                                </tr>
+                                {selected_attribute_row_view}
+                            </table>
                         </div>
                     </div>
                 </div>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
                         <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
-                            <TracesGrid current_selected_datetime=current_selected_datetime attributes=partial_attributes_r.into()/>
+                            <TracesGrid current_time_bucket=current_time_bucket selected_attributes_r=selected_attributes_r.into()/>
                         </div>
                     </div>
                     <div id="filters">
@@ -294,50 +299,6 @@ pub fn Services() -> impl IntoView {
         </div>
     }
 }
-
-// #[component]
-// fn EnvFilter() -> impl IntoView {
-//     view! {
-//         <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
-//             <input style="margin-bottom: 5px" type="text" id="env-name" placeholder="Env" name="service-env-selector" />
-//             <div>
-//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-//                 <label for="scales">"Dev - 1.2K "</label>
-//                 <span>" - "</span>
-//                 <button class="button-as-text">"only"</button>
-//             </div>
-//             <div>
-//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-//                 <label for="scales">"Stage - 1.5K "</label>
-//                 <span>" - "</span>
-//                 <button class="button-as-text">"only"</button>
-//
-//             </div>
-//         </div>
-//     }
-// }
-//
-// #[component]
-// fn ServiceFilter() -> impl IntoView {
-//     view! {
-//         <div style="resize: vertical; height: 150px; margin: 0 0 0 5px; padding: 10px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
-//             <input style="margin-bottom: 5px" type="text" id="service-name" placeholder="Service" name="service-selector" />
-//             <div>
-//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-//                 <label for="scales">"Tracer Backend - 1.2K "</label>
-//                 <span>" - "</span>
-//                 <button class="button-as-text">"only"</button>
-//             </div>
-//             <div>
-//                 <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
-//                 <label for="scales">"Tracer UI - 1.5K "</label>
-//                 <span>" - "</span>
-//                 <button class="button-as-text">"only"</button>
-//
-//             </div>
-//         </div>
-//     }
-// }
 
 #[component]
 fn PathFilter() -> impl IntoView {
@@ -415,7 +376,7 @@ fn SeverityFilter() -> impl IntoView {
 
 fn service_graph(
     execution_summary: &SummariesForGraph,
-    index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
+    set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
@@ -433,12 +394,18 @@ fn service_graph(
     let total = execution_summary.execution.total;
     let warnings = execution_summary.execution.with_warning_count;
     let errors = execution_summary.execution.with_errors_count;
+    let buckets = execution_summary.buckets.clone();
+    let set_signal = SignalSetter::<_, LocalStorage>::map(move |index: u64| {
+        let time: DateTime<Utc> = buckets[index as usize];
+        set_time_bucket.set(Some(time));
+    });
+
     let data = GraphData {
         dom_id_to_render_to: "exec_summary".to_string(),
         y_name: "TestY".to_string(),
         x_name: "TestX".to_string(),
         series: vec![series],
-        click_event_timestamp_receiver: Some(index_clicked_w),
+        click_event_timestamp_receiver: Some(set_signal),
     };
     let (trace_warning_graph, trace_warning_graph_id) =
         crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
@@ -464,7 +431,10 @@ fn service_graph(
     }.into_any()
 }
 
-fn requests_graph(execution_summary: &SummariesForGraph) -> AnyView {
+fn requests_graph(
+    execution_summary: &SummariesForGraph,
+    set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
         name: "requests".to_string(),
@@ -481,12 +451,17 @@ fn requests_graph(execution_summary: &SummariesForGraph) -> AnyView {
     let total = execution_summary.requests.total;
     let with_200 = execution_summary.requests.with_200_status_count;
     let non_200 = execution_summary.requests.with_non_200_status_count;
+    let buckets = execution_summary.buckets.clone();
+    let set_signal = SignalSetter::<_, LocalStorage>::map(move |index: u64| {
+        let time: DateTime<Utc> = buckets[index as usize];
+        set_time_bucket.set(Some(time));
+    });
     let data = GraphData {
         dom_id_to_render_to: "requests".to_string(),
         y_name: "TestY".to_string(),
         x_name: "TestX".to_string(),
         series: vec![series],
-        click_event_timestamp_receiver: None,
+        click_event_timestamp_receiver: Some(set_signal),
     };
     let (trace_warning_graph, trace_warning_graph_id) =
         crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
@@ -512,7 +487,10 @@ fn requests_graph(execution_summary: &SummariesForGraph) -> AnyView {
     }.into_any()
 }
 
-fn size_graph(execution_summary: &SummariesForGraph) -> AnyView {
+fn size_graph(
+    execution_summary: &SummariesForGraph,
+    set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
         name: "size".to_string(),
@@ -533,12 +511,17 @@ fn size_graph(execution_summary: &SummariesForGraph) -> AnyView {
             .collect(),
     };
     let total_mb = execution_summary.size_bytes.total as f64 / 1000_000.0;
+    let buckets = execution_summary.buckets.clone();
+    let set_signal = SignalSetter::<_, LocalStorage>::map(move |index: u64| {
+        let time: DateTime<Utc> = buckets[index as usize];
+        set_time_bucket.set(Some(time));
+    });
     let data = GraphData {
         dom_id_to_render_to: "size".to_string(),
         y_name: "TestY".to_string(),
         x_name: "TestX".to_string(),
         series: vec![series],
-        click_event_timestamp_receiver: None,
+        click_event_timestamp_receiver: Some(set_signal),
     };
     let (trace_warning_graph, trace_warning_graph_id) =
         crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
@@ -565,7 +548,10 @@ fn size_graph(execution_summary: &SummariesForGraph) -> AnyView {
     }.into_any()
 }
 
-fn duration_graph(execution_summary: &SummariesForGraph) -> AnyView {
+fn duration_graph(
+    execution_summary: &SummariesForGraph,
+    set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
     let series = GraphSeries {
         name: "duration".to_string(),
@@ -579,13 +565,18 @@ fn duration_graph(execution_summary: &SummariesForGraph) -> AnyView {
             .collect(),
         y_values: execution_summary.duration.max_values.clone(),
     };
+    let buckets = execution_summary.buckets.clone();
+    let set_signal = SignalSetter::<_, LocalStorage>::map(move |index: u64| {
+        let time: DateTime<Utc> = buckets[index as usize];
+        set_time_bucket.set(Some(time));
+    });
     let max_duration = execution_summary.duration.max_ms;
     let data = GraphData {
         dom_id_to_render_to: "duration".to_string(),
         y_name: "TestY".to_string(),
         x_name: "TestX".to_string(),
         series: vec![series],
-        click_event_timestamp_receiver: None,
+        click_event_timestamp_receiver: Some(set_signal),
     };
     let (trace_warning_graph, trace_warning_graph_id) =
         crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
@@ -622,10 +613,10 @@ fn duration_graph(execution_summary: &SummariesForGraph) -> AnyView {
 
 #[component]
 fn Visualizations(
-    index_clicked_w: WriteSignal<Option<u64>, LocalStorage>,
     service_data_r: ReadSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
-    state_r: Signal<ServiceState, LocalStorage>,
-    query_params_w: SignalSetter<Option<String>>,
+    time_range_r: Signal<TimeRange, LocalStorage>,
+    set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+    set_time_range: SignalSetter<TimeRange, LocalStorage>,
 ) -> impl IntoView {
     let service_graph = move || match service_data_r.get() {
         None => {
@@ -636,7 +627,7 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => service_graph(&data, index_clicked_w),
+            Ok(data) => service_graph(&data, set_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -652,7 +643,7 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => crate::services::requests_graph(&data),
+            Ok(data) => crate::services::requests_graph(&data, set_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -669,7 +660,7 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => crate::services::size_graph(&data),
+            Ok(data) => crate::services::size_graph(&data, set_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -686,7 +677,7 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => crate::services::duration_graph(&data),
+            Ok(data) => crate::services::duration_graph(&data, set_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -694,30 +685,35 @@ fn Visualizations(
         },
     };
     let on_click_back = move |_| {
-        let mut new = state_r.get_untracked();
-        new.start_time = new.start_time.sub(Duration::minutes(60));
-        new.end_time = new.end_time.sub(Duration::minutes(60));
-        query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        let mut time_range = time_range_r.get_untracked();
+        time_range.start_time = time_range.start_time.sub(Duration::minutes(60));
+        time_range.end_time = time_range.end_time.sub(Duration::minutes(60));
+        set_time_range.set(time_range);
+    };
+    let on_click_now = move |_| {
+        let default = ServiceState::default();
+        set_time_range.set(default.time_range);
     };
     let on_click_forward = move |_| {
-        let mut new = state_r.get_untracked();
-        new.start_time = new.start_time.add(Duration::minutes(60));
-        new.end_time = new.end_time.add(Duration::minutes(60));
-        query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        let mut time_range = time_range_r.get_untracked();
+        time_range.start_time = time_range.start_time.add(Duration::minutes(60));
+        time_range.end_time = time_range.end_time.add(Duration::minutes(60));
+        set_time_range.set(time_range);
     };
     view! {
-         <div id="visualizations" style="resize: vertical; height: 370px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
-                    <div style="display: flex; justify-content: center;">
-                        <button style="margin: 0 5px 0 0" on:click=on_click_back>"<- 1h"</button>
-                        <button on:click=on_click_forward>"1h ->"</button>
-                    </div>
-                    <div id="charts" style="display: grid; grid-template-columns: 3fr 3fr;">
-                        {service_graph}
-                        {reqs_graph}
-                        {size_graph}
-                        {duration_graph}
-                    </div>
-                </div>
+        <div id="visualizations" style="resize: vertical; height: 370px; overflow: scroll; padding: 7px; border: 1px solid white; border-radius: 10px;">
+            <div style="display: flex; justify-content: center;">
+                <button style="margin: 0 5px 0 0" on:click=on_click_back>"<- 1h"</button>
+                <button style="margin: 0 5px 0 0" on:click=on_click_now>"now"</button>
+                <button on:click=on_click_forward>"1h ->"</button>
+            </div>
+            <div id="charts" style="display: grid; grid-template-columns: 3fr 3fr;">
+                {service_graph}
+                {reqs_graph}
+                {size_graph}
+                {duration_graph}
+            </div>
+        </div>
     }
 }
 #[component]
@@ -808,18 +804,15 @@ fn GlobalSelector() -> impl IntoView {
 
 #[component]
 fn TracesGrid(
-    current_selected_datetime: Signal<Option<chrono::DateTime<Utc>>>,
-    attributes: Signal<HashMap<String, Option<String>>, LocalStorage>,
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
+    selected_attributes_r: Signal<HashMap<String, Option<String>>, LocalStorage>,
 ) -> impl IntoView {
-    let (service_data_r, service_data_w) = signal_local::<
-        Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
-    >(None);
+    let (service_data_r, service_data_w) =
+        signal_local::<Option<Result<Vec<ExecutionHeader>, TrackedGlooError>>>(None);
     let _api_service_list_request_sender = LocalResource::new(move || {
         get_and_write_get_execution_headers_result(
-            current_selected_datetime
-                .get()
-                .unwrap_or(chrono::Utc::now()),
-            attributes.get(),
+            current_time_bucket.get().unwrap_or(Utc::now()),
+            selected_attributes_r.get(),
             service_data_w,
         )
     });
@@ -845,12 +838,6 @@ fn TracesGrid(
                                 <th class="trace-table__cell">"Method"</th>
                                 <th class="trace-table__cell">""</th>
                             </tr>
-                            // <tr>
-                            //     <td colspan="11" style="background-color: rgba(255,255,255,0.10); border-radius: 10px;">
-                            //         <div title="200ms" style="height: 10px; border-radius: 10px; background-color: white; width: 50px; margin-left: 50px">
-                            //         </div>
-                            //     </td>
-                            // </tr>
                             {rows}
 
                         </table>
@@ -1176,18 +1163,16 @@ async fn get_and_write_get_execution_headers_result(
 }
 
 async fn get_and_write_get_service_data_result(
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
+    time_range: TimeRange,
     attributes: HashMap<String, Option<String>>,
     w: WriteSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
 ) {
-    let res = get_services_impl(start_date, end_date, attributes).await;
+    let res = get_services_impl(time_range, attributes).await;
     w.set(Some(res));
 }
 
 async fn get_services_impl(
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
+    time_range: TimeRange,
     attributes: HashMap<String, Option<String>>,
 ) -> Result<SummariesForGraph, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
@@ -1196,8 +1181,8 @@ async fn get_services_impl(
         "/api/ui/service/data"
     ))
     .json(&SummaryFilters {
-        start_date,
-        end_date,
+        start_date: time_range.start_time,
+        end_date: time_range.end_time,
         attributes,
     })
     .unwrap()

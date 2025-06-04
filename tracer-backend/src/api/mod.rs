@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
-use std::net::SocketAddr;
-
 use crate::api::state::AppState;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
 use http::{Method, StatusCode};
-use rand::random;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+use std::net::SocketAddr;
+use std::ops::DerefMut;
+use std::sync::RwLock;
 use tokio::task::JoinHandle;
-use tower::Layer;
-use tower_http::normalize_path::NormalizePath;
 use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
 use tracked_error::error_chain_to_pretty_formatted;
 
@@ -113,6 +111,9 @@ async fn axum_request_to_serializable(request: axum::extract::Request) -> MyRequ
         body: body_bytes,
     }
 }
+
+static SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT: RwLock<u8> = RwLock::new(0);
+
 async fn my_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
@@ -122,12 +123,22 @@ async fn my_middleware(
         && my_request
             .parts
             .headers
-            .get("host")
-            .is_some_and(|h| h == "127.0.0.1:4200")
+            .get("service-name")
+            .is_some_and(|service_name| service_name == "tracer-backend")
     {
-        // about to store data from ourselves
-        let rand_f32: f32 = random();
-        if rand_f32 < 0.05 { true } else { false }
+        let size_kb = my_request.body.len() / 1000;
+        println!("Got self request of size {size_kb}kb",);
+        let mut w_guard = SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT.write().unwrap();
+        let count = w_guard.deref_mut();
+        if *count >= 2 && size_kb <= 1_000 {
+            println!("keeping");
+            *count = 0;
+            true
+        } else {
+            println!("skipping");
+            *count += 1;
+            false
+        }
     } else {
         true
     };
@@ -170,6 +181,10 @@ pub fn create_router(app_state: AppState) -> Router<()> {
         .route(
             "/execution_list",
             axum::routing::post(handlers::ui::service::execution_list),
+        )
+        .route(
+            "/execution",
+            axum::routing::get(handlers::ui::execution::get_single_execution),
         );
     let instance_routes = axum::Router::new()
         .route(

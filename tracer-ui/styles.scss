@@ -18,15 +18,12 @@ a:visited {
   color: #6195ff;
 }
 
-.button-as-text {
-  background: none;
-  border: none;
+.text-as-button {
   color: white;
   cursor: pointer;
-  padding: 0;
 }
 
-.button-as-text:hover {
+.text-as-button:hover {
   color: greenyellow;
 }
 

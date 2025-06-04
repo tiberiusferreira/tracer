@@ -11,9 +11,39 @@ use function_timer::time;
 use gel_io_recorder::Parameter;
 use serde::{Deserialize, Serialize};
 use std::cmp::max_by;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::AddAssign;
 use tracing_config_helper::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
+fn attributes_filtering_statement(
+    attributes: &HashMap<String, Option<String>>,
+    params: &mut HashMap<String, Parameter>,
+) -> String {
+    let mut attribute_filter_stmt: Vec<String> = vec![];
+    for (idx, (name, maybe_val)) in attributes.iter().enumerate() {
+        let attribute_name = format!("attr_{}_name", idx);
+        params.insert(attribute_name.clone(), Parameter::String(name.clone()));
+        let filtering = match maybe_val {
+            None => {
+                format!("any(.attributes.name = <str>${attribute_name})")
+            }
+            Some(val) => {
+                let attribute_val = format!("attr_{}_val", idx);
+                params.insert(attribute_val.clone(), Parameter::String(val.clone()));
+                format!(
+                    "any(.attributes.name = <str>${attribute_name} and .attributes._value=<str>${attribute_val})"
+                )
+            }
+        };
+        attribute_filter_stmt.push(filtering);
+    }
+    let filter_stmt = if attribute_filter_stmt.is_empty() {
+        "".to_string()
+    } else {
+        let filter = attribute_filter_stmt.join(" and ");
+        format!(" and ({}) ", filter)
+    };
+    filter_stmt
+}
 pub(crate) async fn execution_list(
     State(app_state): State<AppState>,
     Json(filters): Json<api_structs::ui::service::ExecutionListFilters>,
@@ -22,114 +52,55 @@ pub(crate) async fn execution_list(
     let start = bucket;
     let end = bucket + Duration::minutes(5);
     let db = app_state.execution_io_provider.database();
-
-    let query = "with
-attr_name_1 := <optional str>$attr_name_1,
-attr_value_1 := <optional str>$attr_val_1,
-attr_name_2 := <optional str>$attr_name_2,
-attr_value_2 := <optional str>$attr_val_2,
-select Execution{
+    let mut params = HashMap::from([
+        ("start_date".to_string(), Parameter::Datetime(start)),
+        ("end_date".to_string(), Parameter::Datetime(end)),
+    ]);
+    let filter_stmt = attributes_filtering_statement(&filters.attributes, &mut params);
+    let query = format!(
+        "
+select Execution{{
   id,
   service_name := .service_instance.service.name,
   started_at,
   duration_ms,
   size_bytes,
   status_code := (
-    select .<execution[is ExecutionAttribute]{
+    select .<execution[is ExecutionAttribute]{{
       _value
-      }
+      }}
     filter .name = 'status_code'
     limit 1
   )._value,
   path := (
-    select .<execution[is ExecutionAttribute]{
+    select .<execution[is ExecutionAttribute]{{
       _value
-      }
+      }}
     filter .name = 'uri'
     limit 1
   )._value,
   method := (
-    select .<execution[is ExecutionAttribute]{
+    select .<execution[is ExecutionAttribute]{{
       _value
-      }
+      }}
     filter .name = 'method'
     limit 1
   )._value,
-    matching_attributes := (
-    select .<execution[is ExecutionAttribute]{
+    attributes := (
+    select .<execution[is ExecutionAttribute]{{
       name,
       _value
-    } filter
-      (
-        not exists attr_name_1
-        or (
-          .name ?= attr_name_1
-        and
-          (not exists attr_value_1 or ._value ?= attr_value_1)
-        )
-      )
-      and
-      (
-        not exists attr_name_2
-        or (
-          .name ?= attr_name_2
-        and
-          (not exists attr_value_2 or ._value ?= attr_value_2)
-        )
-      )
+    }}
   )
-}
+}}
 filter
     .started_at <= <datetime>$end_date and
     .last_seen_at >= <datetime>$start_date
-and (
-      not exists (attr_name_1 union attr_name_2)
-      or exists .matching_attributes
-    )
-  order by .started_at asc limit 100";
-
-    let mut params = HashMap::from([
-        ("start_date", Parameter::Datetime(start)),
-        ("end_date", Parameter::Datetime(end)),
-    ]);
-    let mut attributes = filters.attributes.iter();
-    let first = attributes.next();
-    let second = attributes.next();
-    match first {
-        None => {
-            params.insert("attr_name_1", Parameter::NoneString);
-            params.insert("attr_val_1", Parameter::NoneString);
-        }
-        Some((k, v)) => {
-            params.insert("attr_name_1", Parameter::String(k.to_string()));
-            match v {
-                None => {
-                    params.insert("attr_val_1", Parameter::NoneString);
-                }
-                Some(v) => {
-                    params.insert("attr_val_1", Parameter::String(v.to_string()));
-                }
-            }
-        }
-    }
-    match second {
-        None => {
-            params.insert("attr_name_2", Parameter::NoneString);
-            params.insert("attr_val_2", Parameter::NoneString);
-        }
-        Some((k, v)) => {
-            params.insert("attr_name_2", Parameter::String(k.to_string()));
-            match v {
-                None => {
-                    params.insert("attr_val_2", Parameter::NoneString);
-                }
-                Some(v) => {
-                    params.insert("attr_val_2", Parameter::String(v.to_string()));
-                }
-            }
-        }
-    }
-    let executions: Vec<ExecutionHeader> = db.query(query, params).await?;
+    {filter_stmt}
+  order by .started_at asc limit 100"
+    );
+    let executions: Vec<ExecutionHeader> = db.query(&query, params).await?;
+    println!("{query}");
     Ok(Json(executions))
 }
 
@@ -149,7 +120,8 @@ pub async fn summaries_for_graph(
         .unwrap()
         .with_second(0)
         .unwrap();
-    //
+    let end_rounded_to_window_end =
+        end_rounded_to_window_start + Duration::minutes(rollover_window_minutes as i64);
     let minutes_since_start_window_start = start_datetime.minute() % rollover_window_minutes;
     let start_rounded_to_window_start =
         start_datetime - Duration::minutes(minutes_since_start_window_start as i64);
@@ -160,61 +132,44 @@ pub async fn summaries_for_graph(
         .unwrap();
 
     let db = app_state.execution_io_provider.database();
-    let query = "with
-attr_name_1 := <optional str>$attr_name_1,
-attr_value_1 := <optional str>$attr_val_1,
-attr_name_2 := <optional str>$attr_name_2,
-attr_value_2 := <optional str>$attr_val_2,
-select Execution{
+    let mut params = HashMap::from([
+        (
+            "start_date".to_string(),
+            Parameter::Datetime(start_rounded_to_window_start),
+        ),
+        (
+            "end_date".to_string(),
+            Parameter::Datetime(end_rounded_to_window_end),
+        ),
+    ]);
+    let filter_stmt = attributes_filtering_statement(&filters.attributes, &mut params);
+    let query = format!(
+        "
+select Execution{{
   id,
   started_at,
   last_seen_at,
   size_bytes,
   status_code := (
-    select .<execution[is ExecutionAttribute]{
+    select .<execution[is ExecutionAttribute]{{
       _value
-      }
+      }}
     filter .name = 'status_code'
     limit 1
   )._value,
-  all_attributes := (
-    select .<execution[is ExecutionAttribute]{
+  attributes := (
+    select .<execution[is ExecutionAttribute]{{
       name,
       _value
-    }
-  ),
-  matching_attributes := (
-    select .<execution[is ExecutionAttribute]{
-      name,
-      _value
-    } filter
-      (
-        not exists attr_name_1
-        or (
-          .name ?= attr_name_1
-        and
-          (not exists attr_value_1 or ._value ?= attr_value_1)
-        )
-      )
-      and
-      (
-        not exists attr_name_2
-        or (
-          .name ?= attr_name_2
-        and
-          (not exists attr_value_2 or ._value ?= attr_value_2)
-        )
-      )
+    }}
   )
-}
+}}
   filter
     .started_at <= <datetime>$end_date and
     .last_seen_at >= <datetime>$start_date
-    and (
-      not exists (attr_name_1 union attr_name_2)
-      or exists .matching_attributes
-    )
-  order by .started_at asc limit 10000";
+    {filter_stmt}
+  order by .started_at asc limit 10000"
+    );
 
     #[derive(Serialize, Deserialize, Debug, Clone)]
     pub struct Attribute {
@@ -229,56 +184,13 @@ select Execution{
         pub last_seen_at: DateTime<Utc>,
         pub size_bytes: u64,
         pub status_code: Option<String>,
-        pub all_attributes: Vec<Attribute>,
+        pub attributes: Vec<Attribute>,
     }
-    let mut params = HashMap::from([
-        (
-            "start_date",
-            Parameter::Datetime(start_rounded_to_window_start),
-        ),
-        ("end_date", Parameter::Datetime(end_rounded_to_window_start)),
-    ]);
-    let mut attributes = filters.attributes.iter();
-    let first = attributes.next();
-    let second = attributes.next();
-    match first {
-        None => {
-            params.insert("attr_name_1", Parameter::NoneString);
-            params.insert("attr_val_1", Parameter::NoneString);
-        }
-        Some((k, v)) => {
-            params.insert("attr_name_1", Parameter::String(k.to_string()));
-            match v {
-                None => {
-                    params.insert("attr_val_1", Parameter::NoneString);
-                }
-                Some(v) => {
-                    params.insert("attr_val_1", Parameter::String(v.to_string()));
-                }
-            }
-        }
-    }
-    match second {
-        None => {
-            params.insert("attr_name_2", Parameter::NoneString);
-            params.insert("attr_val_2", Parameter::NoneString);
-        }
-        Some((k, v)) => {
-            params.insert("attr_name_2", Parameter::String(k.to_string()));
-            match v {
-                None => {
-                    params.insert("attr_val_2", Parameter::NoneString);
-                }
-                Some(v) => {
-                    params.insert("attr_val_2", Parameter::String(v.to_string()));
-                }
-            }
-        }
-    }
-    let executions: Vec<Execution> = db.query(query, params).await?;
+
+    let executions: Vec<Execution> = db.query(&query, params).await?;
     let mut attributes: HashMap<String, AttributeSummary> = HashMap::new();
     for e in &executions {
-        for a in &e.all_attributes {
+        for a in &e.attributes {
             let entry = attributes
                 .entry(a.name.clone())
                 .or_insert(AttributeSummary {
@@ -287,7 +199,7 @@ select Execution{
                     values: HashMap::new(),
                 });
             entry.count += 1;
-            let mut value_count = entry.values.entry(a._value.clone()).or_insert(0);
+            let value_count = entry.values.entry(a._value.clone()).or_insert(0);
             *value_count += 1;
         }
     }

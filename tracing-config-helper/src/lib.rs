@@ -296,6 +296,7 @@ async fn trace_export_loop(
             > min_wait_duration_between_profile_exports)
             || flush_request.is_some();
         let cpu_profile_base64 = if should_export_profile {
+            println!("exporting profile");
             time_last_profile_export = std::time::Instant::now();
             let mut profile_data = Vec::new();
             profiler_guard
@@ -324,11 +325,13 @@ async fn trace_export_loop(
         loop {
             print_if_dbg(context, "attempting export");
             tokio::time::sleep(period_time_secs).await;
+
             match server_connection::instance_update_sender::export_instance_update(
                 &client,
                 &config.collector_url,
                 &export_data_json,
                 config.export_timeout,
+                config.service_id.name.clone(),
             )
             .await
             {

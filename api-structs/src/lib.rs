@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+pub mod execution;
 pub mod instance;
 pub mod time_conversion;
 pub mod ui;

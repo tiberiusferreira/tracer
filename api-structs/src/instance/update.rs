@@ -18,10 +18,20 @@ pub struct InstanceSnapshot {
 }
 
 pub type IoRecorderName = String;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IoEvent {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub is_response_of: Option<Uuid>,
+    pub is_error: bool,
+    pub value: serde_json::Value,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayData {
     pub input: serde_json::Value,
-    pub io_providers_events: HashMap<IoRecorderName, Vec<serde_json::Value>>,
+    pub io_providers_events: HashMap<IoRecorderName, Vec<IoEvent>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

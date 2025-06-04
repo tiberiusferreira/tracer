@@ -275,18 +275,26 @@ impl Transaction2 {
             },
         });
         let event_json = serde_json::to_value(&event).unwrap();
-        global_collector.record_io_event(execution_id, RECORDER_NAME, event_json);
+        let event_id =
+            global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
         let result: Result<T, Error> = run_tx_query_required(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
+        let is_err = result_json.is_err();
         let event_result = IoEvent::QueryResult(QueryResult2 {
             id: query_id,
             ended_at: Utc::now(),
             result: result_json,
         });
         let event_result_json = serde_json::to_value(&event_result).unwrap();
-        global_collector.record_io_event(execution_id, RECORDER_NAME, event_result_json);
+        global_collector.record_io_event(
+            execution_id,
+            RECORDER_NAME,
+            event_result_json,
+            is_err,
+            Some(event_id),
+        );
         result
     }
 
@@ -315,19 +323,27 @@ impl Transaction2 {
             },
         });
         let event_json = serde_json::to_value(&event).unwrap();
-        global_collector.record_io_event(execution_id, RECORDER_NAME, event_json);
+        let event_id =
+            global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
         let result: Result<Option<T>, Error> =
             run_tx_query_optional(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
+        let is_err = result_json.is_err();
         let event_result = IoEvent::QueryResult(QueryResult2 {
             id: query_id,
             ended_at: Utc::now(),
             result: result_json,
         });
         let event_result_json = serde_json::to_value(&event_result).unwrap();
-        global_collector.record_io_event(execution_id, RECORDER_NAME, event_result_json);
+        global_collector.record_io_event(
+            execution_id,
+            RECORDER_NAME,
+            event_result_json,
+            is_err,
+            Some(event_id),
+        );
         result
     }
 
@@ -356,18 +372,26 @@ impl Transaction2 {
             },
         });
         let event_json = serde_json::to_value(&event).unwrap();
-        global_collector.record_io_event(execution_id, RECORDER_NAME, event_json);
+        let event_id =
+            global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
         let result: Result<T, Error> = run_query_tx(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
+        let is_error = result_json.is_err();
         let event_result = IoEvent::QueryResult(QueryResult2 {
             id: query_id,
             ended_at: Utc::now(),
             result: result_json,
         });
         let event_result_json = serde_json::to_value(&event_result).unwrap();
-        global_collector.record_io_event(execution_id, RECORDER_NAME, event_result_json);
+        global_collector.record_io_event(
+            execution_id,
+            RECORDER_NAME,
+            event_result_json,
+            is_error,
+            Some(event_id),
+        );
         result
     }
     pub async fn commit(self) -> Result<(), Error> {
@@ -381,10 +405,12 @@ impl Transaction2 {
         };
         let id = uuid::Uuid::new_v4();
         let event = IoEvent::TxCommitRequest(TxCommit { id, tx_id: self.id });
-        global_collector.record_io_event(
+        let event_id = global_collector.record_io_event(
             execution_id,
             RECORDER_NAME,
             serde_json::to_value(&event).unwrap(),
+            false,
+            None,
         );
         let res = tx.commit().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
@@ -393,6 +419,7 @@ impl Transaction2 {
                 location: std::panic::Location::caller().to_string(),
             }
         });
+        let is_error = res.is_err();
         let event_result = IoEvent::TxCommitResult(TxCommitResult {
             id,
             tx_id: self.id,
@@ -402,6 +429,8 @@ impl Transaction2 {
             execution_id,
             RECORDER_NAME,
             serde_json::to_value(&event_result).unwrap(),
+            is_error,
+            Some(event_id),
         );
         res
     }
@@ -418,10 +447,12 @@ impl DatabaseIoRecorder {
         let global_collector = get_global_collector();
         let id = Uuid::new_v4();
         let event = IoEvent::TxStartRequest(TxStartRequest { id });
-        global_collector.record_io_event(
+        let event_id = global_collector.record_io_event(
             execution_id,
             RECORDER_NAME,
             serde_json::to_value(&event).unwrap(),
+            false,
+            None,
         );
         let tx = client.transaction_raw().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
@@ -437,11 +468,14 @@ impl DatabaseIoRecorder {
         } else {
             Ok(tx_id)
         };
+        let is_error = result.is_err();
         let event_result = IoEvent::TxStartResult(TxStartResult { id, result });
         global_collector.record_io_event(
             execution_id,
             RECORDER_NAME,
             serde_json::to_value(&event_result).unwrap(),
+            is_error,
+            Some(event_id),
         );
         Transaction2 {
             id: tx_id,
@@ -475,14 +509,14 @@ impl DatabaseIoRecorder {
     // global_collector.standalone_query_end(execution_id, query_id, res_as_json_value);
     // result
     // }
-    pub async fn query<T: Serialize + DeserializeOwned + Clone>(
+    pub async fn query<T: Serialize + DeserializeOwned + Clone, AsStr: AsRef<str>>(
         &self,
         query: &str,
-        parameters: HashMap<&str, Parameter>,
+        parameters: HashMap<AsStr, Parameter>,
     ) -> Result<T, Error> {
         let parameters: HashMap<String, Parameter> = parameters
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
+            .map(|(k, v)| (k.as_ref().to_string(), v))
             .collect();
         let execution_id = get_current_execution().unwrap();
         let client = match &self {
@@ -503,13 +537,16 @@ impl DatabaseIoRecorder {
                 parameters: parameters.clone(),
             },
         });
-        global_collector.record_io_event(
+        let event_id = global_collector.record_io_event(
             execution_id,
             RECORDER_NAME,
-            serde_json::to_value(event).unwrap(),
+            serde_json::to_value(&event).unwrap(),
+            false,
+            None,
         );
         let result: Result<T, Error> = run_query(client, query, parameters).await;
         let res_as_json_value = result.clone().map(|v| serde_json::to_value(v).unwrap());
+        let is_error = res_as_json_value.is_err();
         let event_result = IoEvent::QueryResult(QueryResult2 {
             id,
             ended_at: Utc::now(),
@@ -518,7 +555,9 @@ impl DatabaseIoRecorder {
         global_collector.record_io_event(
             execution_id,
             RECORDER_NAME,
-            serde_json::to_value(event_result).unwrap(),
+            serde_json::to_value(&event_result).unwrap(),
+            is_error,
+            Some(event_id),
         );
         result
     }

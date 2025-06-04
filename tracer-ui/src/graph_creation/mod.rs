@@ -42,7 +42,7 @@ pub struct GraphData {
     pub x_name: String,
     pub series: Vec<GraphSeries>,
     #[allow(unused)]
-    pub click_event_timestamp_receiver: Option<WriteSignal<Option<u64>, LocalStorage>>,
+    pub click_event_timestamp_receiver: Option<SignalSetter<u64, LocalStorage>>,
 }
 
 pub fn create_dom_el_ref_and_graph_call_action(
@@ -156,13 +156,8 @@ pub fn create_create_chart_action() -> Action<GraphData, ()> {
                 let value = js_sys::Reflect::get(&params, &JsValue::from_str("dataIndex")).unwrap();
                 let index = value.as_f64().unwrap();
                 if let Some(w) = graph_data.click_event_timestamp_receiver {
-                    info!("setting value to {index} in callback");
-                    if w.try_set(Some(index as u64)).is_some() {
-                        panic!("got some!")
-                    }
-                    // w.set(Some(index as u64));
+                    w.set(index as u64);
                 }
-                info!("index = {index}")
             }) as Box<dyn FnMut(JsValue)>);
             let js_function = closure.into_js_value();
 

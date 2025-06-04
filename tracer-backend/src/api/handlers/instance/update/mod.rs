@@ -182,7 +182,6 @@ async fn process_execution_recording(
             existing_execution.id
         }
     };
-    println!("done!");
     Ok(())
 }
 #[time]

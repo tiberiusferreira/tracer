@@ -135,3 +135,17 @@ impl Debug for DbConfig {
             .finish()
     }
 }
+
+// #[test]
+// fn a() {
+//     let bytes = std::fs::read(
+//         // "/Users/tiberiodarferreira/Documents/github/tracer/data_being_exported_3.json",
+//         "/Users/tiberiodarferreira/Documents/github/tracer/nest_1.json",
+//     )
+//     .unwrap();
+//     let string = String::from_utf8(bytes).unwrap();
+//     let bytes = serde_json::from_str::<Vec<u8>>(&string).unwrap();
+//     let string = String::from_utf8(bytes).unwrap();
+//     // println!("{:#?}", string);
+//     fs::write("./out.json", string).unwrap();
+// }
