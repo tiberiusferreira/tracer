@@ -26,9 +26,7 @@ chrono.workspace = true
 
 api-structs = { path = "../api-structs" }
 tracked_error = { path = "../tracked_error", features = ["gel-tokio"] }
-tower = "0.5.2"
 http = "1"
-rand = "0.8.5"
 
 [dependencies.tracing-config-helper]
 version = "0.1.0"

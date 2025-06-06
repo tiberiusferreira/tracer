@@ -1,9 +1,23 @@
-use api_structs::time_conversion::{time_from_nanos, NANOS_IN_1_MS, NANOS_IN_1_SEC};
-use chrono::{Duration, NaiveDateTime};
+use api_structs::time_conversion::{NANOS_IN_1_MS, NANOS_IN_1_SEC, time_from_nanos};
+use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
 use std::ops::Deref;
 use std::sync::RwLock;
 
 pub static PAGE_LOAD_TIMESTAMP: RwLock<Option<u64>> = RwLock::new(None);
+
+pub fn printable_local_datetime_hh_mm_chrono(datetime: DateTime<Utc>) -> String {
+    datetime
+        .with_timezone(&Local)
+        .format("%d/%m/%Y %H:%M")
+        .to_string()
+}
+
+pub fn printable_local_datetime_hh_mm_ss_chrono(datetime: DateTime<Utc>) -> String {
+    datetime
+        .with_timezone(&Local)
+        .format("%d/%m/%Y %H:%M:%S")
+        .to_string()
+}
 
 pub fn printable_local_date(timestamp: u64) -> String {
     let timestamp = time_from_nanos(timestamp);

@@ -100,7 +100,6 @@ filter
   order by .started_at asc limit 100"
     );
     let executions: Vec<ExecutionHeader> = db.query(&query, params).await?;
-    println!("{query}");
     Ok(Json(executions))
 }
 

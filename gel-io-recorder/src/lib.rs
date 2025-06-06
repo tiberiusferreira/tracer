@@ -4,6 +4,8 @@ use gel_tokio::RawTransaction;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
+use std::panic::Location;
 use thiserror::Error;
 use tracing_config_helper::io_provider::execution_recorder::{
     get_current_execution, get_global_collector,
@@ -93,6 +95,24 @@ pub enum Error {
     Internal { msg: String, location: String },
     #[error("Serde {msg} at {location}")]
     Serde { msg: String, location: String },
+}
+
+impl Error {
+    #[track_caller]
+    fn from_serde_json(query_text: &str, value: &str, err: serde_json::Error) -> Self {
+        std::fs::File::create("error.txt")
+            .unwrap()
+            .write_all(value.as_bytes())
+            .unwrap();
+        let err = error_chain_to_pretty_formatted(&err);
+        let error = format!(
+            "Error: {err}\n\nQuery:\n\n{query_text}\n\nValue being deserialized:\n\n{value}"
+        );
+        Error::Serde {
+            msg: error,
+            location: Location::caller().to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -583,9 +603,9 @@ async fn run_query<T: Serialize + DeserializeOwned + Clone>(
                 location: std::panic::Location::caller().to_string(),
             }
         })?;
-    let query_result: T = serde_json::from_str(&query_result).unwrap_or_else(|_e| {
-        panic!("failed to deserialize query from {query:#?} value {query_result:#?}")
-    });
+    let query_result: T = serde_json::from_str(&query_result)
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
+
     Ok(query_result)
 }
 
@@ -609,9 +629,9 @@ async fn run_query_tx<T: Serialize + DeserializeOwned + Clone>(
                 location: std::panic::Location::caller().to_string(),
             }
         })?;
-    let query_result: T = serde_json::from_str(&query_result).unwrap_or_else(|_e| {
-        panic!("failed to deserialize query from {query:#?} value {query_result:#?}")
-    });
+
+    let query_result: T = serde_json::from_str(&query_result)
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(query_result)
 }
 
@@ -638,7 +658,7 @@ async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
             }
         })?;
     let query_result: T = serde_json::from_str(&query_result)
-        .unwrap_or_else(|_e| panic!("failed to deserialize query from {query:#?})"));
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(query_result)
 }
 
@@ -669,7 +689,7 @@ async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
         Some(query_result) => query_result,
     };
     let query_result: T = serde_json::from_str(&query_result)
-        .unwrap_or_else(|_e| panic!("failed to deserialize query from {query:#?})"));
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(Some(query_result))
 }
 

@@ -17,7 +17,9 @@ use std::ops::{Add, Sub};
 use std::thread::current;
 use tracing::info;
 
+use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SelectedAttribute {
     name: String,
@@ -250,7 +252,7 @@ pub fn Services() -> impl IntoView {
     };
 
     view! {
-        <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; padding: 7px; color: white">
+        <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; margin: 30px; color: white">
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
                 <Visualizations set_time_bucket=set_time_bucket service_data_r=service_data_r time_range_r=time_range_r set_time_range=set_time_range/>
@@ -265,7 +267,7 @@ pub fn Services() -> impl IntoView {
                                 </div>
                             </div>
 
-                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px; overflow: hidden">
+                            <div style="margin: 0px 0px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px; overflow: hidden; flex-grow: 1">
                                 <input type="text" size="110" bind:value=(partial_value_r, partial_value_w) id="attribute-value" list="attribute-val-list" placeholder="Attribute Value" name="attribute-val-selector" />
                                 <button style="margin-left: 5px" on:click=apply_filter >"Apply"</button>
                                 <div style="max-height:100%; overflow: scroll">
@@ -283,17 +285,17 @@ pub fn Services() -> impl IntoView {
                         </div>
                     </div>
                 </div>
-                <div id="grid-and-filters" style="display: grid; grid-template-columns: 3fr 1fr; margin-top: 10px">
+                <div id="grid-and-filters" style="display: grid; grid-template-columns: 4fr 0fr; margin: 0 0 100px 0">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
                         <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
                             <TracesGrid current_time_bucket=current_time_bucket selected_attributes_r=selected_attributes_r.into()/>
                         </div>
                     </div>
-                    <div id="filters">
-                        <PathFilter/>
-                        <MethodFilter/>
-                        <SeverityFilter/>
-                    </div>
+                    // <div id="filters">
+                    //     <PathFilter/>
+                    //     <MethodFilter/>
+                    //     <SeverityFilter/>
+                    // </div>
                 </div>
             </div>
         </div>
@@ -836,7 +838,7 @@ fn TracesGrid(
                                 <th class="trace-table__cell">"Status Code"</th>
                                 <th class="trace-table__cell">"Path"</th>
                                 <th class="trace-table__cell">"Method"</th>
-                                <th class="trace-table__cell">""</th>
+                                <th class="trace-table__cell">"➔"</th>
                             </tr>
                             {rows}
 
@@ -852,17 +854,24 @@ fn TracesGrid(
 }
 
 fn grid_row(header: ExecutionHeader) -> impl IntoView {
+    // http://127.0.0.1:8081/execution-details/45f2140c-427d-11f0-a284-a717315ab9a0
+    let url = format!(
+        "{API_SERVER_URL_NO_TRAILING_SLASH}/execution-details/{}",
+        header.id.to_string()
+    );
     view! {
         <tr>
             <td class="trace-table__cell">{header.id.to_string()}</td>
             <td class="trace-table__cell">{header.service_name}</td>
-            <td class="trace-table__cell">{(chrono::Utc::now() - header.started_at).num_minutes()}</td>
+            <td class="trace-table__cell">{(Utc::now() - header.started_at).num_minutes()}</td>
             <td class="trace-table__cell">{header.duration_ms}</td>
             <td class="trace-table__cell">{header.size_bytes/1000}</td>
             <td class="trace-table__cell">{header.status_code}</td>
             <td class="trace-table__cell">{header.path}</td>
             <td class="trace-table__cell">{header.method}</td>
-            <td class="trace-table__cell">"➔"</td>
+            <td class="trace-table__cell">
+            <a style="text-decoration: none" href={url}>"➔"</a>
+            </td>
         </tr>
     }
 }

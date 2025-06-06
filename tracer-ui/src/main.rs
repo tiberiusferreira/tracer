@@ -67,7 +67,7 @@ pub fn App() -> impl IntoView {
                         leptos_router::ParamSegment("execution_id"),
 
                     )
-                        view=execution_details::ExecutionDetails
+                        view=execution_details::ExecutionDetailsPage
                     />
                 </Routes>
             </Router>

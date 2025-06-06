@@ -130,7 +130,7 @@ async fn my_middleware(
         println!("Got self request of size {size_kb}kb",);
         let mut w_guard = SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT.write().unwrap();
         let count = w_guard.deref_mut();
-        if *count >= 2 && size_kb <= 1_000 {
+        if *count >= 3 && size_kb <= 1_000 {
             println!("keeping");
             *count = 0;
             true
@@ -201,7 +201,7 @@ pub fn create_router(app_state: AppState) -> Router<()> {
         .nest("/api/instance", instance_routes)
         .with_state(app_state)
         .fallback_service(serve_ui)
-        .layer(axum::extract::DefaultBodyLimit::max(10_000_000))
+        .layer(axum::extract::DefaultBodyLimit::max(50_000_000))
         .layer(axum::middleware::from_fn(my_middleware))
         .layer(tower_http::cors::CorsLayer::very_permissive())
         .layer(tower_http::compression::CompressionLayer::new())
