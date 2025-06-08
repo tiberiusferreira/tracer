@@ -169,9 +169,9 @@ fn TraceView(
     selected_event: RwSignal<Option<RenderableIoEvent>>,
 ) -> impl IntoView {
     let execution_duration_ms = u64::try_from((end - start).num_milliseconds()).unwrap();
-    let scale_factor = RwSignal::new(1.0); // Initial scale factor (was hardcoded as 2.0)
+    let scale_factor = RwSignal::new(0.95); // Initial scale factor (was hardcoded as 2.0)
     let pan_x_offset = RwSignal::new(0.0); // Tracks horizontal panning
-    let pan_y_offset = RwSignal::new(20.0); // Tracks vertical panning
+    let pan_y_offset = RwSignal::new(50.0); // Tracks vertical panning
     let is_dragging = RwSignal::new(false);
     let last_x = RwSignal::new(0.0);
     let last_y = RwSignal::new(0.0);
@@ -204,11 +204,6 @@ fn TraceView(
         let old_width = old_scale * container_width;
         let new_width = new_scale * container_width;
         let width_increase = new_width - old_width;
-        info!("container_width={container_width}");
-        info!("old_width={old_width}");
-        info!("new_width={new_width}");
-        info!("width_increase={width_increase}");
-        info!("old_scale={old_scale}");
         let whole_width = container_width * new_scale;
         // (1678-(0.1)*1678)/2
         let curr_pan_offset = pan_x_offset.get_untracked();
@@ -217,18 +212,10 @@ fn TraceView(
         let container_offset_contribution = mouse_x_relative_container * container_width;
         let mouse_x_relative_whole =
             (container_offset_contribution - curr_pan_offset) / whole_width;
-        info!("container_offset_contribution={container_offset_contribution}");
-        info!("whole_width={whole_width}");
-        info!("curr_pan_offset={curr_pan_offset}");
-        info!("container_width={container_width}");
-        info!("mouse_x_relative_container={mouse_x_relative_container}");
-        info!("mouse_x_relative_whole={mouse_x_relative_whole}");
         let left_increase = width_increase * (0.5 - mouse_x_relative_whole);
         scale_factor.set(new_scale);
         pan_x_offset.update(|offset| {
             let new_pan_x_offset = (*offset + left_increase);
-            info!("offset increase = {left_increase:.5}");
-            info!("new offset = {new_pan_x_offset:.5}");
             *offset = new_pan_x_offset;
         });
     };
@@ -281,11 +268,10 @@ fn TraceView(
         let scale = scale_factor.get();
         format!("transform: translate({pan_x}px, {pan_y}px) scale({scale}, {scale})")
     };
-    // margin: 5px;  border: 1px solid white;
     view! {
         <div
             node_ref=container_ref
-            style="position: relative;  height: 300px; overflow: hidden; resize: vertical; cursor: grab"
+            style="position: relative; margin: 5px;  border: 1px solid white; height: 300px; overflow: hidden; resize: vertical; cursor: grab"
             on:wheel=on_wheel
             on:mousedown=on_mouse_down
             on:mousemove=on_mouse_move
@@ -310,9 +296,56 @@ fn TraceView(
                         .collect::<Vec<_>>()
                     }
                 }
+                {
+                    move || {
+                        let Some((container_width, container_height)) = container_w_h.get() else{
+                            return vec![];
+                        };
+                        {timeline_markers(execution_duration_ms, container_width)}
+                    }
+                }
             </div>
         </div>
     }
+}
+
+fn timeline_markers(execution_duration_ms: u64, container_width: i32) -> Vec<impl IntoView> {
+    let mut curr_ms = 0;
+    let mut els = vec![];
+    let width = 1.0;
+    let top = 20;
+    let height = 20.0;
+    loop {
+        if (curr_ms + 100) > execution_duration_ms {
+            break;
+        }
+        let relative_x = curr_ms as f64 / execution_duration_ms as f64;
+        let left = relative_x * container_width as f64;
+        let style_f = format!(
+            "position: absolute; height: {}px; left: {}px; width: {}px; top: {}px; background-color: {}; transition: none;",
+            height, left, width, top, "white"
+        );
+        els.push(view! {
+            <div style={style_f}>
+                <span style="margin-left: 5px; font-size: small">
+                    {format!(" {curr_ms}ms")}
+                </span>
+            </div>
+        });
+        curr_ms += 100;
+    }
+    let style_f = format!(
+        "position: absolute; height: {}px; left: {}px; width: {}px; top: {}px; background-color: {}; transition: none;",
+        height, container_width, width, top, "white"
+    );
+    els.push(view! {
+        <div style={style_f}>
+            <span style="margin-left: -45px; font-size: small">
+                {format!(" {execution_duration_ms}ms")}
+            </span>
+        </div>
+    });
+    els
 }
 
 fn single_event_view(
@@ -339,52 +372,54 @@ fn single_event_view(
     let width = event_duration_relative_to_execution_percentage * container_width as f64;
     let is_selected =
         Signal::derive(move || selected_event.get().as_ref().map(|e| e.id) == Some(event.id));
-
+    let top = 60;
+    let top_tooltip = 15;
+    let height = 30.0;
+    let tooltip_style = format!("position: absolute; left: {left}px; top: {top_tooltip}px");
     view! {
-        <div
-            style=move || {
-                let bg = if event.is_error {
-                    "red"
-                } else if selected_event.get().as_ref().map(|e| e.id) == Some(event.id) {
-                    "#007bff"
-                } else {
-                    color.as_str()
-                };
+        <div>
+            <div
+                style=move || {
+                    let bg = if event.is_error {
+                        "red"
+                    } else if selected_event.get().as_ref().map(|e| e.id) == Some(event.id) {
+                        "#007bff"
+                    } else {
+                        color.as_str()
+                    };
 
-                // let left = event_start_ms * scale_factor + pan_x;
-                // let width = event_duration_ms * scale_factor;
-                // let spacing = 1.0 * scale_factor;
-                let top = 20;
-                let height = 20.0;
 
-                format!(
-                    "position: absolute; height: {}px; border-radius: 2px; cursor: pointer; \
-                    left: {}px; width: {}px; top: {}px; background-color: {}; transition: none;",
-                    height, left, width, top, bg
-                )
+                    format!(
+                        "position: absolute; height: {}px; border-radius: 2px; cursor: pointer; \
+                        left: {}px; width: {}px; top: {}px; background-color: {}; transition: none;",
+                        height, left, width, top, bg
+                    )
 
-            }
-            on:click=move |_| selected_event.update(|prev| {
-                if prev.as_ref().map(|e| e.id) == Some(event.id) {
-                    *prev = None
-                } else {
-                    *prev = Some(event.clone())
                 }
-            })
-        >
-            // <span class="my_tooltip">
-            //     {format!("{} ms", duration)}
-            // </span>
-            <span>
-                {
-                    if event_duration_ms > 30.{
-                        format!("{} ms", event_duration_ms)
-                    }else{
-                        "".to_string()
+                on:click=move |_| selected_event.update(|prev| {
+                    if prev.as_ref().map(|e| e.id) == Some(event.id) {
+                        *prev = None
+                    } else {
+                        *prev = Some(event.clone())
                     }
-                }
+                })
+            >
+
+                <span style="font-size: medium">
+                    {
+                        if event_duration_ms > 35.{
+                            format!("{} ms", event_duration_ms)
+                        }else{
+                            "".to_string()
+                        }
+                    }
+                </span>
+            </div>
+            <span class="my_tooltip" style={tooltip_style}>
+                {format!("{} ms", event_duration_ms)}
             </span>
         </div>
+
     }
 }
 
