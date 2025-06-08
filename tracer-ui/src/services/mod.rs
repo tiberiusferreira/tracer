@@ -819,7 +819,7 @@ fn TracesGrid(
         )
     });
     let view = move || match service_data_r.get() {
-        None => view! {"Loading..."}.into_any(),
+        None => view! {<p>"Loading..."</p>}.into_any(),
         Some(result) => match result {
             Ok(result) => {
                 let mut rows = vec![];
