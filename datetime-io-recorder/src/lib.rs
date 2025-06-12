@@ -10,7 +10,8 @@ pub const RECORDER_NAME: &str = "Datetime";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IoEvent {
-    CurrentDateRequest(DateTime<Utc>),
+    CurrentDateRequest,
+    CurrentDateResponse(DateTime<Utc>),
     // CurrentLocalTimezone(chrono::FixedOffset),
 }
 
@@ -28,32 +29,44 @@ pub enum CurrentDatetimeIoRecorder {
 impl CurrentDatetimeIoRecorder {
     pub fn get_current_datetime(&self) -> DateTime<Utc> {
         match self {
-            CurrentDatetimeIoRecorder::Recorded(recording) => {
-                let mut w_guard = recording.write().unwrap();
-                let (datetime, idx) = w_guard
-                    .events
-                    .iter()
-                    .enumerate()
-                    .find_map(|(idx, e)| match e {
-                        IoEvent::CurrentDateRequest(datetime) => {
-                            if w_guard.played_events.contains(&idx) {
-                                None
-                            } else {
-                                Some((*datetime, idx))
-                            }
-                        } // IoEvent::CurrentLocalTimezone(_) => None,
-                    })
-                    .unwrap();
-                w_guard.played_events.insert(idx);
-                datetime
+            CurrentDatetimeIoRecorder::Recorded(_recording) => {
+                // let mut w_guard = recording.write().unwrap();
+                // let (datetime, idx) = w_guard
+                //     .events
+                //     .iter()
+                //     .enumerate()
+                //     .find_map(|(idx, e)| match e {
+                //         IoEvent::CurrentDateRequest(datetime) => {
+                //             if w_guard.played_events.contains(&idx) {
+                //                 None
+                //             } else {
+                //                 Some((*datetime, idx))
+                //             }
+                //         } // IoEvent::CurrentLocalTimezone(_) => None,
+                //     })
+                //     .unwrap();
+                // w_guard.played_events.insert(idx);
+                // datetime
+                unimplemented!()
             }
             CurrentDatetimeIoRecorder::Live => {
                 let execution_id = get_current_execution().unwrap();
                 let collector = get_global_collector();
+                let request = IoEvent::CurrentDateRequest;
+                let event_json = serde_json::to_value(&request).unwrap();
+                let event_id =
+                    collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
+
                 let datetime = Utc::now();
-                let event = IoEvent::CurrentDateRequest(datetime);
-                let event_json = serde_json::to_value(&event).unwrap();
-                collector.record_io_event(execution_id, RECORDER_NAME, event_json);
+                let response = IoEvent::CurrentDateResponse(datetime);
+                let event_json = serde_json::to_value(&response).unwrap();
+                collector.record_io_event(
+                    execution_id,
+                    RECORDER_NAME,
+                    event_json,
+                    false,
+                    Some(event_id),
+                );
                 datetime
             }
         }

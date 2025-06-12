@@ -23,7 +23,6 @@ pub fn ExecutionDetailsPage() -> impl IntoView {
         .get("execution_id")
         .expect("No execution id");
     let execution_id = Uuid::parse_str(&execution_id).expect("invalid execution id");
-    info!("execution_id = {execution_id}");
     let execution_details_data = LocalResource::new(move || get_execution_details(execution_id));
 
     view! {
@@ -103,8 +102,8 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
     }
     renderable_events.sort_by_key(|e| e.created_at);
     let selected_event = RwSignal::new(None::<RenderableIoEvent>);
-    let start = execution.started_at;
-    let end = execution.last_seen_at;
+    let execution_start = execution.started_at;
+    let execution_end = execution.last_seen_at;
     view! {
         <div style="color: white; margin: 25px">
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px">
@@ -140,8 +139,8 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
                 </textarea>
             </details>
             <div style="display: flex; flex-direction: column">
-                <TraceView start=start end=end selected_event=selected_event events=renderable_events/>
-                <EventDetailsPanel execution_start=start selected_event=selected_event/>
+                <TraceView execution_start=execution_start execution_end=execution_end selected_event=selected_event events=renderable_events/>
+                <EventDetailsPanel execution_start=execution_start selected_event=selected_event/>
             </div>
         </div>
 
@@ -163,15 +162,16 @@ async fn get_execution_details(id: Uuid) -> Result<Execution, TrackedGlooError> 
 
 #[component]
 fn TraceView(
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
+    execution_start: DateTime<Utc>,
+    execution_end: DateTime<Utc>,
     events: Vec<RenderableIoEvent>,
     selected_event: RwSignal<Option<RenderableIoEvent>>,
 ) -> impl IntoView {
-    let execution_duration_ms = u64::try_from((end - start).num_milliseconds()).unwrap();
-    let scale_factor = RwSignal::new(0.95); // Initial scale factor (was hardcoded as 2.0)
-    let pan_x_offset = RwSignal::new(0.0); // Tracks horizontal panning
-    let pan_y_offset = RwSignal::new(50.0); // Tracks vertical panning
+    let execution_duration_ms =
+        u64::try_from((execution_end - execution_start).num_milliseconds()).unwrap();
+    let scale_factor = RwSignal::new(0.95);
+    let pan_x_offset = RwSignal::new(0.0);
+    let pan_y_offset = RwSignal::new(50.0);
     let is_dragging = RwSignal::new(false);
     let last_x = RwSignal::new(0.0);
     let last_y = RwSignal::new(0.0);
@@ -182,53 +182,62 @@ fn TraceView(
         // Get mouse position relative to the container
         let container_coordinates_relative_to_viewport = e
             .current_target()
-            .expect("Event should have a target")
+            .expect("event to have a target")
             .dyn_into::<web_sys::Element>()
             .unwrap()
             .get_bounding_client_rect();
-        let container_width = container_coordinates_relative_to_viewport.width();
-        let container_height = container_coordinates_relative_to_viewport.height();
-        let container_top = container_coordinates_relative_to_viewport.top();
+        let zoom_delta = -e.delta_y();
+        // We want the zoom to be toward the area under the cursor.
+        // Normally the zoom will stretch the content as a whole, zooming toward the center of the content, shifting
+        // the edges of the content by the same amount on each side.
+        //
+        // If we shift it right by the amount that it would be normally shifted by the zoom, we can keep any part stable.
+        // The amount to shift to keep the left edge stable is half the width of the content change.
+        // To keep the center stable, there is no need to shift at all.
+        // To keep the middle point between the center and the left stable, we shift it by halfway between the amount
+        // to keep the center stable and keep the left stable: 1/4 of the width change.
+        //
+        // So to keep the area under the cursor stable, we shift the content account to its position off-center.
+        // If it's in the center: no shift at all.
+        // If it's to the left: shift by half the width change.
+        // If it's somewhere in-between, we shift it proportionally.
+        //
+        //
+        // The content initially takes the whole container
+        let original_width = container_coordinates_relative_to_viewport.width();
+        let current_scale = scale_factor.get_untracked();
+        let new_scale = (current_scale * (1.0 + zoom_delta / 1000.0)).clamp(0.1, 10.0);
+        let current_width = original_width * current_scale;
+        let new_width = original_width * new_scale;
+        let width_delta = new_width - current_width;
+        // Now we need to find where the cursor is relative to the content center.
+        // The center is initially at width/2.
+        // [---------C--------]
+        // [       width      ]
+        let curr_pan_x_offset = pan_x_offset.get_untracked();
+        let center = (original_width / 2.) + curr_pan_x_offset;
         let container_left = container_coordinates_relative_to_viewport.left();
         let mouse_left = e.client_x() as f64;
-        let mouse_top = e.client_y() as f64;
+        let mouse_left_relative_container = mouse_left - container_left;
+        // [   M     C        ]
+        let mouse_to_center_distance = center - mouse_left_relative_container;
+        let mouse_to_center_proportional = mouse_to_center_distance / (current_width / 2.);
+        let new_offset = mouse_to_center_proportional * (width_delta / 2.);
 
-        let mouse_x_relative_container = (mouse_left - container_left) / container_width;
-        let mouse_y_relative_container = (mouse_top - container_top) / container_height;
-
-        let user_zoom_input = -e.delta_y();
-        let old_scale = scale_factor.get_untracked();
-        let new_scale = (old_scale * (1.0 + user_zoom_input / 1000.0)).clamp(0.1, 10.0);
-
-        // Calculate the position change
-        let old_width = old_scale * container_width;
-        let new_width = new_scale * container_width;
-        let width_increase = new_width - old_width;
-        let whole_width = container_width * new_scale;
-        // (1678-(0.1)*1678)/2
-        let curr_pan_offset = pan_x_offset.get_untracked();
-        let curr_pan_offset =
-            (container_width - new_scale * container_width) / 2. + curr_pan_offset;
-        let container_offset_contribution = mouse_x_relative_container * container_width;
-        let mouse_x_relative_whole =
-            (container_offset_contribution - curr_pan_offset) / whole_width;
-        let left_increase = width_increase * (0.5 - mouse_x_relative_whole);
-        scale_factor.set(new_scale);
         pan_x_offset.update(|offset| {
-            let new_pan_x_offset = (*offset + left_increase);
+            let new_pan_x_offset = (*offset + new_offset);
             *offset = new_pan_x_offset;
         });
+        scale_factor.set(new_scale);
     };
 
     let on_mouse_down = move |e: web_sys::MouseEvent| {
-        info!("mouse down");
         is_dragging.set(true);
         last_x.set(e.client_x() as f64);
         last_y.set(e.client_y() as f64);
     };
 
     let on_mouse_move = move |e: web_sys::MouseEvent| {
-        info!("mouse move, is dragging: {}", is_dragging.get());
         if is_dragging.get() {
             let dx = e.client_x() as f64 - last_x.get();
             pan_x_offset.update(|offset| *offset = *offset + dx);
@@ -291,7 +300,7 @@ fn TraceView(
                                 }else{
                                     "hsl(190, 50%, 45%)"
                                 };
-                                single_event_view(start, execution_duration_ms, i, color.to_string(), event.clone(), selected_event.clone(), container_width, container_height)
+                                single_event_view(execution_start, execution_duration_ms, i, color.to_string(), event.clone(), selected_event.clone(), container_width, container_height)
                         })
                         .collect::<Vec<_>>()
                     }
