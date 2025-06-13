@@ -7,13 +7,11 @@ use api_structs::ui::service::{
 use axum::Json;
 use axum::extract::State;
 use chrono::{DateTime, Duration, Timelike, Utc};
-use function_timer::time;
 use gel_io_recorder::Parameter;
 use serde::{Deserialize, Serialize};
 use std::cmp::max_by;
 use std::collections::HashMap;
 use std::ops::AddAssign;
-use tracing_config_helper::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
 fn attributes_filtering_statement(
     attributes: &HashMap<String, Option<String>>,
     params: &mut HashMap<String, Parameter>,
@@ -103,7 +101,6 @@ filter
     Ok(Json(executions))
 }
 
-#[time]
 pub async fn summaries_for_graph(
     State(app_state): State<AppState>,
     Json(filters): Json<api_structs::ui::service::SummaryFilters>,

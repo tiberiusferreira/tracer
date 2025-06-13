@@ -20,7 +20,7 @@ pub struct Id {
     pub id: uuid::Uuid,
 }
 async fn register_instance(
-    tx: &mut gel_io_recorder::Transaction2,
+    tx: &mut gel_io_recorder::Transaction,
     env: &str,
     service: &str,
 ) -> Result<InstanceInsertionData, gel_io_recorder::Error> {

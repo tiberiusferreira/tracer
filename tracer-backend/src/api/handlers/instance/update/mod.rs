@@ -3,11 +3,9 @@ use crate::api::state::AppState;
 use api_structs::instance::update::{ExecutionRecording, InstanceSnapshot};
 use axum::Json;
 use axum::extract::State;
-use function_timer::time;
-use gel_io_recorder::{Parameter, Transaction2};
+use gel_io_recorder::{Parameter, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing_config_helper::io_provider::execution_recorder::function_instrumentation::instrument_function_within_task;
 use uuid::Uuid;
 
 #[allow(unused)]
@@ -31,9 +29,8 @@ pub struct DbPartialExecution {
     pub ended: bool,
 }
 
-#[time]
 async fn process_execution_recording(
-    tx: &mut Transaction2,
+    tx: &mut Transaction,
     instance_id: Uuid,
     recording: &ExecutionRecording,
 ) -> Result<(), gel_io_recorder::Error> {
@@ -88,10 +85,6 @@ async fn process_execution_recording(
                 (
                     "replay_data",
                     Parameter::Json(serde_json::to_value(&recording.replay_data).unwrap()),
-                ),
-                (
-                    "executed_functions",
-                    Parameter::Json(serde_json::to_value(&recording.executed_functions).unwrap()),
                 ),
             ]);
             let execution_id = tx.insert("Execution", params).await?;
@@ -184,9 +177,8 @@ async fn process_execution_recording(
     };
     Ok(())
 }
-#[time]
 async fn process_update(
-    tx: &mut Transaction2,
+    tx: &mut Transaction,
     instance_snapshot: &InstanceSnapshot,
 ) -> Result<(), gel_io_recorder::Error> {
     for recording in &instance_snapshot.execution_recordings {
@@ -195,7 +187,6 @@ async fn process_update(
     Ok(())
 }
 
-#[time]
 pub async fn handler(
     State(app_state): State<AppState>,
     instance_snapshot: Json<InstanceSnapshot>,

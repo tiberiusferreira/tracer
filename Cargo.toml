@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "tracer-backend",
-    "function-timer",
     "tracer-ui",
     "api-structs",
     "tracing-config-helper",
@@ -18,7 +17,7 @@ api-structs = { path = "./api-structs" }
 
 tracked_error = { path = "./tracked_error", default-features = false }
 tracing-config-helper = { path = "./tracing-config-helper" }
-base64 = "0.22.1"
+base64 = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 serde = { version = "1", features = ["derive"] }
 deepsize = "0.2.0"

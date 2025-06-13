@@ -48,11 +48,7 @@ pub struct ExecutionRecording {
     // status_code => ["200"]
     // retry_count => ["1", "2", "3"]
     pub replay_data: ReplayData,
-    pub executed_functions: Vec<ExecutingFunction>,
     pub attributes: HashMap<String, HashSet<String>>,
-    // support data
-    pub current_call_stack: Vec<u64>,
-    pub function_count: u64,
     pub recording_enabled: bool,
 }
 
@@ -60,7 +56,6 @@ impl ExecutionRecording {
     pub fn new(id: Uuid, input: serde_json::Value, recording_enabled: bool) -> ExecutionRecording {
         Self {
             id,
-            function_count: 0,
             replay_data: ReplayData {
                 input,
                 io_providers_events: Default::default(),
@@ -68,8 +63,6 @@ impl ExecutionRecording {
             started_at: Utc::now(),
             last_seen_at: Utc::now(),
             ended: false,
-            executed_functions: vec![],
-            current_call_stack: vec![],
             attributes: Default::default(),
             recording_enabled,
         }

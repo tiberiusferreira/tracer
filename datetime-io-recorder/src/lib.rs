@@ -12,7 +12,6 @@ pub const RECORDER_NAME: &str = "Datetime";
 pub enum IoEvent {
     CurrentDateRequest,
     CurrentDateResponse(DateTime<Utc>),
-    // CurrentLocalTimezone(chrono::FixedOffset),
 }
 
 #[derive(Clone)]

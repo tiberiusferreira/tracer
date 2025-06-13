@@ -10,10 +10,12 @@ use thiserror::Error;
 use tracing_config_helper::io_provider::execution_recorder::{
     get_current_execution, get_global_collector,
 };
+use tracing_config_helper::io_provider::record_io_event_request;
 use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
 
 pub const RECORDER_NAME: &str = "Gel";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryWithParameters {
     pub query_text: String,
@@ -35,8 +37,9 @@ pub struct QueryRequest {
     pub started_at: DateTime<Utc>,
     pub query_with_parameters: QueryWithParameters,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct QueryResult2 {
+pub struct QueryResult {
     pub id: Uuid,
     pub ended_at: DateTime<Utc>,
     pub result: Result<serde_json::Value, Error>,
@@ -70,17 +73,11 @@ pub struct TxCommitResult {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IoEvent {
     QueryRequest(QueryRequest),
-    QueryResult(QueryResult2),
+    QueryResult(QueryResult),
     TxStartRequest(TxStartRequest),
     TxStartResult(TxStartResult),
     TxCommitRequest(TxCommit),
     TxCommitResult(TxCommitResult),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct QueryResult {
-    pub ended_at: DateTime<Utc>,
-    pub result: Result<serde_json::Value, Error>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,35 +126,11 @@ pub enum Parameter {
     Json(serde_json::Value),
     I32(i32),
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct QueryWithResult {
-    pub id: u64,
-    pub started_at: DateTime<Utc>,
-    pub query_with_parameters: QueryWithParameters,
-    pub result: Option<QueryResult>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Transaction {
-    pub id: u64,
-    pub started_at: DateTime<Utc>,
-    pub queries_count: u64,
-    pub queries: Vec<QueryWithResult>,
-    pub result: Option<TransactionResult>,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionResult {
     pub ended_at: DateTime<Utc>,
     pub result: Result<(), Error>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct DatabaseRecording {
-    pub standalone_queries_count: u64,
-    pub standalone_queries: Vec<QueryWithResult>,
-    pub transactions_count: u64,
-    pub transactions: Vec<Transaction>,
 }
 
 #[derive(Clone)]
@@ -182,12 +155,12 @@ pub enum TransactionIoProvider {
     Live(RawTransaction),
 }
 
-pub struct Transaction2 {
+pub struct Transaction {
     id: Uuid,
     tx: TransactionIoProvider,
 }
 
-impl Transaction2 {
+impl Transaction {
     pub async fn insert(
         &mut self,
         table: &str,
@@ -274,15 +247,12 @@ impl Transaction2 {
         query: &str,
         parameters: HashMap<String, Parameter>,
     ) -> Result<T, Error> {
-        let execution_id = get_current_execution().unwrap();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
                 unimplemented!()
             }
             TransactionIoProvider::Live(tx) => tx,
         };
-
-        let global_collector = get_global_collector();
         let query_id = Uuid::new_v4();
         let event = IoEvent::QueryRequest(QueryRequest {
             id: query_id,
@@ -294,27 +264,20 @@ impl Transaction2 {
                 parameters: parameters.clone(),
             },
         });
-        let event_json = serde_json::to_value(&event).unwrap();
-        let event_id =
-            global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
+        let request = record_io_event_request(RECORDER_NAME, serde_json::to_value(&event).unwrap());
         let result: Result<T, Error> = run_tx_query_required(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
         let is_err = result_json.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult2 {
+        let event_result = IoEvent::QueryResult(QueryResult {
             id: query_id,
             ended_at: Utc::now(),
             result: result_json,
         });
         let event_result_json = serde_json::to_value(&event_result).unwrap();
-        global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            event_result_json,
-            is_err,
-            Some(event_id),
-        );
+        request.record_response(event_result_json, is_err);
+
         result
     }
 
@@ -351,7 +314,7 @@ impl Transaction2 {
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
         let is_err = result_json.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult2 {
+        let event_result = IoEvent::QueryResult(QueryResult {
             id: query_id,
             ended_at: Utc::now(),
             result: result_json,
@@ -399,7 +362,7 @@ impl Transaction2 {
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
         let is_error = result_json.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult2 {
+        let event_result = IoEvent::QueryResult(QueryResult {
             id: query_id,
             ended_at: Utc::now(),
             result: result_json,
@@ -456,7 +419,7 @@ impl Transaction2 {
     }
 }
 impl DatabaseIoRecorder {
-    pub async fn transaction_start(&self) -> Transaction2 {
+    pub async fn transaction_start(&self) -> Transaction {
         let execution_id = get_current_execution().unwrap();
         let client = match &self {
             DatabaseIoRecorder::Recorded(_) => {
@@ -497,7 +460,7 @@ impl DatabaseIoRecorder {
             is_error,
             Some(event_id),
         );
-        Transaction2 {
+        Transaction {
             id: tx_id,
             tx: TransactionIoProvider::Live(tx.unwrap()),
         }
@@ -567,7 +530,7 @@ impl DatabaseIoRecorder {
         let result: Result<T, Error> = run_query(client, query, parameters).await;
         let res_as_json_value = result.clone().map(|v| serde_json::to_value(v).unwrap());
         let is_error = res_as_json_value.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult2 {
+        let event_result = IoEvent::QueryResult(QueryResult {
             id,
             ended_at: Utc::now(),
             result: res_as_json_value,

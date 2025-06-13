@@ -251,8 +251,6 @@ fn TraceView(
     let on_mouse_up = move |_| {
         is_dragging.set(false);
     };
-    // let container_width = 1666i64;
-    // let container_height = 620i64;
     let container_ref = NodeRef::<Div>::new();
 
     Effect::new(move |_| {
@@ -261,7 +259,6 @@ fn TraceView(
             let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
                 let width = el.client_width();
                 let height = el.client_height();
-                info!("Measured via RAF: {width} x {height}");
                 container_w_h.set(Some((width, height)));
             });
             window()

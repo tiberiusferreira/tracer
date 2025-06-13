@@ -20,5 +20,4 @@ base64.workspace = true
 chrono.workspace = true
 
 pin-project-lite = "0.2.16"
-function-timer = { path = "../function-timer" }
 uuid.workspace = true

@@ -1127,14 +1127,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "function-timer"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 2.0.101",
-]
-
-[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4370,7 +4362,6 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
- "function-timer",
  "gel-io-recorder",
  "gel-protocol",
  "gel-tokio",
@@ -4442,7 +4433,6 @@ dependencies = [
  "base64",
  "brotli",
  "chrono",
- "function-timer",
  "futures",
  "pin-project-lite",
  "pprof",

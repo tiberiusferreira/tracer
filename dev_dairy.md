@@ -70,7 +70,11 @@ This is effectively "time slicing" the trace.
 We can still go over the buffer limit if we have too many spans open, but this is unlikely to be a concern because this usage is analogous to stack trace usage, so it
 will scale with "regular" program memory usage.
 
+## TODO:
 
+- Fix panics causing other panics around context
+- Remove time macro and machinery behind it
+- Fix collector endpoint around diffs
 
 
 

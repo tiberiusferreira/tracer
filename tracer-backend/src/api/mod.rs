@@ -282,10 +282,7 @@ impl From<tracked_error::EdgeDBError> for ApiError {
 async fn ready_get() -> impl IntoResponse {
     (
         StatusCode::OK,
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; charset=UTF-8",
-        )],
+        [(http::header::CONTENT_TYPE, "text/plain; charset=UTF-8")],
         "ok".to_string(),
     )
 }
