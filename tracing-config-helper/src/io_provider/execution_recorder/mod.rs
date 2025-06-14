@@ -1,4 +1,4 @@
-use crate::io_provider::execution_recorder::function_instrumentation::track_task;
+use crate::io_provider::execution_recorder::execution_tracking::track_task;
 use api_structs::instance::update::{ExecutionRecording, IoEvent};
 use chrono::Utc;
 use serde::Serialize;
@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::sync::{OnceLock, RwLock};
 use uuid::Uuid;
 
-pub mod function_instrumentation;
+pub mod execution_tracking;
 pub static GLOBAL_DATA_COLLECTOR: OnceLock<DataCollector> = OnceLock::new();
 
 pub async fn record_execution<

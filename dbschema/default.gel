@@ -3,7 +3,7 @@ module default {
     type EntityChange{
         required entity_name: str;
         required entity_id: uuid;
-        required execution: uuid;
+        required execution_external_id: uuid;
         old: json;
         required new: json;
         required created_at: datetime {
@@ -24,8 +24,7 @@ module default {
             default := false
         };
         required replay_data: json;
-        required executed_functions: json;
-        required size_bytes := len(to_str(.replay_data)) + len(to_str(.executed_functions));
+        required size_bytes := len(to_str(.replay_data));
         required created_at: datetime {
             default := datetime_of_statement();
             readonly := true;

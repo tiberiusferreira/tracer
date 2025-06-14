@@ -115,16 +115,138 @@ impl Error {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Parameter {
     Uuid {
-        val: Uuid,
+        val: Option<Uuid>,
         cast_to_table: Option<String>,
     },
-    String(String),
-    NoneString,
-    Date(NaiveDate),
-    Datetime(DateTime<Utc>),
-    Bool(bool),
-    Json(serde_json::Value),
-    I32(i32),
+    String(Option<String>),
+    Date(Option<NaiveDate>),
+    Datetime(Option<DateTime<Utc>>),
+    Bool(Option<bool>),
+    Json(Option<serde_json::Value>),
+    I32(Option<i32>),
+}
+
+impl From<Uuid> for Parameter {
+    fn from(value: Uuid) -> Self {
+        Parameter::Uuid {
+            val: Some(value),
+            cast_to_table: None,
+        }
+    }
+}
+
+impl From<Option<Uuid>> for Parameter {
+    fn from(value: Option<Uuid>) -> Self {
+        Parameter::Uuid {
+            val: value,
+            cast_to_table: None,
+        }
+    }
+}
+
+impl From<(Uuid, &str)> for Parameter {
+    fn from(value: (Uuid, &str)) -> Self {
+        Parameter::Uuid {
+            val: Some(value.0),
+            cast_to_table: Some(value.1.to_string()),
+        }
+    }
+}
+
+impl From<bool> for Parameter {
+    fn from(value: bool) -> Self {
+        Parameter::Bool(Some(value))
+    }
+}
+
+impl From<Option<bool>> for Parameter {
+    fn from(value: Option<bool>) -> Self {
+        Parameter::Bool(value)
+    }
+}
+
+impl From<NaiveDate> for Parameter {
+    fn from(value: NaiveDate) -> Self {
+        Parameter::Date(Some(value))
+    }
+}
+
+impl From<Option<NaiveDate>> for Parameter {
+    fn from(value: Option<NaiveDate>) -> Self {
+        Parameter::Date(value)
+    }
+}
+
+impl From<DateTime<Utc>> for Parameter {
+    fn from(value: DateTime<Utc>) -> Self {
+        Parameter::Datetime(Some(value))
+    }
+}
+
+impl From<Option<DateTime<Utc>>> for Parameter {
+    fn from(value: Option<DateTime<Utc>>) -> Self {
+        Parameter::Datetime(value)
+    }
+}
+
+impl From<String> for Parameter {
+    fn from(value: String) -> Self {
+        Parameter::String(Some(value))
+    }
+}
+
+impl From<Option<String>> for Parameter {
+    fn from(value: Option<String>) -> Self {
+        Parameter::String(value)
+    }
+}
+
+impl From<&String> for Parameter {
+    fn from(value: &String) -> Self {
+        Parameter::String(Some(value.clone()))
+    }
+}
+
+impl From<Option<&String>> for Parameter {
+    fn from(value: Option<&String>) -> Self {
+        Parameter::String(value.map(String::to_string))
+    }
+}
+
+impl From<&str> for Parameter {
+    fn from(value: &str) -> Self {
+        Parameter::String(Some(value.to_string()))
+    }
+}
+
+impl From<Option<&str>> for Parameter {
+    fn from(value: Option<&str>) -> Self {
+        Parameter::String(value.map(String::from))
+    }
+}
+
+impl From<serde_json::Value> for Parameter {
+    fn from(value: serde_json::Value) -> Self {
+        Parameter::Json(Some(value))
+    }
+}
+
+impl From<Option<serde_json::Value>> for Parameter {
+    fn from(value: Option<serde_json::Value>) -> Self {
+        Parameter::Json(value)
+    }
+}
+
+impl From<i32> for Parameter {
+    fn from(value: i32) -> Self {
+        Parameter::I32(Some(value))
+    }
+}
+
+impl From<Option<i32>> for Parameter {
+    fn from(value: Option<i32>) -> Self {
+        Parameter::I32(value)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -176,57 +298,45 @@ impl Transaction {
         for (k, v) in &columns {
             match v {
                 Parameter::Uuid { val, .. } => {
-                    new.insert(k.to_string(), serde_json::Value::String(val.to_string()));
-                }
-                Parameter::String(val) => {
-                    new.insert(k.to_string(), serde_json::Value::String(val.to_string()));
-                }
-                Parameter::I32(val) => {
                     new.insert(
                         k.to_string(),
-                        serde_json::Value::Number(serde_json::Number::from(*val)),
+                        serde_json::Value::from(val.map(|v| v.to_string())),
                     );
                 }
+                Parameter::String(val) => {
+                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                }
+                Parameter::I32(val) => {
+                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                }
                 Parameter::Json(val) => {
-                    new.insert(k.to_string(), val.clone());
+                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
                 }
                 Parameter::Datetime(val) => {
-                    new.insert(k.to_string(), serde_json::Value::String(val.to_string()));
+                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
                 }
                 Parameter::Bool(val) => {
-                    new.insert(k.to_string(), serde_json::Value::Bool(*val));
+                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
                 }
                 Parameter::Date(val) => {
-                    new.insert(k.to_string(), serde_json::Value::String(val.to_string()));
-                }
-                Parameter::NoneString => {
-                    new.insert(k.to_string(), serde_json::Value::Null);
+                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
                 }
             }
         }
         let new = serde_json::Value::Object(new);
 
-        let execution_id = get_current_execution().unwrap();
+        let execution_external_id = get_current_execution().unwrap();
         let args = HashMap::from([
             (
                 "entity_name".to_string(),
-                Parameter::String(table.to_string()),
+                Parameter::from(table.to_string()),
             ),
+            ("entity_id".to_string(), Parameter::from(id.id)),
             (
-                "entity_id".to_string(),
-                Parameter::Uuid {
-                    val: id.id,
-                    cast_to_table: None,
-                },
+                "execution_external_id".to_string(),
+                Parameter::from(execution_external_id),
             ),
-            (
-                "execution_id".to_string(),
-                Parameter::Uuid {
-                    val: execution_id,
-                    cast_to_table: None,
-                },
-            ),
-            ("new".to_string(), Parameter::Json(new)),
+            ("new".to_string(), Parameter::from(new)),
         ]);
 
         let _id: Id = self
@@ -234,7 +344,7 @@ impl Transaction {
                 "insert EntityChange{
     entity_name := <str>$entity_name,
     entity_id := <uuid>$entity_id,
-    execution := <uuid>$execution_id,
+    execution_external_id := <uuid>$execution_external_id,
     new := <json>$new
 };",
                 args,
@@ -466,32 +576,6 @@ impl DatabaseIoRecorder {
         }
     }
 
-    // pub async fn query_required_single<T: Serialize + DeserializeOwned + Clone>(
-    //     &self,
-    //     query: &str,
-    //     parameters: HashMap<String, Parameter>,
-    // ) -> Result<T, Error> {
-    //     let execution_id = get_current_execution().unwrap();
-    //     let client = match &self {
-    //         DatabaseIoRecorder::Recorded(_) => {
-    //             unimplemented!()
-    //         }
-    //         DatabaseIoRecorder::Live(client) => client,
-    //     };
-    //     let global_collector = get_global_collector();
-    //     unimplemented!()
-    // let query_id = global_collector.standalone_query_start(
-    //     execution_id,
-    //     QueryWithParameters {
-    //         query_text: query.to_string(),
-    //         parameters: parameters.clone(),
-    //     },
-    // );
-    // let result: Result<T, Error> = run_query_required_single(client, query, parameters).await;
-    // let res_as_json_value = result.clone().map(|v| serde_json::to_value(v).unwrap());
-    // global_collector.standalone_query_end(execution_id, query_id, res_as_json_value);
-    // result
-    // }
     pub async fn query<T: Serialize + DeserializeOwned + Clone, AsStr: AsRef<str>>(
         &self,
         query: &str,
@@ -546,24 +630,25 @@ impl DatabaseIoRecorder {
     }
 }
 
-async fn run_query<T: Serialize + DeserializeOwned + Clone>(
+async fn run_query<T: Serialize + DeserializeOwned + Clone, S: Into<String>>(
     client: &gel_tokio::Client,
     query: &str,
-    parameters: HashMap<String, Parameter>,
+    parameters: HashMap<S, Parameter>,
 ) -> Result<T, Error> {
+    let parameters: HashMap<String, Parameter> =
+        parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
     let gel_params = gel::params_to_gel(parameters);
     let gel_params: HashMap<&str, ValueOpt> = gel_params
         .iter()
         .map(|(k, v)| (k.as_str(), v.clone()))
         .collect();
-
     let query_result: gel_protocol::model::Json =
         client.query_json(query, &gel_params).await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
             let err_str = format!("{err_str} with query {}", query);
             Error::Internal {
                 msg: err_str,
-                location: std::panic::Location::caller().to_string(),
+                location: Location::caller().to_string(),
             }
         })?;
     let query_result: T = serde_json::from_str(&query_result)
@@ -617,7 +702,7 @@ async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
             let err_str = format!("{err_str} with query {}", query);
             Error::Internal {
                 msg: err_str,
-                location: std::panic::Location::caller().to_string(),
+                location: Location::caller().to_string(),
             }
         })?;
     let query_result: T = serde_json::from_str(&query_result)
@@ -633,7 +718,7 @@ async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
     let gel_params = gel::params_to_gel(parameters);
     let gel_params: HashMap<&str, ValueOpt> = gel_params
         .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
+        .map(|(k, v)| (k.as_ref(), v.clone()))
         .collect();
 
     let query_result: Option<gel_protocol::model::Json> = client
@@ -655,195 +740,3 @@ async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
         .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(Some(query_result))
 }
-
-/*
-
-    pub fn record_generic_io_input(
-        &self,
-        execution_id: Uuid,
-        io_provider: &str,
-        function_name: &str,
-        input: serde_json::Value,
-    ) -> Uuid {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let id = Uuid::new_v4();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let recorded_ios = execution_context
-            .replay_data
-            .generic_io_providers
-            .entry(io_provider.to_owned())
-            .or_default();
-        recorded_ios.push(GenericIoProviderIo {
-            id,
-            function_name: function_name.to_string(),
-            started_at: Utc::now(),
-            input,
-            output: None,
-        });
-        id
-    }
-    pub fn record_generic_io_output(
-        &self,
-        execution_id: Uuid,
-        io_provider: &str,
-        io_id: Uuid,
-        output: serde_json::Value,
-    ) {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let recorded_ios = execution_context
-            .replay_data
-            .generic_io_providers
-            .get_mut(io_provider)
-            .unwrap();
-        let io = recorded_ios.iter_mut().find(|io| io.id == io_id).unwrap();
-        assert!(io.output.is_none());
-        io.output = Some(GenericIoOutput {
-            ended_at: Utc::now(),
-            output,
-        });
-    }
-    pub fn standalone_query_start(&self, execution_id: Uuid, query: QueryWithParameters) -> u64 {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let id = execution_context
-            .replay_data
-            .database_recording
-            .standalone_queries_count;
-        execution_context
-            .replay_data
-            .database_recording
-            .standalone_queries_count += 1;
-        execution_context
-            .replay_data
-            .database_recording
-            .standalone_queries
-            .push(QueryWithResult {
-                id,
-                started_at: Utc::now(),
-                query_with_parameters: query,
-                result: None,
-            });
-        id
-    }
-    pub fn standalone_query_end(
-        &self,
-        execution_id: Uuid,
-        query_id: u64,
-        result: Result<serde_json::Value, Error>,
-    ) {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let query_mut = execution_context
-            .replay_data
-            .database_recording
-            .standalone_queries
-            .iter_mut()
-            .find(|q| q.id == query_id)
-            .unwrap();
-        assert!(query_mut.result.is_none());
-        query_mut.result = Some(QueryResult {
-            ended_at: Utc::now(),
-            result,
-        })
-    }
-
-    pub fn transaction_start(&self, execution_id: Uuid) -> u64 {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let id = execution_context
-            .replay_data
-            .database_recording
-            .transactions_count;
-        execution_context
-            .replay_data
-            .database_recording
-            .transactions_count += 1;
-        execution_context
-            .replay_data
-            .database_recording
-            .transactions
-            .push(Transaction {
-                id,
-                started_at: Utc::now(),
-                queries_count: 0,
-                queries: vec![],
-                result: None,
-            });
-        id
-    }
-    pub fn transaction_query_start(
-        &self,
-        execution_id: Uuid,
-        transaction_id: u64,
-        query: QueryWithParameters,
-    ) -> u64 {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let transaction = execution_context
-            .replay_data
-            .database_recording
-            .transactions
-            .iter_mut()
-            .find(|transaction| transaction.id == transaction_id)
-            .unwrap();
-        let id = transaction.queries_count;
-        transaction.queries_count += 1;
-        transaction.queries.push(QueryWithResult {
-            id,
-            started_at: Utc::now(),
-            query_with_parameters: query,
-            result: None,
-        });
-        id
-    }
-    pub fn transaction_query_end(
-        &self,
-        execution_id: Uuid,
-        transaction_id: u64,
-        query_id: u64,
-        result: Result<serde_json::Value, Error>,
-    ) {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let transaction = execution_context
-            .replay_data
-            .database_recording
-            .transactions
-            .iter_mut()
-            .find(|transaction| transaction.id == transaction_id)
-            .unwrap();
-        let query_result = transaction
-            .queries
-            .iter_mut()
-            .find(|query| query.id == query_id)
-            .unwrap();
-        assert!(query_result.result.is_none());
-        query_result.result = Some(QueryResult {
-            ended_at: Utc::now(),
-            result,
-        });
-    }
-
-    pub fn transaction_end(
-        &self,
-        execution_id: Uuid,
-        transaction_id: u64,
-        result: Result<(), Error>,
-    ) {
-        let mut exec_context_w_guard = self.executions.write().unwrap();
-        let execution_context = exec_context_w_guard.get_mut(&execution_id).unwrap();
-        let transaction = execution_context
-            .replay_data
-            .database_recording
-            .transactions
-            .iter_mut()
-            .find(|transaction| transaction.id == transaction_id)
-            .unwrap();
-        assert!(transaction.result.is_none());
-        transaction.result = Some(TransactionResult {
-            ended_at: Utc::now(),
-            result,
-        });
-    }
-*/

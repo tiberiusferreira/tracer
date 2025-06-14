@@ -47,18 +47,9 @@ async fn process_execution_recording(
             HashMap::from([
                 (
                     "service_instance_id".to_string(),
-                    Parameter::Uuid {
-                        val: instance_id,
-                        cast_to_table: None,
-                    },
+                    Parameter::from(instance_id),
                 ),
-                (
-                    "external_id".to_string(),
-                    Parameter::Uuid {
-                        val: recording.id,
-                        cast_to_table: None,
-                    },
-                ),
+                ("external_id".to_string(), Parameter::from(recording.id)),
             ]),
         )
         .await?;
@@ -67,24 +58,15 @@ async fn process_execution_recording(
             let params = HashMap::from([
                 (
                     "service_instance",
-                    Parameter::Uuid {
-                        val: instance_id,
-                        cast_to_table: Some("ServiceInstance".to_string()),
-                    },
+                    Parameter::from((instance_id, "ServiceInstance")),
                 ),
-                (
-                    "external_id",
-                    Parameter::Uuid {
-                        val: recording.id,
-                        cast_to_table: None,
-                    },
-                ),
-                ("started_at", Parameter::Datetime(recording.started_at)),
-                ("last_seen_at", Parameter::Datetime(recording.last_seen_at)),
-                ("ended", Parameter::Bool(recording.ended)),
+                ("external_id", Parameter::from(recording.id)),
+                ("started_at", Parameter::from(recording.started_at)),
+                ("last_seen_at", Parameter::from(recording.last_seen_at)),
+                ("ended", Parameter::from(recording.ended)),
                 (
                     "replay_data",
-                    Parameter::Json(serde_json::to_value(&recording.replay_data).unwrap()),
+                    Parameter::from(serde_json::to_value(&recording.replay_data).unwrap()),
                 ),
             ]);
             let execution_id = tx.insert("Execution", params).await?;
@@ -99,16 +81,12 @@ async fn process_execution_recording(
                         "select AttributeName{
   id
 } filter ._value=<str>$attr_name",
-                        HashMap::from([(
-                            "attr_name".to_string(),
-                            Parameter::String(attr_name.clone()),
-                        )]),
+                        HashMap::from([("attr_name".to_string(), Parameter::from(attr_name))]),
                     )
                     .await?;
                 let attr_name_id = match attr_name_id {
                     None => {
-                        let params =
-                            HashMap::from([("_value", Parameter::String(attr_name.to_string()))]);
+                        let params = HashMap::from([("_value", Parameter::from(attr_name))]);
                         let id = tx.insert("AttributeName", params).await?;
                         id
                     }
@@ -125,44 +103,26 @@ async fn process_execution_recording(
                             "select AttributeValue{
   id
 } filter ._value=<str>$attr_val",
-                            HashMap::from([(
-                                "attr_val".to_string(),
-                                Parameter::String(attr_value.clone()),
-                            )]),
+                            HashMap::from([("attr_val".to_string(), Parameter::from(attr_value))]),
                         )
                         .await?;
                     let attr_val_id = match attr_val_id {
                         None => {
-                            let params = HashMap::from([(
-                                "_value",
-                                Parameter::String(attr_value.to_string()),
-                            )]);
+                            let params = HashMap::from([("_value", Parameter::from(attr_value))]);
                             let id = tx.insert("AttributeValue", params).await?;
                             id
                         }
                         Some(id) => id.id,
                     };
                     let params = HashMap::from([
-                        (
-                            "execution",
-                            Parameter::Uuid {
-                                val: execution_id,
-                                cast_to_table: Some("Execution".to_string()),
-                            },
-                        ),
+                        ("execution", Parameter::from((execution_id, "Execution"))),
                         (
                             "normalized_name",
-                            Parameter::Uuid {
-                                val: attr_name_id,
-                                cast_to_table: Some("AttributeName".to_string()),
-                            },
+                            Parameter::from((attr_name_id, "AttributeName")),
                         ),
                         (
                             "normalized_value",
-                            Parameter::Uuid {
-                                val: attr_val_id,
-                                cast_to_table: Some("AttributeValue".to_string()),
-                            },
+                            Parameter::from((attr_val_id, "AttributeValue")),
                         ),
                     ]);
                     let _id = tx.insert("ExecutionAttribute", params).await?;

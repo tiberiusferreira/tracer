@@ -11,7 +11,7 @@ pub struct Attribute {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Execution {
-    pub id: Uuid,
+    pub external_id: Uuid,
     pub size_bytes: u64,
     pub service_instance_id: Uuid,
     pub service_env: String,

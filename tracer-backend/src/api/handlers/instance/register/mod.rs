@@ -25,11 +25,8 @@ async fn register_instance(
     service: &str,
 ) -> Result<InstanceInsertionData, gel_io_recorder::Error> {
     let params = HashMap::from([
-        ("env".to_string(), Parameter::String(env.to_string())),
-        (
-            "service".to_string(),
-            Parameter::String(service.to_string()),
-        ),
+        ("env".to_string(), Parameter::from(env)),
+        ("service".to_string(), Parameter::from(service)),
     ]);
 
     let service_id: Option<Id> = tx
@@ -46,20 +43,14 @@ select Service{
     let service_id = match service_id {
         None => {
             let map = HashMap::from([
-                ("env", Parameter::String(env.to_string())),
-                ("name", Parameter::String(service.to_string())),
+                ("env", Parameter::from(env)),
+                ("name", Parameter::from(service)),
             ]);
             tx.insert("Service", map).await?
         }
         Some(id) => id.id,
     };
-    let map = HashMap::from([(
-        "service",
-        Parameter::Uuid {
-            val: service_id,
-            cast_to_table: Some("Service".to_string()),
-        },
-    )]);
+    let map = HashMap::from([("service", Parameter::from((service_id, "Service")))]);
     let service_instance_id = tx.insert("ServiceInstance", map).await?;
     Ok(InstanceInsertionData {
         service_instance_id,

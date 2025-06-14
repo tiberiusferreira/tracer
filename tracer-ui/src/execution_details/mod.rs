@@ -110,7 +110,7 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
                 <div style="border: 1px solid #444; padding: 10px; border-radius: 4px">
                     <h3 style="margin: 0 0 10px 0">"Execution Info"</h3>
                     <div style="display: grid; grid-template-columns: auto 1fr; gap: 5px">
-                        <span>"ID:"</span><span>{execution.id.to_string()}</span>
+                        <span>"ID:"</span><span>{execution.external_id.to_string()}</span>
                         <span>"Environment:"</span><span>{execution.service_env}</span>
                         <span>"Service:"</span><span>{execution.service_name}</span>
                         <span>"Instance:"</span><span>{execution.service_instance_id.to_string()}</span>

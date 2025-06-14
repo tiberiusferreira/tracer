@@ -18,13 +18,13 @@ pub(crate) async fn get_single_execution(
     State(app_state): State<AppState>,
     query: Query<GetExecutionQueryParameter>,
 ) -> Result<Json<Execution>, ApiError> {
-    let id = query.id;
+    let execution_external_id = query.id;
     let db = app_state.execution_io_provider.database();
     let mut tx = db.transaction_start().await;
     let execution: Option<Execution> = tx
         .query_optional(
             "select Execution{
-  id,
+  external_id,
   size_bytes,
   service_instance_id := .service_instance.id,
   service_env := .service_instance.service.env,
@@ -37,13 +37,10 @@ pub(crate) async fn get_single_execution(
     name,
     value := ._value
   }
-} filter .id=<uuid>$id",
+} filter .external_id=<uuid>$external_id",
             HashMap::from([(
-                "id".to_string(),
-                Parameter::Uuid {
-                    val: id,
-                    cast_to_table: None,
-                },
+                "external_id".to_string(),
+                Parameter::from(execution_external_id),
             )]),
         )
         .await?;

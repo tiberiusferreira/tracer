@@ -19,7 +19,6 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
             Parameter::Datetime(_) => "<datetime>".to_string(),
             Parameter::Bool(_) => "<bool>".to_string(),
             Parameter::Date(_) => "<cal::local_date>".to_string(),
-            Parameter::NoneString => "<str>".to_string(),
         };
         column_set_queries.push(format!("{name} := {bind_type}${name}"));
     }
@@ -32,24 +31,25 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
     query_str
 }
 
-pub fn params_to_gel(parameters: HashMap<String, Parameter>) -> HashMap<String, ValueOpt> {
+pub fn params_to_gel<'a>(parameters: HashMap<String, Parameter>) -> HashMap<String, ValueOpt> {
     let mut hashmap = HashMap::new();
     for (k, v) in parameters {
         let a = match v {
-            Parameter::String(v) => ValueOpt::from(Value::Str(v)),
-            Parameter::I32(v) => ValueOpt::from(Value::Int32(v)),
+            Parameter::String(v) => ValueOpt::from(v),
+            Parameter::I32(v) => ValueOpt::from(v),
             Parameter::Uuid { val, .. } => ValueOpt::from(val),
             Parameter::Json(json) => ValueOpt::from(Value::Json(
                 gel_protocol::model::Json::new_unchecked(serde_json::to_string(&json).unwrap()),
             )),
-            Parameter::Datetime(val) => ValueOpt::from(Value::Datetime(
-                gel_protocol::model::Datetime::try_from(val).unwrap(),
-            )),
-            Parameter::Bool(val) => ValueOpt::from(Value::Bool(val)),
-            Parameter::Date(val) => ValueOpt::from(Value::LocalDate(
-                gel_protocol::model::LocalDate::try_from(val).unwrap(),
-            )),
-            Parameter::NoneString => ValueOpt::from(Option::<String>::None),
+            Parameter::Datetime(val) => {
+                let val = val.map(|val| gel_protocol::model::Datetime::try_from(val).unwrap());
+                ValueOpt::from(val)
+            }
+            Parameter::Bool(val) => ValueOpt::from(val),
+            Parameter::Date(val) => {
+                let val = val.map(|val| gel_protocol::model::LocalDate::try_from(val).unwrap());
+                ValueOpt::from(val)
+            }
         };
         hashmap.insert(k, a);
     }

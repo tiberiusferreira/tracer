@@ -291,11 +291,6 @@ pub fn Services() -> impl IntoView {
                             <TracesGrid current_time_bucket=current_time_bucket selected_attributes_r=selected_attributes_r.into()/>
                         </div>
                     </div>
-                    // <div id="filters">
-                    //     <PathFilter/>
-                    //     <MethodFilter/>
-                    //     <SeverityFilter/>
-                    // </div>
                 </div>
             </div>
         </div>
@@ -746,8 +741,6 @@ fn ServiceInfo() -> impl IntoView {
                     <div id="service-info">
                         <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
                         <span>"Tracer Backend - 1.2K"</span>
-                        <span>" - "</span>
-                        <button class="button-as-text">"only"</button>
                     </div>
                     <div id="service-instance-list">
                         <ul style="margin: 5px 0 0 0">
@@ -823,8 +816,8 @@ fn TracesGrid(
         Some(result) => match result {
             Ok(result) => {
                 let mut rows = vec![];
-                for r in result {
-                    rows.push(grid_row(r));
+                for (idx, r) in result.into_iter().enumerate() {
+                    rows.push(grid_row(idx, r));
                 }
                 view! {
                     <div>
@@ -853,24 +846,29 @@ fn TracesGrid(
     view
 }
 
-fn grid_row(header: ExecutionHeader) -> impl IntoView {
+fn grid_row(idx: usize, header: ExecutionHeader) -> impl IntoView {
     // http://127.0.0.1:8081/execution-details/45f2140c-427d-11f0-a284-a717315ab9a0
     let url = format!(
         "{API_SERVER_URL_NO_TRAILING_SLASH}/execution-details/{}",
-        header.id.to_string()
+        header.external_id.to_string()
     );
+    let background = if idx % 2 == 0 {
+        "background-color: #29290645;"
+    } else {
+        "background-color: black;"
+    };
     view! {
         <tr>
-            <td class="trace-table__cell">{header.id.to_string()}</td>
-            <td class="trace-table__cell">{header.service_name}</td>
-            <td class="trace-table__cell">{(Utc::now() - header.started_at).num_minutes()}</td>
-            <td class="trace-table__cell">{header.duration_ms}</td>
-            <td class="trace-table__cell">{header.size_bytes/1000}</td>
-            <td class="trace-table__cell">{header.status_code}</td>
-            <td class="trace-table__cell">{header.path}</td>
-            <td class="trace-table__cell">{header.method}</td>
-            <td class="trace-table__cell">
-            <a style="text-decoration: none" href={url}>"➔"</a>
+            <td class="trace-table__cell" style={background}>{header.external_id.to_string()}</td>
+            <td class="trace-table__cell" style={background}>{header.service_name}</td>
+            <td class="trace-table__cell" style={background}>{(Utc::now() - header.started_at).num_minutes()}</td>
+            <td class="trace-table__cell" style={background}>{header.duration_ms}</td>
+            <td class="trace-table__cell" style={background}>{header.size_bytes/1000}</td>
+            <td class="trace-table__cell" style={background}>{header.status_code}</td>
+            <td class="trace-table__cell" style={background}>{header.path}</td>
+            <td class="trace-table__cell" style={background}>{header.method}</td>
+            <td class="trace-table__cell" style={background}>
+                <a style="text-decoration: none" href={url}>"➔"</a>
             </td>
         </tr>
     }
@@ -1186,8 +1184,7 @@ async fn get_services_impl(
 ) -> Result<SummariesForGraph, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
-        crate::API_SERVER_URL_NO_TRAILING_SLASH,
-        "/api/ui/service/data"
+        API_SERVER_URL_NO_TRAILING_SLASH, "/api/ui/service/data"
     ))
     .json(&SummaryFilters {
         start_date: time_range.start_time,
@@ -1208,8 +1205,7 @@ async fn get_executions_headers_impl(
 ) -> Result<Vec<ExecutionHeader>, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
-        crate::API_SERVER_URL_NO_TRAILING_SLASH,
-        "/api/ui/service/execution_list"
+        API_SERVER_URL_NO_TRAILING_SLASH, "/api/ui/service/execution_list"
     ))
     .json(&ExecutionListFilters {
         bucket: datetime,

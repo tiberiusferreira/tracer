@@ -55,7 +55,7 @@ pub struct ExecutionListFilters {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExecutionHeader {
-    pub id: uuid::Uuid,
+    pub external_id: uuid::Uuid,
     pub service_name: String,
     pub started_at: DateTime<Utc>,
     pub duration_ms: u64,

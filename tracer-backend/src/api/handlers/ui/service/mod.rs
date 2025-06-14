@@ -19,14 +19,14 @@ fn attributes_filtering_statement(
     let mut attribute_filter_stmt: Vec<String> = vec![];
     for (idx, (name, maybe_val)) in attributes.iter().enumerate() {
         let attribute_name = format!("attr_{}_name", idx);
-        params.insert(attribute_name.clone(), Parameter::String(name.clone()));
+        params.insert(attribute_name.clone(), Parameter::from(name));
         let filtering = match maybe_val {
             None => {
                 format!("any(.attributes.name = <str>${attribute_name})")
             }
             Some(val) => {
                 let attribute_val = format!("attr_{}_val", idx);
-                params.insert(attribute_val.clone(), Parameter::String(val.clone()));
+                params.insert(attribute_val.clone(), Parameter::from(val));
                 format!(
                     "any(.attributes.name = <str>${attribute_name} and .attributes._value=<str>${attribute_val})"
                 )
@@ -51,14 +51,14 @@ pub(crate) async fn execution_list(
     let end = bucket + Duration::minutes(5);
     let db = app_state.execution_io_provider.database();
     let mut params = HashMap::from([
-        ("start_date".to_string(), Parameter::Datetime(start)),
-        ("end_date".to_string(), Parameter::Datetime(end)),
+        ("start_date".to_string(), Parameter::from(start)),
+        ("end_date".to_string(), Parameter::from(end)),
     ]);
     let filter_stmt = attributes_filtering_statement(&filters.attributes, &mut params);
     let query = format!(
         "
 select Execution{{
-  id,
+  external_id,
   service_name := .service_instance.service.name,
   started_at,
   duration_ms,
@@ -95,7 +95,7 @@ filter
     .started_at <= <datetime>$end_date and
     .last_seen_at >= <datetime>$start_date
     {filter_stmt}
-  order by .started_at asc limit 100"
+  order by .started_at asc limit 200"
     );
     let executions: Vec<ExecutionHeader> = db.query(&query, params).await?;
     Ok(Json(executions))
@@ -131,11 +131,11 @@ pub async fn summaries_for_graph(
     let mut params = HashMap::from([
         (
             "start_date".to_string(),
-            Parameter::Datetime(start_rounded_to_window_start),
+            Parameter::from(start_rounded_to_window_start),
         ),
         (
             "end_date".to_string(),
-            Parameter::Datetime(end_rounded_to_window_end),
+            Parameter::from(end_rounded_to_window_end),
         ),
     ]);
     let filter_stmt = attributes_filtering_statement(&filters.attributes, &mut params);
