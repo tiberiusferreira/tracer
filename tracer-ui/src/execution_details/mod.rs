@@ -322,7 +322,8 @@ fn timeline_markers(execution_duration_ms: u64, container_width: i32) -> Vec<imp
     let top = 20;
     let height = 20.0;
     loop {
-        if (curr_ms + 100) > execution_duration_ms {
+        let start_marker_already_inserted = !els.is_empty();
+        if (curr_ms + 100) > execution_duration_ms && start_marker_already_inserted {
             break;
         }
         let relative_x = curr_ms as f64 / execution_duration_ms as f64;

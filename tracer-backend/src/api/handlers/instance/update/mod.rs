@@ -3,9 +3,11 @@ use crate::api::state::AppState;
 use api_structs::instance::update::{ExecutionRecording, InstanceSnapshot};
 use axum::Json;
 use axum::extract::State;
-use gel_io_recorder::{Parameter, Transaction};
+use gel_io_recorder::{Error, Parameter, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::panic::Location;
+use thiserror::Error;
 use uuid::Uuid;
 
 #[allow(unused)]
@@ -137,10 +139,54 @@ async fn process_execution_recording(
     };
     Ok(())
 }
+
+#[derive(Debug, Error)]
+pub enum ProcessUpdateError {
+    #[error("Instance with id {id} not found at {location}")]
+    InstanceNotFound {
+        id: Uuid,
+        location: &'static Location<'static>,
+    },
+    #[error("Gel Error at {location}")]
+    Gel {
+        #[source]
+        source: gel_io_recorder::Error,
+        location: &'static Location<'static>,
+    },
+}
+impl From<gel_io_recorder::Error> for ProcessUpdateError {
+    fn from(value: Error) -> Self {
+        Self::Gel {
+            source: value,
+            location: Location::caller(),
+        }
+    }
+}
+
 async fn process_update(
     tx: &mut Transaction,
     instance_snapshot: &InstanceSnapshot,
-) -> Result<(), gel_io_recorder::Error> {
+) -> Result<(), ProcessUpdateError> {
+    let Some(id): Option<gel_io_recorder::Id> = tx
+        .query_optional(
+            "select ServiceInstance filter .id=<uuid>$id",
+            HashMap::from([(
+                "id".to_string(),
+                Parameter::from(instance_snapshot.instance_id),
+            )]),
+        )
+        .await?
+    else {
+        return Err(ProcessUpdateError::InstanceNotFound {
+            id: instance_snapshot.instance_id,
+            location: Location::caller(),
+        });
+    };
+    if let Some(profile) = &instance_snapshot.cpu_profile_base64 {
+        let params = HashMap::from([("latest_profile_base64", Parameter::from(profile))]);
+        let updated = tx.update("ServiceInstance", id.id, params).await?;
+        assert!(updated);
+    }
     for recording in &instance_snapshot.execution_recordings {
         process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording).await?;
     }

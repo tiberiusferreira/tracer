@@ -1,38 +1,6 @@
-use crate::Endpoint;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-pub struct GetService;
-
-impl Endpoint for GetService {
-    const PATH: &'static str = "/api/ui/service/";
-    const METHOD: &'static str = "GET";
-    type RequestBody = ();
-    type QueryParameters = ();
-    type ResponseBody = Vec<Service>;
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Service {
-    pub id: i32,
-    /// tracer-backend
-    pub name: String,
-    /// Local
-    pub env: crate::Env,
-    // info
-    pub log_filter: String,
-    pub instances: Vec<Instance>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Instance {
-    pub id: i32,
-    pub log_filter: Option<String>,
-    pub registered_at: DateTime<Utc>,
-    pub last_updated_at: Option<DateTime<Utc>>,
-    pub export_buffer_size_bytes: Option<u64>,
-    pub has_profile_data: bool,
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProfileData {

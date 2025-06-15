@@ -582,7 +582,7 @@ fn duration_graph(
                     <div style="margin-top: 10px">
                         <h3 style="display: inline; margin: 0">"Trace Duration: "</h3>
                         <p style="display: inline; margin: 0 0 0 10px">{format!("Max {max_duration:.0}ms")}</p>
-                        <p style="display: inline; margin: 0">"- Bar shows"</p>
+                        <p style="display: inline; margin: 0">" - Bar shows"</p>
                         <select style="margin: 0 5px 0 5px" id="time-range-selector">
                             <option value="60">"Max"</option>
                             <option value="60">"Min"</option>

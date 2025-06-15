@@ -3,20 +3,20 @@
 //! but also exports traces to a collector
 //!
 
+use crate::io_provider::execution_recorder::{
+    DataCollector, GLOBAL_DATA_COLLECTOR, get_global_collector,
+};
+pub use api_structs::ServiceId;
+use api_structs::instance::registration::RegistrationResponse;
 use base64::Engine;
 use pprof::ProfilerGuard;
+pub use print_debugging::print_if_dbg;
 use std::fmt::Debug;
 use std::io::Write;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-
-use crate::io_provider::execution_recorder::{
-    DataCollector, GLOBAL_DATA_COLLECTOR, get_global_collector,
-};
-use api_structs::instance::registration::RegistrationResponse;
-pub use api_structs::{Env, InstanceGlobalId, ServiceId, Severity};
-pub use print_debugging::print_if_dbg;
 use tracked_error::error_chain_to_pretty_formatted;
+use uuid::Uuid;
 
 pub mod io_provider;
 pub use api_structs::instance::update::{ExecutionRecording, ReplayData};
@@ -41,7 +41,7 @@ impl TracerConfig {
             collector_url,
             export_timeout: Duration::from_secs(60),
             duration_between_exports: Duration::from_secs(2),
-            min_duration_between_profile_exports: Duration::from_secs(5 * 60),
+            min_duration_between_profile_exports: Duration::from_secs(10 * 60),
             service_id,
         }
     }
@@ -252,12 +252,11 @@ async fn trace_export_loop(
     config: TracerConfig,
     profiler_guard: ProfilerGuard<'static>,
     mut flush_request_receiver: Receiver<FlushRequest>,
-    instance_id: InstanceGlobalId,
+    instance_id: Uuid,
 ) {
     let context = "trace_export_task";
     let min_wait_duration_between_profile_exports = config.min_duration_between_profile_exports;
     let mut time_last_profile_export = std::time::Instant::now();
-    let mut update_count = 1;
     println!(
         "{}s between exports",
         config.duration_between_exports.as_secs()
@@ -313,10 +312,8 @@ async fn trace_export_loop(
         };
         let execution_recording = get_global_collector().get_all_pruning();
         let export_data = api_structs::instance::update::InstanceSnapshot {
-            update_count,
             instance_id,
             execution_recordings: execution_recording,
-            export_buffer_size_bytes: 1_000_000,
             cpu_profile_base64,
         };
         print_if_dbg(context, format!("Export data: {:#?}", export_data));
@@ -336,7 +333,6 @@ async fn trace_export_loop(
             .await
             {
                 Ok(()) => {
-                    update_count += 1;
                     break;
                 }
                 Err(err) => {

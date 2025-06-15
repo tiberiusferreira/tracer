@@ -19,3 +19,4 @@ It happens when we record the database queries from `/api/instance/update` and e
 
 Then those land in the JSON request of to the same endpoint. We need to detect the "depth".
 
+http://127.0.0.1:4200/execution-details/37735537-17e5-4977-9cd8-6b7e83a4adf5

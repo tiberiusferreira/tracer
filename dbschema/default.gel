@@ -29,7 +29,7 @@ module default {
             default := datetime_of_statement();
             readonly := true;
         };
-
+        index on ((.started_at, .last_seen_at));
     }
 
     type AttributeName {
@@ -97,31 +97,12 @@ module default {
 
     type ServiceInstance {
       required service: Service;
-      required received_update_count: int64 {
-        default := 0;
-        constraint min_value(0);
-      };
+      latest_profile_base64: str;
       required registered_at: datetime {
         default := datetime_of_statement();
         readonly := true;
       };
     }
-
-    type ServiceInstanceUpdate {
-      required service_instance: ServiceInstance;
-      required export_buffer_size_bytes: int64;
-      required produced_at: datetime{
-        annotation description := "When this was produced."
-      };
-      required created_at: datetime {
-        default := datetime_of_statement();
-        readonly := true;
-      };
-    }
-
-
-
-
 
 
 };

@@ -1,3 +1,4 @@
+use crate::api::handlers::instance::update::ProcessUpdateError;
 use crate::api::state::AppState;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
@@ -252,6 +253,15 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
 
 impl From<gel_io_recorder::Error> for ApiError {
     fn from(err: gel_io_recorder::Error) -> Self {
+        ApiError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: error_chain_to_pretty_formatted(&err),
+        }
+    }
+}
+
+impl From<ProcessUpdateError> for ApiError {
+    fn from(err: ProcessUpdateError) -> Self {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: error_chain_to_pretty_formatted(&err),

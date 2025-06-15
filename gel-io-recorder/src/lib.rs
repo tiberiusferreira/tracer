@@ -282,6 +282,39 @@ pub struct Transaction {
     tx: TransactionIoProvider,
 }
 
+fn parameter_map_as_json_value(columns: &HashMap<String, Parameter>) -> serde_json::Value {
+    let mut new = serde_json::map::Map::new();
+    for (k, v) in columns {
+        match v {
+            Parameter::Uuid { val, .. } => {
+                new.insert(
+                    k.to_string(),
+                    serde_json::Value::from(val.map(|v| v.to_string())),
+                );
+            }
+            Parameter::String(val) => {
+                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+            }
+            Parameter::I32(val) => {
+                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+            }
+            Parameter::Json(val) => {
+                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+            }
+            Parameter::Datetime(val) => {
+                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+            }
+            Parameter::Bool(val) => {
+                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+            }
+            Parameter::Date(val) => {
+                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+            }
+        }
+    }
+    serde_json::Value::Object(new)
+}
+
 impl Transaction {
     pub async fn insert(
         &mut self,
@@ -294,43 +327,11 @@ impl Transaction {
             .collect();
         let query = gel::generate_insert_query(table, &columns);
         let id: Id = self.query_required_single(&query, columns.clone()).await?;
-        let mut new = serde_json::map::Map::new();
-        for (k, v) in &columns {
-            match v {
-                Parameter::Uuid { val, .. } => {
-                    new.insert(
-                        k.to_string(),
-                        serde_json::Value::from(val.map(|v| v.to_string())),
-                    );
-                }
-                Parameter::String(val) => {
-                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
-                }
-                Parameter::I32(val) => {
-                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
-                }
-                Parameter::Json(val) => {
-                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
-                }
-                Parameter::Datetime(val) => {
-                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
-                }
-                Parameter::Bool(val) => {
-                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
-                }
-                Parameter::Date(val) => {
-                    new.insert(k.to_string(), serde_json::to_value(val).unwrap());
-                }
-            }
-        }
-        let new = serde_json::Value::Object(new);
 
+        let new = parameter_map_as_json_value(&columns);
         let execution_external_id = get_current_execution().unwrap();
         let args = HashMap::from([
-            (
-                "entity_name".to_string(),
-                Parameter::from(table.to_string()),
-            ),
+            ("entity_name".to_string(), Parameter::from(table)),
             ("entity_id".to_string(), Parameter::from(id.id)),
             (
                 "execution_external_id".to_string(),
@@ -351,6 +352,63 @@ impl Transaction {
             )
             .await?;
         Ok(id.id)
+    }
+
+    // True if an entity was updated
+    pub async fn update(
+        &mut self,
+        table: &str,
+        id: Uuid,
+        columns: HashMap<&str, Parameter>,
+    ) -> Result<bool, Error> {
+        if columns.is_empty() {
+            return Ok(false);
+        }
+        let keys = columns
+            .keys()
+            .map(|k| k.to_string())
+            .collect::<Vec<String>>();
+        let previous_state_query = gel::generate_select_query(table, id, &keys);
+        let Some(old): Option<serde_json::Value> = self
+            .query_optional(&previous_state_query, HashMap::from([]))
+            .await?
+        else {
+            return Ok(false);
+        };
+        let update_query = gel::generate_update_query(table, id, &columns);
+        let columns: HashMap<String, Parameter> = columns
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        let _id: Id = self
+            .query_required_single(&update_query, columns.clone())
+            .await?;
+        let new = parameter_map_as_json_value(&columns);
+        let execution_external_id = get_current_execution().unwrap();
+        let args = HashMap::from([
+            ("entity_name".to_string(), Parameter::from(table)),
+            ("entity_id".to_string(), Parameter::from(id)),
+            (
+                "execution_external_id".to_string(),
+                Parameter::from(execution_external_id),
+            ),
+            ("old".to_string(), Parameter::from(old)),
+            ("new".to_string(), Parameter::from(new)),
+        ]);
+
+        let _id: Id = self
+            .query_required_single(
+                "insert EntityChange{
+            entity_name := <str>$entity_name,
+            entity_id := <uuid>$entity_id,
+            execution_external_id := <uuid>$execution_external_id,
+            old := <json>$old,
+            new := <json>$new
+        };",
+                args,
+            )
+            .await?;
+        Ok(true)
     }
     pub async fn query_required_single<T: Serialize + DeserializeOwned + Clone>(
         &mut self,
@@ -440,11 +498,11 @@ impl Transaction {
         result
     }
 
-    pub async fn query<T: Serialize + DeserializeOwned + Clone>(
+    pub async fn query_multiple<T: Serialize + DeserializeOwned + Clone>(
         &mut self,
         query: &str,
         parameters: HashMap<String, Parameter>,
-    ) -> Result<T, Error> {
+    ) -> Result<Vec<T>, Error> {
         let execution_id = get_current_execution().unwrap();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
@@ -467,7 +525,7 @@ impl Transaction {
         let event_json = serde_json::to_value(&event).unwrap();
         let event_id =
             global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
-        let result: Result<T, Error> = run_query_tx(client, query, parameters).await;
+        let result: Result<Vec<T>, Error> = run_query_tx(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());

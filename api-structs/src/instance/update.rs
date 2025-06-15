@@ -1,4 +1,3 @@
-pub use crate::Severity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -6,14 +5,8 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InstanceSnapshot {
-    /// This id should be incremented sequentially after a given update is successfully sent.
-    /// The client is required to retry sending the update until it receives an OK response back, but it could
-    /// accidentally send it twice, due to a timeout that would eventually be an OK.
-    /// This id helps the Collector discard duplicate updates
-    pub update_count: u64,
-    pub instance_id: uuid::Uuid,
+    pub instance_id: Uuid,
     pub execution_recordings: Vec<ExecutionRecording>,
-    pub export_buffer_size_bytes: u64,
     pub cpu_profile_base64: Option<String>,
 }
 
@@ -40,13 +33,6 @@ pub struct ExecutionRecording {
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub ended: bool,
-    // metrics, something we need to group by keys
-    // examples: users, group by id, but then we have envs, so we also group by envs
-    // keys might have one or more values.
-    // order_id => ["2", "5"]
-    // user_id => ["32", "78"]
-    // status_code => ["200"]
-    // retry_count => ["1", "2", "3"]
     pub replay_data: ReplayData,
     pub attributes: HashMap<String, HashSet<String>>,
     pub recording_enabled: bool,
@@ -67,23 +53,4 @@ impl ExecutionRecording {
             recording_enabled,
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ExecutingFunction {
-    pub id: u64,
-    pub parent_id: Option<u64>,
-    pub name: String,
-    pub module: String,
-    pub filename: String,
-    pub line: u32,
-    pub start: DateTime<Utc>,
-    pub end: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Location {
-    pub module: Option<String>,
-    pub filename: Option<String>,
-    pub line: Option<u32>,
 }
