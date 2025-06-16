@@ -1,8 +1,8 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
 use api_structs::ui::service::{
-    AttributeSummary, DurationSummary, ExecutionHeader, ExecutionSummary, RequestsSummary,
-    SizeBytesSummary, SummariesForGraph,
+    AttributeSummary, DurationSummary, EnvSummary, ExecutionHeader, ExecutionSummary,
+    InstanceSummary, RequestsSummary, ServiceSummary, SizeBytesSummary, SummariesForGraph,
 };
 use axum::Json;
 use axum::extract::State;
@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::max_by;
 use std::collections::HashMap;
 use std::ops::AddAssign;
+use uuid::Uuid;
+
 fn attributes_filtering_statement(
     attributes: &HashMap<String, Option<String>>,
     params: &mut HashMap<String, Parameter>,
@@ -143,6 +145,9 @@ pub async fn summaries_for_graph(
         "
 select Execution{{
   id,
+  service_env := .service_instance.service.env,
+  service_name := .service_instance.service.name,
+  instance_id := .service_instance.id,
   started_at,
   last_seen_at,
   size_bytes,
@@ -175,7 +180,10 @@ select Execution{{
 
     #[derive(Serialize, Deserialize, Debug, Clone)]
     pub struct Execution {
-        pub id: uuid::Uuid,
+        pub id: Uuid,
+        pub service_env: String,
+        pub service_name: String,
+        pub instance_id: Uuid,
         pub started_at: DateTime<Utc>,
         pub last_seen_at: DateTime<Utc>,
         pub size_bytes: u64,
@@ -222,13 +230,14 @@ select Execution{{
             max_values: vec![],
         },
         attributes,
+        envs: HashMap::new(),
     };
 
     let mut curr = start_rounded_to_window_start;
 
     while curr <= end_rounded_to_window_start {
         let bucket_start = curr;
-        let bucket_end = curr + chrono::Duration::minutes(rollover_window_minutes as i64);
+        let bucket_end = curr + Duration::minutes(rollover_window_minutes as i64);
         summaries.buckets.push(curr);
 
         let executions_in_bucket: Vec<&Execution> = executions
@@ -244,6 +253,33 @@ select Execution{{
         summaries.size_bytes.values.push(0.);
         summaries.duration.max_values.push(0.);
         for e in executions_in_bucket {
+            let env = summaries
+                .envs
+                .entry(e.service_env.clone())
+                .or_insert(EnvSummary {
+                    name: e.service_name.clone(),
+                    execution_count: 0,
+                    services: HashMap::new(),
+                });
+            env.execution_count += 1;
+            let service = env
+                .services
+                .entry(e.service_name.clone())
+                .or_insert(ServiceSummary {
+                    name: e.service_name.clone(),
+                    execution_count: 0,
+                    instances: HashMap::new(),
+                });
+            service.execution_count += 1;
+            let instance = service
+                .instances
+                .entry(e.instance_id)
+                .or_insert(InstanceSummary {
+                    instance_id: e.instance_id,
+                    last_profile_capture_date: None,
+                    execution_count: 0,
+                });
+            instance.execution_count += 1;
             if let Some(status_code) = &e.status_code {
                 summaries.requests.total += 1;
                 summaries.requests.values.last_mut().unwrap().add_assign(1.);

@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProfileData {
@@ -39,6 +40,10 @@ pub struct AttributeSummary {
     pub count: u32,
     pub values: HashMap<String, u32>,
 }
+
+type EnvName = String;
+type ServiceName = String;
+type InstanceId = Uuid;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SummariesForGraph {
     pub buckets: Vec<DateTime<Utc>>,
@@ -47,6 +52,28 @@ pub struct SummariesForGraph {
     pub size_bytes: SizeBytesSummary,
     pub duration: DurationSummary,
     pub attributes: HashMap<String, AttributeSummary>,
+    pub envs: HashMap<EnvName, EnvSummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EnvSummary {
+    pub name: String,
+    pub execution_count: u32,
+    pub services: HashMap<ServiceName, ServiceSummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ServiceSummary {
+    pub name: String,
+    pub execution_count: u32,
+    pub instances: HashMap<InstanceId, InstanceSummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct InstanceSummary {
+    pub instance_id: Uuid,
+    pub last_profile_capture_date: Option<DateTime<Utc>>,
+    pub execution_count: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

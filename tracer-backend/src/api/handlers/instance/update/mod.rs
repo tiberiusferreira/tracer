@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::State;
 use gel_io_recorder::{Error, Parameter, Transaction};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::panic::Location;
 use thiserror::Error;
 use uuid::Uuid;
@@ -33,7 +33,7 @@ pub struct DbPartialExecution {
 
 async fn process_execution_recording(
     tx: &mut Transaction,
-    instance_id: Uuid,
+    instance_service_info: &InstanceServiceInformation,
     recording: &ExecutionRecording,
 ) -> Result<(), gel_io_recorder::Error> {
     let existing_execution: Option<DbPartialExecution> = tx
@@ -49,7 +49,7 @@ async fn process_execution_recording(
             HashMap::from([
                 (
                     "service_instance_id".to_string(),
-                    Parameter::from(instance_id),
+                    Parameter::from(instance_service_info.instance_id.clone()),
                 ),
                 ("external_id".to_string(), Parameter::from(recording.id)),
             ]),
@@ -60,7 +60,7 @@ async fn process_execution_recording(
             let params = HashMap::from([
                 (
                     "service_instance",
-                    Parameter::from((instance_id, "ServiceInstance")),
+                    Parameter::from((instance_service_info.instance_id, "ServiceInstance")),
                 ),
                 ("external_id", Parameter::from(recording.id)),
                 ("started_at", Parameter::from(recording.started_at)),
@@ -72,7 +72,20 @@ async fn process_execution_recording(
                 ),
             ]);
             let execution_id = tx.insert("Execution", params).await?;
-            for (attr_name, attr_values) in &recording.attributes {
+            let mut attributes_to_insert = recording.attributes.clone();
+            attributes_to_insert.insert(
+                "instance_id".to_string(),
+                HashSet::from([instance_service_info.instance_id.to_string()]),
+            );
+            attributes_to_insert.insert(
+                "service_name".to_string(),
+                HashSet::from([instance_service_info.service_name.clone()]),
+            );
+            attributes_to_insert.insert(
+                "service_env".to_string(),
+                HashSet::from([instance_service_info.service_env.clone()]),
+            );
+            for (attr_name, attr_values) in &attributes_to_insert {
                 #[derive(Debug, Clone, Serialize, Deserialize)]
                 struct AttrName {
                     id: Uuid,
@@ -163,15 +176,26 @@ impl From<gel_io_recorder::Error> for ProcessUpdateError {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct InstanceServiceInformation {
+    service_name: String,
+    service_env: String,
+    instance_id: Uuid,
+}
+
 async fn process_update(
     tx: &mut Transaction,
     instance_snapshot: &InstanceSnapshot,
 ) -> Result<(), ProcessUpdateError> {
-    let Some(id): Option<gel_io_recorder::Id> = tx
+    let Some(instance_service_info): Option<InstanceServiceInformation> = tx
         .query_optional(
-            "select ServiceInstance filter .id=<uuid>$id",
+            "select ServiceInstance{
+  service_name := .service.name,
+  service_env := .service.env,
+  instance_id := .id,
+} filter .id=<uuid>$instance_id",
             HashMap::from([(
-                "id".to_string(),
+                "instance_id".to_string(),
                 Parameter::from(instance_snapshot.instance_id),
             )]),
         )
@@ -184,11 +208,13 @@ async fn process_update(
     };
     if let Some(profile) = &instance_snapshot.cpu_profile_base64 {
         let params = HashMap::from([("latest_profile_base64", Parameter::from(profile))]);
-        let updated = tx.update("ServiceInstance", id.id, params).await?;
+        let updated = tx
+            .update("ServiceInstance", instance_service_info.instance_id, params)
+            .await?;
         assert!(updated);
     }
     for recording in &instance_snapshot.execution_recordings {
-        process_execution_recording(&mut *tx, instance_snapshot.instance_id, recording).await?;
+        process_execution_recording(&mut *tx, &instance_service_info, recording).await?;
     }
     Ok(())
 }
