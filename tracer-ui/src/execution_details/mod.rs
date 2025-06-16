@@ -118,11 +118,15 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
                 </div>
                 <div style="border: 1px solid #444; padding: 10px; border-radius: 4px">
                     <h3 style="margin: 0 0 10px 0">"Timing"</h3>
-                    <div>
-                        <div>"Started: "{printable_local_datetime_hh_mm_ss_chrono(execution.started_at)}</div>
-                        <div>"Duration: "{duration_ms}"ms"</div>
-                        <div>"Ended: "{ended}</div>
-                        <div>"Size KB: "{execution.size_bytes/1000}</div>
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 5px">
+                        <div>"Started: "</div>
+                        <div>{printable_local_datetime_hh_mm_ss_chrono(execution.started_at)}</div>
+                        <div>"Duration: "</div>
+                        <div>{duration_ms}"ms"</div>
+                        <div>"Ended: "</div>
+                        <div>{ended}</div>
+                        <div>"Size: "</div>
+                        <div>{execution.size_bytes/1000}"KB"</div>
                     </div>
                 </div>
             </div>
@@ -362,9 +366,6 @@ fn single_event_view(
     color: String,
     event: RenderableIoEvent,
     selected_event: RwSignal<Option<RenderableIoEvent>>,
-    // scale_factor: f64,
-    // pan_x: f64,
-    // pan_y: f64,
     container_width: i32,
     container_height: i32,
 ) -> impl IntoView {
@@ -394,14 +395,11 @@ fn single_event_view(
                     } else {
                         color.as_str()
                     };
-
-
                     format!(
                         "position: absolute; height: {}px; border-radius: 2px; cursor: pointer; \
                         left: {}px; width: {}px; top: {}px; background-color: {}; transition: none;",
                         height, left, width, top, bg
                     )
-
                 }
                 on:click=move |_| selected_event.update(|prev| {
                     if prev.as_ref().map(|e| e.id) == Some(event.id) {
@@ -414,7 +412,7 @@ fn single_event_view(
 
                 <span style="font-size: medium">
                     {
-                        if event_duration_ms > 35.{
+                        if event_duration_relative_to_execution_percentage > 0.02{
                             format!("{} ms", event_duration_ms)
                         }else{
                             "".to_string()

@@ -72,8 +72,7 @@ will scale with "regular" program memory usage.
 
 ## TODO:
 
-- Fix panics causing other panics around context
-- Remove time macro and machinery behind it
+- Load indicators
 - Fix collector endpoint around diffs
 
 

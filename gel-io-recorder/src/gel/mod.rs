@@ -32,7 +32,11 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
     query_str
 }
 
-pub fn generate_update_query(table: &str, id: Uuid, columns: &HashMap<&str, Parameter>) -> String {
+pub fn generate_update_query(
+    table: &str,
+    id: Uuid,
+    columns: &HashMap<String, Parameter>,
+) -> String {
     let mut column_update_queries = vec![];
     for (name, value) in columns {
         let bind_type = match value {

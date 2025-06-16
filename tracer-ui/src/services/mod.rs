@@ -1,5 +1,5 @@
 use crate::error::TrackedGlooError;
-use crate::graph_creation::{GraphData, GraphSeries};
+use crate::graph_creation::{GraphData, GraphSeries, MyEcharts};
 use api_structs::Endpoint;
 use api_structs::ui::service::{
     AttributeSummary, EnvSummary, ExecutionHeader, ExecutionListFilters, ExecutionSummary,
@@ -7,7 +7,6 @@ use api_structs::ui::service::{
 };
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Timelike, Utc};
 use leptos::prelude::*;
-use leptos::tachys::prelude::*;
 use leptos_router::NavigateOptions;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -19,6 +18,7 @@ use tracing::info;
 
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsCast;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SelectedAttribute {
@@ -112,7 +112,7 @@ pub fn Services() -> impl IntoView {
         };
         env_summaries.envs
     });
-    let _api_service_list_request_sender = LocalResource::new(move || {
+    let api_service_list_request_sender = LocalResource::new(move || {
         let state = state_r.get();
         let attributes: HashMap<String, Option<String>> = selected_attributes_r.get();
         get_and_write_get_service_data_result(state.time_range, attributes, service_data_w)
@@ -124,7 +124,7 @@ pub fn Services() -> impl IntoView {
         if new_attr_name.is_empty() {
             return;
         }
-        let mut new_attr_val = partial_value_r.get();
+        let new_attr_val = partial_value_r.get();
         let new_attr_val = if new_attr_val.is_empty() {
             None
         } else {
@@ -258,9 +258,7 @@ pub fn Services() -> impl IntoView {
 
     view! {
         <div id="service-root" style="min-height:90vh; display: grid; align-content: start; column-gap: 15px; margin: 30px; color: white">
-            <GlobalSelector/>
-            <div id="overall-view" style="margin-top: 20px; ">
-                <Visualizations set_time_bucket=set_time_bucket service_data_r=service_data_r time_range_r=time_range_r set_time_range=set_time_range/>
+            <div id="overall-view">
                 <ServiceSelector env_summaries=env_summaries/>
                 <div>
                     <div id="attributes-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 450px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll" >
@@ -290,6 +288,7 @@ pub fn Services() -> impl IntoView {
                         </div>
                     </div>
                 </div>
+                <Visualizations current_time_bucket=current_time_bucket set_time_bucket=set_time_bucket service_data_r=service_data_r time_range_r=time_range_r set_time_range=set_time_range/>
                 <div id="grid-and-filters" style="display: grid; grid-template-columns: 4fr 0fr; margin: 0 0 100px 0">
                     <div id="trace-grid"  style="resize: vertical; min-height: 150px; margin: 0 0 0 0; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;">
                         <div style="margin: 5px 0 0 0; padding: 7px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 10px; overflow: scroll;">
@@ -376,11 +375,44 @@ fn SeverityFilter() -> impl IntoView {
     }
 }
 
+fn bucket_selection_effect(
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
+    action: Action<GraphData, MyEcharts>,
+    buckets: Vec<DateTime<Utc>>,
+) -> Effect<LocalStorage> {
+    Effect::new(move || {
+        if let Some(new_time_bucket) = current_time_bucket.get() {
+            if let Some(echarts) = action.value().get() {
+                let dispatch_action = js_sys::Reflect::get(&echarts.val, &"dispatchAction".into())
+                    .expect("Object should have 'dispatchAction' method")
+                    .dyn_into::<js_sys::Function>()
+                    .unwrap();
+                let Some(pos) = buckets.iter().position(|e| e == &new_time_bucket) else {
+                    return;
+                };
+
+                let val = js_sys::JSON::parse(&format!(
+                    r#"{{
+                "type": "select",
+                "dataIndex": {pos}
+            }}"#
+                ))
+                .unwrap();
+                dispatch_action
+                    .call1(&echarts.val, &val)
+                    .expect("Failed to call 'set_option' method");
+            }
+        }
+    })
+}
 fn service_graph(
     execution_summary: &SummariesForGraph,
     set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
+    let effect_buckets = execution_summary.buckets.clone();
+    let effect = bucket_selection_effect(current_time_bucket, action, effect_buckets);
     let series = GraphSeries {
         name: "my series".to_string(),
         x_values: execution_summary
@@ -436,8 +468,11 @@ fn service_graph(
 fn requests_graph(
     execution_summary: &SummariesForGraph,
     set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
+    let effect_buckets = execution_summary.buckets.clone();
+    let effect = bucket_selection_effect(current_time_bucket, action, effect_buckets);
     let series = GraphSeries {
         name: "requests".to_string(),
         x_values: execution_summary
@@ -492,8 +527,11 @@ fn requests_graph(
 fn size_graph(
     execution_summary: &SummariesForGraph,
     set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
+    let effect_buckets = execution_summary.buckets.clone();
+    let _effect = bucket_selection_effect(current_time_bucket, action, effect_buckets);
     let series = GraphSeries {
         name: "size".to_string(),
         x_values: execution_summary
@@ -553,8 +591,11 @@ fn size_graph(
 fn duration_graph(
     execution_summary: &SummariesForGraph,
     set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
 ) -> AnyView {
     let action = crate::graph_creation::create_create_chart_action();
+    let effect_buckets = execution_summary.buckets.clone();
+    let _effect = bucket_selection_effect(current_time_bucket, action, effect_buckets);
     let series = GraphSeries {
         name: "duration".to_string(),
         x_values: execution_summary
@@ -615,6 +656,7 @@ fn duration_graph(
 
 #[component]
 fn Visualizations(
+    current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
     service_data_r: ReadSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
     time_range_r: Signal<TimeRange, LocalStorage>,
     set_time_bucket: SignalSetter<Option<DateTime<Utc>>, LocalStorage>,
@@ -629,7 +671,7 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => service_graph(&data, set_time_bucket),
+            Ok(data) => service_graph(&data, set_time_bucket, current_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -645,7 +687,9 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => crate::services::requests_graph(&data, set_time_bucket),
+            Ok(data) => {
+                crate::services::requests_graph(&data, set_time_bucket, current_time_bucket)
+            }
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -662,7 +706,7 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => crate::services::size_graph(&data, set_time_bucket),
+            Ok(data) => crate::services::size_graph(&data, set_time_bucket, current_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -679,7 +723,9 @@ fn Visualizations(
             .into_any()
         }
         Some(value) => match value {
-            Ok(data) => crate::services::duration_graph(&data, set_time_bucket),
+            Ok(data) => {
+                crate::services::duration_graph(&data, set_time_bucket, current_time_bucket)
+            }
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
@@ -730,7 +776,7 @@ fn ServiceSelector(
         rows
     };
     view! {
-        <div id="service-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 250px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
+        <div id="service-selector" style="background-color: #29290645; resize: vertical; height: 250px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
             <div id="env-service-list">
                 {rows}
             </div>

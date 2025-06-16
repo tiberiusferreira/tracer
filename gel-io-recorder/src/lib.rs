@@ -316,23 +316,24 @@ fn parameter_map_as_json_value(columns: &HashMap<String, Parameter>) -> serde_js
 }
 
 impl Transaction {
-    pub async fn insert(
+    pub async fn insert<IntoString: Into<String>>(
         &mut self,
         table: &str,
-        columns: HashMap<&str, Parameter>,
+        columns: HashMap<IntoString, Parameter>,
     ) -> Result<Uuid, Error> {
-        let columns: HashMap<String, Parameter> = columns
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+        let columns: HashMap<String, Parameter> =
+            columns.into_iter().map(|(k, v)| (k.into(), v)).collect();
         let query = gel::generate_insert_query(table, &columns);
-        let id: Id = self.query_required_single(&query, columns.clone()).await?;
+        let inserted_entity_id: Id = self.query_required_single(&query, columns.clone()).await?;
 
         let new = parameter_map_as_json_value(&columns);
         let execution_external_id = get_current_execution().unwrap();
         let args = HashMap::from([
             ("entity_name".to_string(), Parameter::from(table)),
-            ("entity_id".to_string(), Parameter::from(id.id)),
+            (
+                "entity_id".to_string(),
+                Parameter::from(inserted_entity_id.id),
+            ),
             (
                 "execution_external_id".to_string(),
                 Parameter::from(execution_external_id),
@@ -351,35 +352,33 @@ impl Transaction {
                 args,
             )
             .await?;
-        Ok(id.id)
+        Ok(inserted_entity_id.id)
     }
 
     // True if an entity was updated
-    pub async fn update(
+    pub async fn update<IntoString: Into<String>>(
         &mut self,
         table: &str,
         id: Uuid,
-        columns: HashMap<&str, Parameter>,
+        columns: HashMap<IntoString, Parameter>,
     ) -> Result<bool, Error> {
+        let columns: HashMap<String, Parameter> =
+            columns.into_iter().map(|(k, v)| (k.into(), v)).collect();
         if columns.is_empty() {
             return Ok(false);
         }
-        let keys = columns
-            .keys()
-            .map(|k| k.to_string())
-            .collect::<Vec<String>>();
+        let keys = columns.keys().map(|k| k.clone()).collect::<Vec<String>>();
         let previous_state_query = gel::generate_select_query(table, id, &keys);
         let Some(old): Option<serde_json::Value> = self
-            .query_optional(&previous_state_query, HashMap::from([]))
+            .query_optional(
+                &previous_state_query,
+                HashMap::<String, Parameter>::from([]),
+            )
             .await?
         else {
             return Ok(false);
         };
         let update_query = gel::generate_update_query(table, id, &columns);
-        let columns: HashMap<String, Parameter> = columns
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
         let _id: Id = self
             .query_required_single(&update_query, columns.clone())
             .await?;
@@ -410,11 +409,16 @@ impl Transaction {
             .await?;
         Ok(true)
     }
-    pub async fn query_required_single<T: Serialize + DeserializeOwned + Clone>(
+    pub async fn query_required_single<
+        IntoString: Into<String>,
+        T: Serialize + DeserializeOwned + Clone,
+    >(
         &mut self,
         query: &str,
-        parameters: HashMap<String, Parameter>,
+        parameters: HashMap<IntoString, Parameter>,
     ) -> Result<T, Error> {
+        let parameters: HashMap<String, Parameter> =
+            parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
                 unimplemented!()
@@ -433,7 +437,8 @@ impl Transaction {
             },
         });
         let request = record_io_event_request(RECORDER_NAME, serde_json::to_value(&event).unwrap());
-        let result: Result<T, Error> = run_tx_query_required(client, query, parameters).await;
+        let result: Result<T, Error> =
+            run_tx_query_single_required(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
@@ -449,11 +454,16 @@ impl Transaction {
         result
     }
 
-    pub async fn query_optional<T: Serialize + DeserializeOwned + Clone>(
+    pub async fn query_optional<
+        IntoString: Into<String>,
+        T: Serialize + DeserializeOwned + Clone,
+    >(
         &mut self,
         query: &str,
-        parameters: HashMap<String, Parameter>,
+        parameters: HashMap<IntoString, Parameter>,
     ) -> Result<Option<T>, Error> {
+        let parameters: HashMap<String, Parameter> =
+            parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
         let execution_id = get_current_execution().unwrap();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
@@ -477,7 +487,7 @@ impl Transaction {
         let event_id =
             global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
         let result: Result<Option<T>, Error> =
-            run_tx_query_optional(client, query, parameters).await;
+            run_tx_query_single_optional(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
@@ -498,11 +508,16 @@ impl Transaction {
         result
     }
 
-    pub async fn query_multiple<T: Serialize + DeserializeOwned + Clone>(
+    pub async fn query_multiple<
+        IntoString: Into<String>,
+        T: Serialize + DeserializeOwned + Clone,
+    >(
         &mut self,
         query: &str,
-        parameters: HashMap<String, Parameter>,
+        parameters: HashMap<IntoString, Parameter>,
     ) -> Result<Vec<T>, Error> {
+        let parameters: HashMap<String, Parameter> =
+            parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
         let execution_id = get_current_execution().unwrap();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
@@ -525,7 +540,7 @@ impl Transaction {
         let event_json = serde_json::to_value(&event).unwrap();
         let event_id =
             global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
-        let result: Result<Vec<T>, Error> = run_query_tx(client, query, parameters).await;
+        let result: Result<Vec<T>, Error> = run_tx_query_multiple(client, query, parameters).await;
         let result_json = result
             .clone()
             .map(|value| serde_json::to_value(&value).unwrap());
@@ -634,15 +649,13 @@ impl DatabaseIoRecorder {
         }
     }
 
-    pub async fn query<T: Serialize + DeserializeOwned + Clone, AsStr: AsRef<str>>(
+    pub async fn query<SerDe: Serialize + DeserializeOwned + Clone, IntoString: Into<String>>(
         &self,
         query: &str,
-        parameters: HashMap<AsStr, Parameter>,
-    ) -> Result<T, Error> {
-        let parameters: HashMap<String, Parameter> = parameters
-            .into_iter()
-            .map(|(k, v)| (k.as_ref().to_string(), v))
-            .collect();
+        parameters: HashMap<IntoString, Parameter>,
+    ) -> Result<SerDe, Error> {
+        let parameters: HashMap<String, Parameter> =
+            parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
         let execution_id = get_current_execution().unwrap();
         let client = match &self {
             DatabaseIoRecorder::Recorded(_) => {
@@ -669,7 +682,7 @@ impl DatabaseIoRecorder {
             false,
             None,
         );
-        let result: Result<T, Error> = run_query(client, query, parameters).await;
+        let result: Result<SerDe, Error> = run_query(client, query, parameters).await;
         let res_as_json_value = result.clone().map(|v| serde_json::to_value(v).unwrap());
         let is_error = res_as_json_value.is_err();
         let event_result = IoEvent::QueryResult(QueryResult {
@@ -715,60 +728,7 @@ async fn run_query<T: Serialize + DeserializeOwned + Clone, S: Into<String>>(
     Ok(query_result)
 }
 
-async fn run_query_tx<T: Serialize + DeserializeOwned + Clone>(
-    client: &mut RawTransaction,
-    query: &str,
-    parameters: HashMap<String, Parameter>,
-) -> Result<T, Error> {
-    let gel_params = gel::params_to_gel(parameters);
-    let gel_params: HashMap<&str, ValueOpt> = gel_params
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
-        .collect();
-
-    let query_result: gel_protocol::model::Json =
-        client.query_json(query, &gel_params).await.map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: std::panic::Location::caller().to_string(),
-            }
-        })?;
-
-    let query_result: T = serde_json::from_str(&query_result)
-        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
-    Ok(query_result)
-}
-
-async fn run_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
-    client: &mut RawTransaction,
-    query: &str,
-    parameters: HashMap<String, Parameter>,
-) -> Result<T, Error> {
-    let gel_params = gel::params_to_gel(parameters);
-    let gel_params: HashMap<&str, ValueOpt> = gel_params
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
-        .collect();
-
-    let query_result: gel_protocol::model::Json = client
-        .query_required_single_json(query, &gel_params)
-        .await
-        .map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: Location::caller().to_string(),
-            }
-        })?;
-    let query_result: T = serde_json::from_str(&query_result)
-        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
-    Ok(query_result)
-}
-
-async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
+async fn run_tx_query_single_optional<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
     parameters: HashMap<String, Parameter>,
@@ -797,4 +757,57 @@ async fn run_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
     let query_result: T = serde_json::from_str(&query_result)
         .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(Some(query_result))
+}
+
+async fn run_tx_query_single_required<T: Serialize + DeserializeOwned + Clone>(
+    client: &mut RawTransaction,
+    query: &str,
+    parameters: HashMap<String, Parameter>,
+) -> Result<T, Error> {
+    let gel_params = gel::params_to_gel(parameters);
+    let gel_params: HashMap<&str, ValueOpt> = gel_params
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect();
+
+    let query_result: gel_protocol::model::Json = client
+        .query_required_single_json(query, &gel_params)
+        .await
+        .map_err(|e| {
+            let err_str = error_chain_to_pretty_formatted(&e);
+            let err_str = format!("{err_str} with query {}", query);
+            Error::Internal {
+                msg: err_str,
+                location: Location::caller().to_string(),
+            }
+        })?;
+    let query_result: T = serde_json::from_str(&query_result)
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
+    Ok(query_result)
+}
+
+async fn run_tx_query_multiple<T: Serialize + DeserializeOwned + Clone>(
+    client: &mut RawTransaction,
+    query: &str,
+    parameters: HashMap<String, Parameter>,
+) -> Result<T, Error> {
+    let gel_params = gel::params_to_gel(parameters);
+    let gel_params: HashMap<&str, ValueOpt> = gel_params
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect();
+
+    let query_result: gel_protocol::model::Json =
+        client.query_json(query, &gel_params).await.map_err(|e| {
+            let err_str = error_chain_to_pretty_formatted(&e);
+            let err_str = format!("{err_str} with query {}", query);
+            Error::Internal {
+                msg: err_str,
+                location: Location::caller().to_string(),
+            }
+        })?;
+
+    let query_result: T = serde_json::from_str(&query_result)
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
+    Ok(query_result)
 }

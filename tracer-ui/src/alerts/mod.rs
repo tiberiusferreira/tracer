@@ -43,6 +43,7 @@ pub fn Alerts() -> impl IntoView {
     let action = crate::graph_creation::create_create_chart_action();
     let (trace_warning_graph, trace_warning_graph_id) =
         crate::graph_creation::create_dom_el_ref_and_graph_call_action(data, action);
+
     view! {
          <div style="padding: 20px; color: white">
             <div id="triggered-alerts" style="resize: vertical; height: 150px; margin: 0 0 10px 0; padding: 10px; border: 2px solid white; border-radius: 10px; overflow: scroll;" >

@@ -7,6 +7,7 @@ use api_structs::ui::service::{
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
+use base64::engine::general_purpose::STANDARD_NO_PAD;
 use chrono::{DateTime, Duration, Timelike, Utc};
 use gel_io_recorder::Parameter;
 use http::{StatusCode, header};
@@ -142,13 +143,13 @@ pub async fn instance_profile(
         }),
         Some(profile) => {
             let headers = axum::response::AppendHeaders([
-                (header::CONTENT_TYPE, "application/xml".to_string()),
+                (header::CONTENT_TYPE, "image/svg+xml".to_string()),
                 (
                     header::CONTENT_DISPOSITION,
-                    format!("filename=\"{uuid}-profile.xml\""),
+                    format!("filename=\"{uuid}-profile.svg\""),
                 ),
             ]);
-            let profile = BASE64_STANDARD.decode(&profile).unwrap();
+            let profile = STANDARD_NO_PAD.decode(&profile).unwrap();
 
             Ok((headers, profile))
         }
