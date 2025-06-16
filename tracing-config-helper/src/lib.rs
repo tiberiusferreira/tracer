@@ -22,6 +22,7 @@ pub mod io_provider;
 pub use api_structs::instance::update::{ExecutionRecording, ReplayData};
 mod print_debugging;
 mod server_connection;
+
 #[derive(Debug, Clone)]
 pub struct TracerConfig {
     /// Where to send data to, should not contain a trailing /

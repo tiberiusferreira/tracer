@@ -22,7 +22,7 @@ thiserror = { workspace = true }
 serde.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
-
+base64.workspace = true
 api-structs = { path = "../api-structs" }
 tracked_error = { path = "../tracked_error", features = ["gel-tokio"] }
 http = "1"

@@ -5,9 +5,11 @@ use api_structs::ui::service::{
     InstanceSummary, RequestsSummary, ServiceSummary, SizeBytesSummary, SummariesForGraph,
 };
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
+use axum::response::IntoResponse;
 use chrono::{DateTime, Duration, Timelike, Utc};
 use gel_io_recorder::Parameter;
+use http::{StatusCode, header};
 use serde::{Deserialize, Serialize};
 use std::cmp::max_by;
 use std::collections::HashMap;
@@ -103,6 +105,55 @@ filter
     Ok(Json(executions))
 }
 
+#[derive(Deserialize)]
+pub struct InstanceProfileQuery {
+    pub instance_id: Uuid,
+}
+use base64::prelude::*;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct InstanceProfile {
+    pub latest_profile_base64: Option<String>,
+}
+pub async fn instance_profile(
+    State(app_state): State<AppState>,
+    Query(query): Query<InstanceProfileQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let uuid = query.instance_id;
+    let db = app_state.execution_io_provider.database();
+    let mut tx = db.transaction_start().await;
+    let instance_profile: Option<InstanceProfile> = tx
+        .query_optional(
+            "select ServiceInstance{
+  latest_profile_base64
+} filter .id=<uuid>$instance_id",
+            HashMap::from([("instance_id".to_string(), Parameter::from(uuid))]),
+        )
+        .await?;
+    let Some(instance_profile) = instance_profile else {
+        return Err(ApiError {
+            code: StatusCode::NOT_FOUND,
+            message: "Service Instance not found".to_string(),
+        });
+    };
+    match instance_profile.latest_profile_base64 {
+        None => Err(ApiError {
+            code: StatusCode::NOT_FOUND,
+            message: "Service Instance has no profile".to_string(),
+        }),
+        Some(profile) => {
+            let headers = axum::response::AppendHeaders([
+                (header::CONTENT_TYPE, "application/xml".to_string()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("filename=\"{uuid}-profile.xml\""),
+                ),
+            ]);
+            let profile = BASE64_STANDARD.decode(&profile).unwrap();
+
+            Ok((headers, profile))
+        }
+    }
+}
 pub async fn summaries_for_graph(
     State(app_state): State<AppState>,
     Json(filters): Json<api_structs::ui::service::SummaryFilters>,
@@ -148,6 +199,8 @@ select Execution{{
   service_env := .service_instance.service.env,
   service_name := .service_instance.service.name,
   instance_id := .service_instance.id,
+  instance_created_at := .service_instance.registered_at,
+  has_cpu_profile := exists .service_instance.latest_profile_base64,
   started_at,
   last_seen_at,
   size_bytes,
@@ -183,6 +236,8 @@ select Execution{{
         pub id: Uuid,
         pub service_env: String,
         pub service_name: String,
+        pub instance_created_at: DateTime<Utc>,
+        pub has_cpu_profile: bool,
         pub instance_id: Uuid,
         pub started_at: DateTime<Utc>,
         pub last_seen_at: DateTime<Utc>,
@@ -257,7 +312,7 @@ select Execution{{
                 .envs
                 .entry(e.service_env.clone())
                 .or_insert(EnvSummary {
-                    name: e.service_name.clone(),
+                    name: e.service_env.clone(),
                     execution_count: 0,
                     services: HashMap::new(),
                 });
@@ -276,7 +331,8 @@ select Execution{{
                 .entry(e.instance_id)
                 .or_insert(InstanceSummary {
                     instance_id: e.instance_id,
-                    last_profile_capture_date: None,
+                    created_at: e.instance_created_at,
+                    has_cpu_profile: e.has_cpu_profile,
                     execution_count: 0,
                 });
             instance.execution_count += 1;

@@ -72,7 +72,8 @@ pub struct ServiceSummary {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InstanceSummary {
     pub instance_id: Uuid,
-    pub last_profile_capture_date: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub has_cpu_profile: bool,
     pub execution_count: u32,
 }
 

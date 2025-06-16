@@ -180,6 +180,10 @@ pub fn create_router(app_state: AppState) -> Router<()> {
             axum::routing::post(handlers::ui::service::summaries_for_graph),
         )
         .route(
+            "/instance-profile",
+            axum::routing::get(handlers::ui::service::instance_profile),
+        )
+        .route(
             "/execution_list",
             axum::routing::post(handlers::ui::service::execution_list),
         )

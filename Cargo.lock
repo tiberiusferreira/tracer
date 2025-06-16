@@ -4325,6 +4325,7 @@ version = "0.1.0"
 dependencies = [
  "api-structs",
  "axum",
+ "base64",
  "chrono",
  "clap",
  "dotenvy",

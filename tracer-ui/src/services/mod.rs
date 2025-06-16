@@ -2,8 +2,8 @@ use crate::error::TrackedGlooError;
 use crate::graph_creation::{GraphData, GraphSeries};
 use api_structs::Endpoint;
 use api_structs::ui::service::{
-    AttributeSummary, ExecutionHeader, ExecutionListFilters, ExecutionSummary, SummariesForGraph,
-    SummaryFilters,
+    AttributeSummary, EnvSummary, ExecutionHeader, ExecutionListFilters, ExecutionSummary,
+    InstanceSummary, ServiceSummary, SummariesForGraph, SummaryFilters,
 };
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Timelike, Utc};
 use leptos::prelude::*;
@@ -106,6 +106,12 @@ pub fn Services() -> impl IntoView {
     });
     let (service_data_r, service_data_w) =
         signal_local::<Option<Result<SummariesForGraph, TrackedGlooError>>>(None);
+    let env_summaries = Signal::derive_local(move || {
+        let Some(Ok(env_summaries)) = service_data_r.get() else {
+            return HashMap::new();
+        };
+        env_summaries.envs
+    });
     let _api_service_list_request_sender = LocalResource::new(move || {
         let state = state_r.get();
         let attributes: HashMap<String, Option<String>> = selected_attributes_r.get();
@@ -195,7 +201,6 @@ pub fn Services() -> impl IntoView {
         }
         _ => view! {
             <div id="attr-name-checkbox-list">
-
             </div>
         }
         .into_any(),
@@ -256,11 +261,11 @@ pub fn Services() -> impl IntoView {
             <GlobalSelector/>
             <div id="overall-view" style="margin-top: 20px; ">
                 <Visualizations set_time_bucket=set_time_bucket service_data_r=service_data_r time_range_r=time_range_r set_time_range=set_time_range/>
-                <ServiceSelector/>
+                <ServiceSelector env_summaries=env_summaries/>
                 <div>
-                    <div id="attributes-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 350px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll" >
+                    <div id="attributes-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 450px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll" >
                         <div style="display: flex; height:60%">
-                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px; overflow: hidden; max-height:100%">
+                            <div style="margin: 0px 10px 10px 0; border: solid 1px white; border-radius: 5px; padding: 5px; overflow: scroll; max-height:100%">
                                 <input type="text" size="40" bind:value=(partial_name_r, partial_name_w) id="attr-name" list="attribute-name-list" placeholder="Attribute Name" name="attribute-selector" />
                                 <div style="overflow: scroll">
                                     {attribute_name_selection_list}
@@ -714,17 +719,97 @@ fn Visualizations(
     }
 }
 #[component]
-fn ServiceSelector() -> impl IntoView {
+fn ServiceSelector(
+    env_summaries: Signal<HashMap<String, EnvSummary>, LocalStorage>,
+) -> impl IntoView {
+    let rows = move || {
+        let mut rows = vec![];
+        for env in env_summaries.get().into_values() {
+            rows.push(env_view(env));
+        }
+        rows
+    };
     view! {
-        <div id="service-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 150px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
-            <div style="margin: 0px 0 10px 0">
-                <input type="text" id="service-name" list="service-list" placeholder="Filter services" name="service-name-selector" />
-            </div>
+        <div id="service-selector" style="background-color: #29290645; resize: vertical; margin-top: 20px; height: 250px; padding: 7px; border: 1px solid white; border-radius: 10px; overflow: scroll;" >
             <div id="env-service-list">
-                <ServiceInfo/>
-                <ServiceInfo/>
+                {rows}
             </div>
         </div>
+    }
+}
+
+fn env_view(env: EnvSummary) -> impl IntoView {
+    let name = env.name;
+    let count = env.execution_count;
+    let services: Vec<_> = env
+        .services
+        .into_values()
+        .map(|e| service_view(e))
+        .collect();
+    view! {
+        <div id="single-env-info">
+            <div id="env-info">
+                <span>{format!("{name} - {count}")}</span>
+            </div>
+            <ul style="margin: 5px 0 0 0">
+                <li style="margin: 5px 0 0 0">
+                    {services}
+                </li>
+            </ul>
+        </div>
+    }
+}
+
+fn service_view(service: ServiceSummary) -> impl IntoView {
+    let name = service.name;
+    let count = service.execution_count;
+    let mut instances: Vec<_> = service.instances.into_values().collect();
+    instances.sort_by_key(|e| e.created_at);
+    instances.reverse();
+    let instances: Vec<_> = instances.into_iter().map(|e| instance_view(e)).collect();
+    view! {
+        <div id="service-info">
+            <span>{format!("{name} - {count}")}</span>
+        </div>
+        <div id="service-instance-list">
+            <ul style="margin: 5px 0 0 0">
+                {instances}
+            </ul>
+        </div>
+    }
+}
+fn instance_view(instance: InstanceSummary) -> impl IntoView {
+    let name = instance.instance_id;
+    let count = instance.execution_count;
+    let now = Utc::now();
+    let age_hours = (now - instance.created_at).num_hours();
+    let age_minutes = (now - instance.created_at).num_minutes() % 60;
+    let instance_id = instance.instance_id.to_string();
+    // http://127.0.0.1:4200/api/ui/service/instance-profile?instance_id=2312
+    let url = format!(
+        "{API_SERVER_URL_NO_TRAILING_SLASH}/api/ui/service/instance-profile?instance_id={instance_id}"
+    );
+    let disabled = if instance.has_cpu_profile {
+        view! {
+            <a href={url}>"CPU Profile"</a>
+        }
+        .into_any()
+    } else {
+        view! {
+            <a style="pointer-events: none">"No Profile Yet"</a>
+        }
+        .into_any()
+    };
+    view! {
+        <li style="margin: 5px 0 0 0">
+            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
+            <span style="font-family: monospace; white-space: preserve">
+                {format!("{name} age {age_hours:>2}h {age_minutes:>2}m {count:>4}")}
+            </span>
+            <div style="display: inline; margin-left: 15px">
+                {disabled}
+            </div>
+        </li>
     }
 }
 
