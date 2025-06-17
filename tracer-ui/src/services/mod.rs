@@ -167,9 +167,14 @@ pub fn Services() -> impl IntoView {
     };
 
     let set_time_bucket = SignalSetter::map(move |time_bucket: Option<DateTime<Utc>>| {
-        let mut new = state_r.get_untracked();
-        new.current_selected_bucket = time_bucket;
-        query_params_w.set(Some(serde_json::to_string(&new).unwrap()));
+        let mut current = state_r.get_untracked();
+        if current.current_selected_bucket == time_bucket {
+            current.current_selected_bucket = None;
+            query_params_w.set(Some(serde_json::to_string(&current).unwrap()));
+        } else {
+            current.current_selected_bucket = time_bucket;
+            query_params_w.set(Some(serde_json::to_string(&current).unwrap()));
+        }
     });
 
     let attribute_name_selection_list = move || match service_data_r.get() {
@@ -381,27 +386,33 @@ fn bucket_selection_effect(
     buckets: Vec<DateTime<Utc>>,
 ) -> Effect<LocalStorage> {
     Effect::new(move || {
-        if let Some(new_time_bucket) = current_time_bucket.get() {
-            if let Some(echarts) = action.value().get() {
-                let dispatch_action = js_sys::Reflect::get(&echarts.val, &"dispatchAction".into())
-                    .expect("Object should have 'dispatchAction' method")
-                    .dyn_into::<js_sys::Function>()
-                    .unwrap();
+        if let Some(echarts) = action.value().get() {
+            let dispatch_action = js_sys::Reflect::get(&echarts.val, &"dispatchAction".into())
+                .expect("Object should have 'dispatchAction' method")
+                .dyn_into::<js_sys::Function>()
+                .unwrap();
+            let val = if let Some(new_time_bucket) = current_time_bucket.get() {
                 let Some(pos) = buckets.iter().position(|e| e == &new_time_bucket) else {
                     return;
                 };
-
-                let val = js_sys::JSON::parse(&format!(
+                js_sys::JSON::parse(&format!(
                     r#"{{
                 "type": "select",
                 "dataIndex": {pos}
             }}"#
                 ))
-                .unwrap();
-                dispatch_action
-                    .call1(&echarts.val, &val)
-                    .expect("Failed to call 'set_option' method");
-            }
+                .unwrap()
+            } else {
+                js_sys::JSON::parse(&format!(
+                    r#"{{
+                "type": "select"
+            }}"#
+                ))
+                .unwrap()
+            };
+            dispatch_action
+                .call1(&echarts.val, &val)
+                .expect("Failed to call 'set_option' method");
         }
     })
 }
