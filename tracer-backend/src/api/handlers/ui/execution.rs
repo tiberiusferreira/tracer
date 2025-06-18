@@ -20,7 +20,7 @@ pub(crate) async fn get_single_execution(
 ) -> Result<Json<Execution>, ApiError> {
     let execution_external_id = query.id;
     let db = app_state.execution_io_provider.database();
-    let mut tx = db.transaction_start().await;
+    let mut tx = db.transaction_start().await?;
     let execution: Option<Execution> = tx
         .query_optional(
             "select Execution{

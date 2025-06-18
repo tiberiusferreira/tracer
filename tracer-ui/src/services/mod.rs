@@ -859,7 +859,6 @@ fn instance_view(instance: InstanceSummary) -> impl IntoView {
     };
     view! {
         <li style="margin: 5px 0 0 0">
-            <input type="checkbox" style="display: inline" id="scales" name="scales" checked />
             <span style="font-family: monospace; white-space: preserve">
                 {format!("{name} age {age_hours:>2}h {age_minutes:>2}m {count:>4}")}
             </span>

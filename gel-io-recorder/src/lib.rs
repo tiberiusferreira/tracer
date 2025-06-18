@@ -4,17 +4,30 @@ use gel_tokio::RawTransaction;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Write;
 use std::panic::Location;
 use thiserror::Error;
-use tracing_config_helper::io_provider::execution_recorder::{
-    get_current_execution, get_global_collector,
-};
-use tracing_config_helper::io_provider::record_io_event_request;
+use tracing_config_helper::io_provider::execution_recorder::get_current_execution;
+use tracing_config_helper::io_provider::{IoEventRequest, record_io_event_request};
 use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
 
 pub const RECORDER_NAME: &str = "Gel";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum IoEvent {
+    QueryRequest(QueryRequest),
+    QueryResult(QueryResult),
+    TxStartRequest,
+    TxStartResult(TxStartResult),
+    TxCommitRequest(TxCommitRequest),
+    TxCommitResult(TxCommitResult),
+}
+
+impl IoEvent {
+    pub fn as_json(&self) -> serde_json::Value {
+        serde_json::to_value(self).expect("io req should always be serializable")
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryWithParameters {
@@ -25,60 +38,34 @@ pub struct QueryWithParameters {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QueryType {
-    Plain,
-    RequiredSingle,
     Optional,
+    RequiredSingle,
+    Multiple,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueryRequest {
-    pub id: Uuid,
     pub tx_id: Option<Uuid>,
-    pub started_at: DateTime<Utc>,
-    pub query_with_parameters: QueryWithParameters,
+    pub query_text: String,
+    pub query_type: QueryType,
+    pub parameters: HashMap<String, Parameter>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct QueryResult {
-    pub id: Uuid,
-    pub ended_at: DateTime<Utc>,
-    pub result: Result<serde_json::Value, Error>,
-}
+pub struct QueryResult(Result<serde_json::Value, Error>);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TxCommit {
-    pub id: Uuid,
+pub struct TxCommitRequest {
     pub tx_id: Uuid,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TxStartRequest {
-    pub id: Uuid,
 }
 
 pub type TxId = Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TxStartResult {
-    pub id: Uuid,
-    pub result: Result<TxId, Error>,
-}
+pub struct TxStartResult(Result<TxId, Error>);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TxCommitResult {
-    pub id: Uuid,
-    pub tx_id: Uuid,
-    pub result: Result<(), Error>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum IoEvent {
-    QueryRequest(QueryRequest),
-    QueryResult(QueryResult),
-    TxStartRequest(TxStartRequest),
-    TxStartResult(TxStartResult),
-    TxCommitRequest(TxCommit),
-    TxCommitResult(TxCommitResult),
-}
+pub struct TxCommitResult(Result<(), Error>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Id {
@@ -97,10 +84,6 @@ pub enum Error {
 impl Error {
     #[track_caller]
     fn from_serde_json(query_text: &str, value: &str, err: serde_json::Error) -> Self {
-        std::fs::File::create("error.txt")
-            .unwrap()
-            .write_all(value.as_bytes())
-            .unwrap();
         let err = error_chain_to_pretty_formatted(&err);
         let error = format!(
             "Error: {err}\n\nQuery:\n\n{query_text}\n\nValue being deserialized:\n\n{value}"
@@ -284,6 +267,7 @@ pub struct Transaction {
 
 fn parameter_map_as_json_value(columns: &HashMap<String, Parameter>) -> serde_json::Value {
     let mut new = serde_json::map::Map::new();
+    let err = "parameter serialization should never fail";
     for (k, v) in columns {
         match v {
             Parameter::Uuid { val, .. } => {
@@ -293,26 +277,56 @@ fn parameter_map_as_json_value(columns: &HashMap<String, Parameter>) -> serde_js
                 );
             }
             Parameter::String(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
             }
             Parameter::I32(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
             }
             Parameter::Json(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
             }
             Parameter::Datetime(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
             }
             Parameter::Bool(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
             }
             Parameter::Date(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).unwrap());
+                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
             }
         }
     }
     serde_json::Value::Object(new)
+}
+
+fn generate_entity_change_query(
+    execution_external_id: Uuid,
+    entity_name: &str,
+    entity_id: Uuid,
+    old: Option<serde_json::Value>,
+    new: serde_json::Value,
+) -> QueryWithParameters {
+    let args = HashMap::from([
+        ("entity_name".to_string(), Parameter::from(entity_name)),
+        ("entity_id".to_string(), Parameter::from(entity_id)),
+        (
+            "execution_external_id".to_string(),
+            Parameter::from(execution_external_id),
+        ),
+        ("old".to_string(), Parameter::from(old)),
+        ("new".to_string(), Parameter::from(new)),
+    ]);
+    let query = "insert EntityChange{
+    entity_name := <str>$entity_name,
+    entity_id := <uuid>$entity_id,
+    execution_external_id := <uuid>$execution_external_id,
+    new := <json>$new
+};";
+    QueryWithParameters {
+        query_text: query.to_string(),
+        query_type: QueryType::RequiredSingle,
+        parameters: args,
+    }
 }
 
 impl Transaction {
@@ -325,37 +339,23 @@ impl Transaction {
             columns.into_iter().map(|(k, v)| (k.into(), v)).collect();
         let query = gel::generate_insert_query(table, &columns);
         let inserted_entity_id: Id = self.query_required_single(&query, columns.clone()).await?;
-
-        let new = parameter_map_as_json_value(&columns);
-        let execution_external_id = get_current_execution().unwrap();
-        let args = HashMap::from([
-            ("entity_name".to_string(), Parameter::from(table)),
-            (
-                "entity_id".to_string(),
-                Parameter::from(inserted_entity_id.id),
-            ),
-            (
-                "execution_external_id".to_string(),
-                Parameter::from(execution_external_id),
-            ),
-            ("new".to_string(), Parameter::from(new)),
-        ]);
-
-        let _id: Id = self
-            .query_required_single(
-                "insert EntityChange{
-    entity_name := <str>$entity_name,
-    entity_id := <uuid>$entity_id,
-    execution_external_id := <uuid>$execution_external_id,
-    new := <json>$new
-};",
-                args,
-            )
-            .await?;
+        if let Some(execution_external_id) = get_current_execution() {
+            let new = parameter_map_as_json_value(&columns);
+            let query_with_params = generate_entity_change_query(
+                execution_external_id,
+                table,
+                inserted_entity_id.id,
+                None,
+                new,
+            );
+            let _id: Id = self
+                .query_required_single(&query_with_params.query_text, query_with_params.parameters)
+                .await?;
+        }
         Ok(inserted_entity_id.id)
     }
 
-    // True if an entity was updated
+    // True if an entity was updated. It might not exist or the update data could be empty.
     pub async fn update<IntoString: Into<String>>(
         &mut self,
         table: &str,
@@ -383,30 +383,13 @@ impl Transaction {
             .query_required_single(&update_query, columns.clone())
             .await?;
         let new = parameter_map_as_json_value(&columns);
-        let execution_external_id = get_current_execution().unwrap();
-        let args = HashMap::from([
-            ("entity_name".to_string(), Parameter::from(table)),
-            ("entity_id".to_string(), Parameter::from(id)),
-            (
-                "execution_external_id".to_string(),
-                Parameter::from(execution_external_id),
-            ),
-            ("old".to_string(), Parameter::from(old)),
-            ("new".to_string(), Parameter::from(new)),
-        ]);
-
-        let _id: Id = self
-            .query_required_single(
-                "insert EntityChange{
-            entity_name := <str>$entity_name,
-            entity_id := <uuid>$entity_id,
-            execution_external_id := <uuid>$execution_external_id,
-            old := <json>$old,
-            new := <json>$new
-        };",
-                args,
-            )
-            .await?;
+        if let Some(execution_external_id) = get_current_execution() {
+            let query_with_params =
+                generate_entity_change_query(execution_external_id, table, id, Some(old), new);
+            let _id: Id = self
+                .query_required_single(&query_with_params.query_text, query_with_params.parameters)
+                .await?;
+        }
         Ok(true)
     }
     pub async fn query_required_single<
@@ -425,33 +408,19 @@ impl Transaction {
             }
             TransactionIoProvider::Live(tx) => tx,
         };
-        let query_id = Uuid::new_v4();
-        let event = IoEvent::QueryRequest(QueryRequest {
-            id: query_id,
+        let io_req = IoEvent::QueryRequest(QueryRequest {
             tx_id: Some(self.id),
-            started_at: Utc::now(),
-            query_with_parameters: QueryWithParameters {
-                query_text: query.to_string(),
-                query_type: QueryType::RequiredSingle,
-                parameters: parameters.clone(),
-            },
+            query_text: query.to_string(),
+            query_type: QueryType::RequiredSingle,
+            parameters: parameters.clone(),
         });
-        let request = record_io_event_request(RECORDER_NAME, serde_json::to_value(&event).unwrap());
-        let result: Result<T, Error> =
-            run_tx_query_single_required(client, query, parameters).await;
-        let result_json = result
-            .clone()
-            .map(|value| serde_json::to_value(&value).unwrap());
-        let is_err = result_json.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult {
-            id: query_id,
-            ended_at: Utc::now(),
-            result: result_json,
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req.as_json());
+        let raw_io_response: Result<T, Error> =
+            raw_tx_query_required(client, query, parameters).await;
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
         });
-        let event_result_json = serde_json::to_value(&event_result).unwrap();
-        request.record_response(event_result_json, is_err);
-
-        result
+        raw_io_response
     }
 
     pub async fn query_optional<
@@ -464,48 +433,26 @@ impl Transaction {
     ) -> Result<Option<T>, Error> {
         let parameters: HashMap<String, Parameter> =
             parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
-        let execution_id = get_current_execution().unwrap();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
                 unimplemented!()
             }
             TransactionIoProvider::Live(tx) => tx,
         };
-        let global_collector = get_global_collector();
-        let query_id = Uuid::new_v4();
-        let event = IoEvent::QueryRequest(QueryRequest {
-            id: query_id,
+        let io_request = IoEvent::QueryRequest(QueryRequest {
             tx_id: Some(self.id),
-            started_at: Utc::now(),
-            query_with_parameters: QueryWithParameters {
-                query_text: query.to_string(),
-                query_type: QueryType::Optional,
-                parameters: parameters.clone(),
-            },
+            query_text: query.to_string(),
+            query_type: QueryType::Optional,
+            parameters: parameters.clone(),
         });
-        let event_json = serde_json::to_value(&event).unwrap();
-        let event_id =
-            global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
-        let result: Result<Option<T>, Error> =
-            run_tx_query_single_optional(client, query, parameters).await;
-        let result_json = result
-            .clone()
-            .map(|value| serde_json::to_value(&value).unwrap());
-        let is_err = result_json.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult {
-            id: query_id,
-            ended_at: Utc::now(),
-            result: result_json,
+        let io_req_json = io_request.as_json();
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let raw_io_response: Result<Option<T>, Error> =
+            raw_tx_query_optional(client, query, parameters).await;
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
         });
-        let event_result_json = serde_json::to_value(&event_result).unwrap();
-        global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            event_result_json,
-            is_err,
-            Some(event_id),
-        );
-        result
+        raw_io_response
     }
 
     pub async fn query_multiple<
@@ -518,114 +465,69 @@ impl Transaction {
     ) -> Result<Vec<T>, Error> {
         let parameters: HashMap<String, Parameter> =
             parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
-        let execution_id = get_current_execution().unwrap();
         let client = match &mut self.tx {
             TransactionIoProvider::Recorded(_) => {
                 unimplemented!()
             }
             TransactionIoProvider::Live(tx) => tx,
         };
-        let global_collector = get_global_collector();
-        let query_id = Uuid::new_v4();
-        let event = IoEvent::QueryRequest(QueryRequest {
-            id: query_id,
+        let io_request = IoEvent::QueryRequest(QueryRequest {
             tx_id: Some(self.id),
-            started_at: Utc::now(),
-            query_with_parameters: QueryWithParameters {
-                query_text: query.to_string(),
-                query_type: QueryType::Plain,
-                parameters: parameters.clone(),
-            },
+            query_text: query.to_string(),
+            query_type: QueryType::Multiple,
+            parameters: parameters.clone(),
         });
-        let event_json = serde_json::to_value(&event).unwrap();
-        let event_id =
-            global_collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
-        let result: Result<Vec<T>, Error> = run_tx_query_multiple(client, query, parameters).await;
-        let result_json = result
-            .clone()
-            .map(|value| serde_json::to_value(&value).unwrap());
-        let is_error = result_json.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult {
-            id: query_id,
-            ended_at: Utc::now(),
-            result: result_json,
+        let io_request_json = io_request.as_json();
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_request_json);
+        let raw_io_response: Result<Vec<T>, Error> =
+            raw_tx_query_multiple(client, query, parameters).await;
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
         });
-        let event_result_json = serde_json::to_value(&event_result).unwrap();
-        global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            event_result_json,
-            is_error,
-            Some(event_id),
-        );
-        result
+
+        raw_io_response
     }
     pub async fn commit(self) -> Result<(), Error> {
-        let execution_id = get_current_execution().unwrap();
-        let global_collector = get_global_collector();
         let tx = match self.tx {
             TransactionIoProvider::Recorded(_) => {
                 unimplemented!()
             }
             TransactionIoProvider::Live(tx) => tx,
         };
-        let id = uuid::Uuid::new_v4();
-        let event = IoEvent::TxCommitRequest(TxCommit { id, tx_id: self.id });
-        let event_id = global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            serde_json::to_value(&event).unwrap(),
-            false,
-            None,
-        );
-        let res = tx.commit().await.map_err(|e| {
+        let io_req = IoEvent::TxCommitRequest(TxCommitRequest { tx_id: self.id });
+        let io_req_json = io_req.as_json();
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let raw_io_response = tx.commit().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
             Error::Internal {
                 msg: err_str,
-                location: std::panic::Location::caller().to_string(),
+                location: Location::caller().to_string(),
             }
         });
-        let is_error = res.is_err();
-        let event_result = IoEvent::TxCommitResult(TxCommitResult {
-            id,
-            tx_id: self.id,
-            result: res.clone(),
-        });
-        global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            serde_json::to_value(&event_result).unwrap(),
-            is_error,
-            Some(event_id),
-        );
-        res
+        let is_err = raw_io_response.is_err();
+        let io_response = IoEvent::TxCommitResult(TxCommitResult(raw_io_response.clone()));
+        let io_response_json = io_response.as_json();
+        maybe_recorded_io_req
+            .map(|recorded_io_req| recorded_io_req.record_response(io_response_json, is_err));
+        raw_io_response
     }
 }
 impl DatabaseIoRecorder {
-    pub async fn transaction_start(&self) -> Transaction {
-        let execution_id = get_current_execution().unwrap();
+    pub async fn transaction_start(&self) -> Result<Transaction, Error> {
         let client = match &self {
             DatabaseIoRecorder::Recorded(_) => {
                 unimplemented!()
             }
             DatabaseIoRecorder::Live(client) => client,
         };
-        let global_collector = get_global_collector();
-        let id = Uuid::new_v4();
-        let event = IoEvent::TxStartRequest(TxStartRequest { id });
-        let event_id = global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            serde_json::to_value(&event).unwrap(),
-            false,
-            None,
-        );
+        let event = IoEvent::TxStartRequest;
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, event.as_json());
         let tx = client.transaction_raw().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
             let err_str = format!("{err_str} start tx");
             Error::Internal {
                 msg: err_str,
-                location: std::panic::Location::caller().to_string(),
+                location: Location::caller().to_string(),
             }
         });
         let tx_id = Uuid::new_v4();
@@ -635,100 +537,173 @@ impl DatabaseIoRecorder {
             Ok(tx_id)
         };
         let is_error = result.is_err();
-        let event_result = IoEvent::TxStartResult(TxStartResult { id, result });
-        global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            serde_json::to_value(&event_result).unwrap(),
-            is_error,
-            Some(event_id),
-        );
-        Transaction {
+        let raw_io_response = IoEvent::TxStartResult(TxStartResult(result));
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            recorded_io_req.record_response(raw_io_response.as_json(), is_error)
+        });
+        Ok(Transaction {
             id: tx_id,
-            tx: TransactionIoProvider::Live(tx.unwrap()),
-        }
+            tx: TransactionIoProvider::Live(tx?),
+        })
     }
 
-    pub async fn query<SerDe: Serialize + DeserializeOwned + Clone, IntoString: Into<String>>(
-        &self,
+    pub async fn query_required_single<
+        IntoString: Into<String>,
+        T: Serialize + DeserializeOwned + Clone,
+    >(
+        &mut self,
         query: &str,
         parameters: HashMap<IntoString, Parameter>,
-    ) -> Result<SerDe, Error> {
+    ) -> Result<T, Error> {
         let parameters: HashMap<String, Parameter> =
             parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
-        let execution_id = get_current_execution().unwrap();
         let client = match &self {
             DatabaseIoRecorder::Recorded(_) => {
                 unimplemented!()
             }
             DatabaseIoRecorder::Live(client) => client,
         };
-        let global_collector = get_global_collector();
-        let id = Uuid::new_v4();
-        let event = IoEvent::QueryRequest(QueryRequest {
-            id,
+        let io_req = IoEvent::QueryRequest(QueryRequest {
             tx_id: None,
-            started_at: Utc::now(),
-            query_with_parameters: QueryWithParameters {
-                query_text: query.to_string(),
-                query_type: QueryType::Plain,
-                parameters: parameters.clone(),
-            },
+            query_text: query.to_string(),
+            query_type: QueryType::RequiredSingle,
+            parameters: parameters.clone(),
         });
-        let event_id = global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            serde_json::to_value(&event).unwrap(),
-            false,
-            None,
-        );
-        let result: Result<SerDe, Error> = run_query(client, query, parameters).await;
-        let res_as_json_value = result.clone().map(|v| serde_json::to_value(v).unwrap());
-        let is_error = res_as_json_value.is_err();
-        let event_result = IoEvent::QueryResult(QueryResult {
-            id,
-            ended_at: Utc::now(),
-            result: res_as_json_value,
+        let io_req_json = io_req.as_json();
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let raw_io_response: Result<T, Error> = raw_query_required(client, query, parameters).await;
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
         });
-        global_collector.record_io_event(
-            execution_id,
-            RECORDER_NAME,
-            serde_json::to_value(&event_result).unwrap(),
-            is_error,
-            Some(event_id),
-        );
-        result
+        raw_io_response
+    }
+
+    pub async fn query_optional<
+        IntoString: Into<String>,
+        T: Serialize + DeserializeOwned + Clone,
+    >(
+        &mut self,
+        query: &str,
+        parameters: HashMap<IntoString, Parameter>,
+    ) -> Result<Option<T>, Error> {
+        let parameters: HashMap<String, Parameter> =
+            parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
+        let client = match &self {
+            DatabaseIoRecorder::Recorded(_) => {
+                unimplemented!()
+            }
+            DatabaseIoRecorder::Live(client) => client,
+        };
+        let io_request = IoEvent::QueryRequest(QueryRequest {
+            tx_id: None,
+            query_text: query.to_string(),
+            query_type: QueryType::Optional,
+            parameters: parameters.clone(),
+        });
+        let io_req_json = io_request.as_json();
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let raw_io_response: Result<Option<T>, Error> =
+            raw_query_optional(client, query, parameters).await;
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
+        });
+        raw_io_response
+    }
+
+    pub async fn query_multiple<
+        SerDe: Serialize + DeserializeOwned + Clone,
+        IntoString: Into<String>,
+    >(
+        &self,
+        query: &str,
+        parameters: HashMap<IntoString, Parameter>,
+    ) -> Result<Vec<SerDe>, Error> {
+        let parameters: HashMap<String, Parameter> =
+            parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
+        let client = match &self {
+            DatabaseIoRecorder::Recorded(_) => {
+                unimplemented!()
+            }
+            DatabaseIoRecorder::Live(client) => client,
+        };
+        let io_event_req = IoEvent::QueryRequest(QueryRequest {
+            tx_id: None,
+            query_text: query.to_string(),
+            query_type: QueryType::Multiple,
+            parameters: parameters.clone(),
+        });
+        let io_event_req_json = io_event_req.as_json();
+        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_event_req_json);
+        let raw_io_response: Result<Vec<SerDe>, Error> =
+            raw_query_multiple(client, query, parameters).await;
+        maybe_recorded_io_req.map(|recorded_io_req| {
+            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
+        });
+        raw_io_response
     }
 }
 
-async fn run_query<T: Serialize + DeserializeOwned + Clone, S: Into<String>>(
+async fn raw_query_optional<T: Serialize + DeserializeOwned + Clone>(
     client: &gel_tokio::Client,
     query: &str,
-    parameters: HashMap<S, Parameter>,
-) -> Result<T, Error> {
-    let parameters: HashMap<String, Parameter> =
-        parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
+    parameters: HashMap<String, Parameter>,
+) -> Result<Option<T>, Error> {
     let gel_params = gel::params_to_gel(parameters);
     let gel_params: HashMap<&str, ValueOpt> = gel_params
         .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
+        .map(|(k, v)| (k.as_ref(), v.clone()))
         .collect();
-    let query_result: gel_protocol::model::Json =
-        client.query_json(query, &gel_params).await.map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: Location::caller().to_string(),
-            }
-        })?;
+    let query_result: Option<gel_protocol::model::Json> = client
+        .query_single_json(query, &gel_params)
+        .await
+        .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
+    let query_result = match query_result {
+        None => return Ok(None),
+        Some(query_result) => query_result,
+    };
     let query_result: T = serde_json::from_str(&query_result)
         .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
+    Ok(Some(query_result))
+}
 
+async fn raw_query_required<T: Serialize + DeserializeOwned + Clone>(
+    client: &gel_tokio::Client,
+    query: &str,
+    parameters: HashMap<String, Parameter>,
+) -> Result<T, Error> {
+    let gel_params = gel::params_to_gel(parameters);
+    let gel_params: HashMap<&str, ValueOpt> = gel_params
+        .iter()
+        .map(|(k, v)| (k.as_ref(), v.clone()))
+        .collect();
+    let query_result: gel_protocol::model::Json = client
+        .query_required_single(query, &gel_params)
+        .await
+        .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
+    let query_result: T = serde_json::from_str(&query_result)
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
+    Ok(query_result)
+}
+async fn raw_query_multiple<T: Serialize + DeserializeOwned + Clone>(
+    client: &gel_tokio::Client,
+    query: &str,
+    parameters: HashMap<String, Parameter>,
+) -> Result<Vec<T>, Error> {
+    let gel_params = gel::params_to_gel(parameters);
+    let gel_params: HashMap<&str, ValueOpt> = gel_params
+        .iter()
+        .map(|(k, v)| (k.as_ref(), v.clone()))
+        .collect();
+    let query_result: gel_protocol::model::Json = client
+        .query_json(query, &gel_params)
+        .await
+        .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
+    let query_result: Vec<T> = serde_json::from_str(&query_result)
+        .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(query_result)
 }
 
-async fn run_tx_query_single_optional<T: Serialize + DeserializeOwned + Clone>(
+async fn raw_tx_query_optional<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
     parameters: HashMap<String, Parameter>,
@@ -742,14 +717,7 @@ async fn run_tx_query_single_optional<T: Serialize + DeserializeOwned + Clone>(
     let query_result: Option<gel_protocol::model::Json> = client
         .query_single_json(query, &gel_params)
         .await
-        .map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: std::panic::Location::caller().to_string(),
-            }
-        })?;
+        .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
     let query_result = match query_result {
         None => return Ok(None),
         Some(query_result) => query_result,
@@ -759,7 +727,7 @@ async fn run_tx_query_single_optional<T: Serialize + DeserializeOwned + Clone>(
     Ok(Some(query_result))
 }
 
-async fn run_tx_query_single_required<T: Serialize + DeserializeOwned + Clone>(
+async fn raw_tx_query_required<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
     parameters: HashMap<String, Parameter>,
@@ -773,41 +741,55 @@ async fn run_tx_query_single_required<T: Serialize + DeserializeOwned + Clone>(
     let query_result: gel_protocol::model::Json = client
         .query_required_single_json(query, &gel_params)
         .await
-        .map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: Location::caller().to_string(),
-            }
-        })?;
+        .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
     let query_result: T = serde_json::from_str(&query_result)
         .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(query_result)
 }
 
-async fn run_tx_query_multiple<T: Serialize + DeserializeOwned + Clone>(
+async fn raw_tx_query_multiple<T: Serialize + DeserializeOwned + Clone>(
     client: &mut RawTransaction,
     query: &str,
     parameters: HashMap<String, Parameter>,
-) -> Result<T, Error> {
+) -> Result<Vec<T>, Error> {
     let gel_params = gel::params_to_gel(parameters);
     let gel_params: HashMap<&str, ValueOpt> = gel_params
         .iter()
         .map(|(k, v)| (k.as_str(), v.clone()))
         .collect();
 
-    let query_result: gel_protocol::model::Json =
-        client.query_json(query, &gel_params).await.map_err(|e| {
-            let err_str = error_chain_to_pretty_formatted(&e);
-            let err_str = format!("{err_str} with query {}", query);
-            Error::Internal {
-                msg: err_str,
-                location: Location::caller().to_string(),
-            }
-        })?;
+    let query_result: gel_protocol::model::Json = client
+        .query_json(query, &gel_params)
+        .await
+        .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
 
-    let query_result: T = serde_json::from_str(&query_result)
+    let query_result: Vec<T> = serde_json::from_str(&query_result)
         .map_err(|e| Error::from_serde_json(query, &query_result, e))?;
     Ok(query_result)
+}
+
+fn gel_error_to_recorder_error(
+    e: gel_tokio::Error,
+    query: &str,
+    gel_params: &HashMap<&str, ValueOpt>,
+) -> Error {
+    let err_str = error_chain_to_pretty_formatted(&e);
+    let err_str = format!("{err_str} with query:\n{query}\nand parameters\n{gel_params:#?}");
+    Error::Internal {
+        msg: err_str,
+        location: Location::caller().to_string(),
+    }
+}
+
+fn record_io_response_as_query_result<T: Serialize>(
+    recorded_io_req: IoEventRequest,
+    raw_io_response: Result<T, Error>,
+) {
+    let raw_io_response_json = raw_io_response.map(|value| {
+        serde_json::to_value(&value).expect("gel response should always be serializable")
+    });
+    let is_err = raw_io_response_json.is_err();
+    let io_response = IoEvent::QueryResult(QueryResult(raw_io_response_json));
+    let io_response_json = io_response.as_json();
+    recorded_io_req.record_response(io_response_json, is_err);
 }

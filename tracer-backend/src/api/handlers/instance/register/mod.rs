@@ -63,7 +63,7 @@ pub async fn handler(
 ) -> Result<Json<RegistrationResponse>, ApiError> {
     let service_id = service_id.0;
     let db = app_state.execution_io_provider.database.clone();
-    let mut tx = db.transaction_start().await;
+    let mut tx = db.transaction_start().await?;
     let instance_insertion_data =
         register_instance(&mut tx, &service_id.env, &service_id.name).await?;
     tx.commit().await?;

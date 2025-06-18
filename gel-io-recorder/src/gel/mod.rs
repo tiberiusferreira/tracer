@@ -76,7 +76,7 @@ pub fn generate_select_query(table: &str, id: Uuid, columns: &[String]) -> Strin
     )
 }
 
-pub fn params_to_gel<'a>(parameters: HashMap<String, Parameter>) -> HashMap<String, ValueOpt> {
+pub fn params_to_gel(parameters: HashMap<String, Parameter>) -> HashMap<String, ValueOpt> {
     let mut hashmap = HashMap::new();
     for (k, v) in parameters {
         let a = match v {

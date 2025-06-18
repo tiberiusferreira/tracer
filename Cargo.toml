@@ -20,11 +20,8 @@ tracing-config-helper = { path = "./tracing-config-helper" }
 base64 = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 serde = { version = "1", features = ["derive"] }
-deepsize = "0.2.0"
-serde_with = "3"
 gel-tokio = { version = "0.10", features = ["unstable"] }
 gel-protocol = { version = "0.8", features = ["with-chrono"] }
-gel-errors = "0.5"
 tracing = { version = "0.1", features = ["valuable"] }
 tracing-subscriber = { version = "0.3", features = ['env-filter', 'json'] }
 thiserror = "2"
@@ -34,4 +31,4 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ['brotli', "json"] }
 brotli = "8"
 tokio = { version = "1", features = ["macros", "sync"] }
-dotenvy = "0.15.7"
+dotenvy = "0.15"

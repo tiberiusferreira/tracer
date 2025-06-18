@@ -226,7 +226,7 @@ pub async fn handler(
     let io_provider = app_state.execution_io_provider;
     let instance_snapshot = instance_snapshot.0;
     let db = io_provider.database().clone();
-    let mut tx = db.transaction_start().await;
+    let mut tx = db.transaction_start().await?;
     process_update(&mut tx, &instance_snapshot).await?;
     tx.commit().await?;
     Ok(())

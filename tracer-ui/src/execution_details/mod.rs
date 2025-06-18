@@ -320,6 +320,19 @@ fn TraceView(
 }
 
 fn timeline_markers(execution_duration_ms: u64, container_width: i32) -> Vec<impl IntoView> {
+    let max_markers = 10;
+    let exact_duration_step = execution_duration_ms / max_markers as u64;
+    let marker_step_ms = if exact_duration_step < 10 {
+        10
+    } else if exact_duration_step < 50 {
+        50
+    } else if exact_duration_step < 100 {
+        100
+    } else if exact_duration_step < 200 {
+        200
+    } else {
+        ((execution_duration_ms / max_markers as u64) / 100) * 100
+    };
     let mut curr_ms = 0;
     let mut els = vec![];
     let width = 1.0;
@@ -327,7 +340,7 @@ fn timeline_markers(execution_duration_ms: u64, container_width: i32) -> Vec<imp
     let height = 20.0;
     loop {
         let start_marker_already_inserted = !els.is_empty();
-        if (curr_ms + 100) > execution_duration_ms && start_marker_already_inserted {
+        if (curr_ms + marker_step_ms) > execution_duration_ms && start_marker_already_inserted {
             break;
         }
         let relative_x = curr_ms as f64 / execution_duration_ms as f64;
@@ -343,7 +356,7 @@ fn timeline_markers(execution_duration_ms: u64, container_width: i32) -> Vec<imp
                 </span>
             </div>
         });
-        curr_ms += 100;
+        curr_ms += marker_step_ms;
     }
     let style_f = format!(
         "position: absolute; height: {}px; left: {}px; width: {}px; top: {}px; background-color: {}; transition: none;",
@@ -412,7 +425,7 @@ fn single_event_view(
 
                 <span style="font-size: medium">
                     {
-                        if event_duration_relative_to_execution_percentage > 0.02{
+                        if event_duration_relative_to_execution_percentage > 0.03{
                             format!("{} ms", event_duration_ms)
                         }else{
                             "".to_string()

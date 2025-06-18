@@ -102,7 +102,7 @@ filter
     {filter_stmt}
   order by .started_at asc limit 200"
     );
-    let executions: Vec<ExecutionHeader> = db.query(&query, params).await?;
+    let executions: Vec<ExecutionHeader> = db.query_multiple(&query, params).await?;
     Ok(Json(executions))
 }
 
@@ -121,7 +121,7 @@ pub async fn instance_profile(
 ) -> Result<impl IntoResponse, ApiError> {
     let uuid = query.instance_id;
     let db = app_state.execution_io_provider.database();
-    let mut tx = db.transaction_start().await;
+    let mut tx = db.transaction_start().await?;
     let instance_profile: Option<InstanceProfile> = tx
         .query_optional(
             "select ServiceInstance{
@@ -247,7 +247,7 @@ select Execution{{
         pub attributes: Vec<Attribute>,
     }
 
-    let executions: Vec<Execution> = db.query(&query, params).await?;
+    let executions: Vec<Execution> = db.query_multiple(&query, params).await?;
     let mut attributes: HashMap<String, AttributeSummary> = HashMap::new();
     for e in &executions {
         for a in &e.attributes {

@@ -24,7 +24,13 @@ module default {
             default := false
         };
         required replay_data: json;
-        required size_bytes := len(to_str(.replay_data));
+#        required size_bytes := len(to_str(.replay_data));
+        required size_bytes : int64 {
+            rewrite insert, update using(
+                len(to_str(.replay_data))
+            )
+#            default := len(to_str(.replay_data))
+        }
         required created_at: datetime {
             default := datetime_of_statement();
             readonly := true;

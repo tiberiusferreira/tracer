@@ -5,34 +5,22 @@ pub mod execution_recorder;
 
 #[derive(Debug)]
 pub struct IoEventRequest {
-    io_provider_name: &'static str,
-    execution_id: Uuid,
-    event_id: Uuid,
+    pub io_provider_name: &'static str,
+    pub execution_id: Uuid,
+    pub event_id: Uuid,
 }
 pub fn record_io_event_request(
     io_provider_name: &'static str,
     event: serde_json::Value,
-) -> IoEventRequest {
-    if let Some(execution_id) = get_current_execution() {
-        let event_id = get_global_collector().record_io_event(
-            execution_id,
-            io_provider_name,
-            event,
-            false,
-            None,
-        );
-        IoEventRequest {
-            io_provider_name,
-            execution_id,
-            event_id,
-        }
-    } else {
-        IoEventRequest {
-            io_provider_name,
-            execution_id: Uuid::new_v4(),
-            event_id: Uuid::new_v4(),
-        }
-    }
+) -> Option<IoEventRequest> {
+    let execution_id = get_current_execution()?;
+    let event_id =
+        get_global_collector().record_io_event(execution_id, io_provider_name, event, false, None);
+    Some(IoEventRequest {
+        io_provider_name,
+        execution_id,
+        event_id,
+    })
 }
 
 impl IoEventRequest {
