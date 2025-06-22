@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use tracing_config_helper::io_provider::execution_recorder::{
     get_current_execution, get_global_collector,
 };
+use tracing_config_helper::io_provider::{record_io_event_request, record_io_event_request2};
 
 pub const RECORDER_NAME: &str = "Datetime";
 
@@ -49,23 +50,13 @@ impl CurrentDatetimeIoRecorder {
                 unimplemented!()
             }
             CurrentDatetimeIoRecorder::Live => {
-                let execution_id = get_current_execution().unwrap();
-                let collector = get_global_collector();
                 let request = IoEvent::CurrentDateRequest;
                 let event_json = serde_json::to_value(&request).unwrap();
-                let event_id =
-                    collector.record_io_event(execution_id, RECORDER_NAME, event_json, false, None);
-
+                let io_request = record_io_event_request2(RECORDER_NAME, event_json);
                 let datetime = Utc::now();
                 let response = IoEvent::CurrentDateResponse(datetime);
                 let event_json = serde_json::to_value(&response).unwrap();
-                collector.record_io_event(
-                    execution_id,
-                    RECORDER_NAME,
-                    event_json,
-                    false,
-                    Some(event_id),
-                );
+                io_request.record_response(event_json, false);
                 datetime
             }
         }

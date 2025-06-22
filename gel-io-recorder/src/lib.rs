@@ -109,6 +109,21 @@ pub enum Parameter {
     I32(Option<i32>),
 }
 
+impl Parameter {
+    pub fn as_json(&self) -> serde_json::Value {
+        let err = "parameter serialization should never fail";
+        match self {
+            Parameter::Uuid { val, .. } => serde_json::Value::from(val.map(|v| v.to_string())),
+            Parameter::String(val) => serde_json::to_value(val).expect(err),
+            Parameter::I32(val) => serde_json::to_value(val).expect(err),
+            Parameter::Json(val) => serde_json::to_value(val).expect(err),
+            Parameter::Datetime(val) => serde_json::to_value(val).expect(err),
+            Parameter::Bool(val) => serde_json::to_value(val).expect(err),
+            Parameter::Date(val) => serde_json::to_value(val).expect(err),
+        }
+    }
+}
+
 impl From<Uuid> for Parameter {
     fn from(value: Uuid) -> Self {
         Parameter::Uuid {
@@ -267,34 +282,8 @@ pub struct Transaction {
 
 fn parameter_map_as_json_value(columns: &HashMap<String, Parameter>) -> serde_json::Value {
     let mut new = serde_json::map::Map::new();
-    let err = "parameter serialization should never fail";
     for (k, v) in columns {
-        match v {
-            Parameter::Uuid { val, .. } => {
-                new.insert(
-                    k.to_string(),
-                    serde_json::Value::from(val.map(|v| v.to_string())),
-                );
-            }
-            Parameter::String(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
-            }
-            Parameter::I32(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
-            }
-            Parameter::Json(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
-            }
-            Parameter::Datetime(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
-            }
-            Parameter::Bool(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
-            }
-            Parameter::Date(val) => {
-                new.insert(k.to_string(), serde_json::to_value(val).expect(err));
-            }
-        }
+        new.insert(k.to_string(), v.as_json());
     }
     serde_json::Value::Object(new)
 }
@@ -329,7 +318,57 @@ fn generate_entity_change_query(
     }
 }
 
+fn bulk_params_as_json(columns: &Vec<HashMap<String, Parameter>>) -> serde_json::Value {
+    let w: Vec<serde_json::Value> = columns
+        .iter()
+        .map(|e| parameter_map_as_json_value(&e))
+        .collect();
+    serde_json::Value::Array(w)
+}
+
 impl Transaction {
+    pub async fn bulk_insert(
+        &mut self,
+        table: &str,
+        rows_columns: Vec<HashMap<String, Parameter>>,
+    ) -> Result<Vec<Uuid>, Error> {
+        let Some(query) = gel::generate_bulk_insert_query(table, &rows_columns) else {
+            return Ok(vec![]);
+        };
+        let params_as_json: serde_json::Value = bulk_params_as_json(&rows_columns);
+        let params = HashMap::from([("data".to_string(), Parameter::from(params_as_json))]);
+        let inserted_entity_id: Vec<Id> = self.query_multiple(&query, params).await?;
+        if let Some(execution_external_id) = get_current_execution() {
+            let mut bulk_insert_col = vec![];
+            for (idx, columns) in rows_columns.into_iter().enumerate() {
+                let mut cols = HashMap::new();
+                let new = parameter_map_as_json_value(&columns);
+                cols.insert("entity_name".to_string(), Parameter::from(table));
+                cols.insert(
+                    "entity_id".to_string(),
+                    Parameter::from(
+                        inserted_entity_id
+                            .get(idx)
+                            .expect("all elements to have been inserted")
+                            .id,
+                    ),
+                );
+                cols.insert(
+                    "execution_external_id".to_string(),
+                    Parameter::from(execution_external_id),
+                );
+                cols.insert("old".to_string(), Parameter::Json(None));
+                cols.insert("new".to_string(), Parameter::from(new));
+                bulk_insert_col.push(cols);
+            }
+            let query = gel::generate_bulk_insert_query("EntityChange", &bulk_insert_col).unwrap();
+            let params_as_json: serde_json::Value = bulk_params_as_json(&bulk_insert_col);
+            let params = HashMap::from([("data".to_string(), Parameter::from(params_as_json))]);
+            let _id: Vec<Id> = self.query_multiple(&query, params).await?;
+        }
+        Ok(inserted_entity_id.into_iter().map(|e| e.id).collect())
+    }
+
     pub async fn insert<IntoString: Into<String>>(
         &mut self,
         table: &str,
@@ -414,12 +453,10 @@ impl Transaction {
             query_type: QueryType::RequiredSingle,
             parameters: parameters.clone(),
         });
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req.as_json());
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req.as_json());
         let raw_io_response: Result<T, Error> =
             raw_tx_query_required(client, query, parameters).await;
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
-        });
+        record_io_response_as_query_result(recorded_io_req, raw_io_response.clone());
         raw_io_response
     }
 
@@ -446,12 +483,10 @@ impl Transaction {
             parameters: parameters.clone(),
         });
         let io_req_json = io_request.as_json();
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
         let raw_io_response: Result<Option<T>, Error> =
             raw_tx_query_optional(client, query, parameters).await;
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
-        });
+        record_io_response_as_query_result(recorded_io_req, raw_io_response.clone());
         raw_io_response
     }
 
@@ -478,12 +513,10 @@ impl Transaction {
             parameters: parameters.clone(),
         });
         let io_request_json = io_request.as_json();
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_request_json);
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_request_json);
         let raw_io_response: Result<Vec<T>, Error> =
             raw_tx_query_multiple(client, query, parameters).await;
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
-        });
+        record_io_response_as_query_result(recorded_io_req, raw_io_response.clone());
 
         raw_io_response
     }
@@ -496,7 +529,7 @@ impl Transaction {
         };
         let io_req = IoEvent::TxCommitRequest(TxCommitRequest { tx_id: self.id });
         let io_req_json = io_req.as_json();
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
         let raw_io_response = tx.commit().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
             Error::Internal {
@@ -507,8 +540,7 @@ impl Transaction {
         let is_err = raw_io_response.is_err();
         let io_response = IoEvent::TxCommitResult(TxCommitResult(raw_io_response.clone()));
         let io_response_json = io_response.as_json();
-        maybe_recorded_io_req
-            .map(|recorded_io_req| recorded_io_req.record_response(io_response_json, is_err));
+        recorded_io_req.record_response(io_response_json, is_err);
         raw_io_response
     }
 }
@@ -521,7 +553,7 @@ impl DatabaseIoRecorder {
             DatabaseIoRecorder::Live(client) => client,
         };
         let event = IoEvent::TxStartRequest;
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, event.as_json());
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, event.as_json());
         let tx = client.transaction_raw().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
             let err_str = format!("{err_str} start tx");
@@ -538,9 +570,7 @@ impl DatabaseIoRecorder {
         };
         let is_error = result.is_err();
         let raw_io_response = IoEvent::TxStartResult(TxStartResult(result));
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            recorded_io_req.record_response(raw_io_response.as_json(), is_error)
-        });
+        recorded_io_req.record_response(raw_io_response.as_json(), is_error);
         Ok(Transaction {
             id: tx_id,
             tx: TransactionIoProvider::Live(tx?),
@@ -570,11 +600,9 @@ impl DatabaseIoRecorder {
             parameters: parameters.clone(),
         });
         let io_req_json = io_req.as_json();
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
         let raw_io_response: Result<T, Error> = raw_query_required(client, query, parameters).await;
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
-        });
+        record_io_response_as_query_result(recorded_io_req, raw_io_response.clone());
         raw_io_response
     }
 
@@ -601,12 +629,10 @@ impl DatabaseIoRecorder {
             parameters: parameters.clone(),
         });
         let io_req_json = io_request.as_json();
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
         let raw_io_response: Result<Option<T>, Error> =
             raw_query_optional(client, query, parameters).await;
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
-        });
+        record_io_response_as_query_result(recorded_io_req, raw_io_response.clone());
         raw_io_response
     }
 
@@ -633,12 +659,10 @@ impl DatabaseIoRecorder {
             parameters: parameters.clone(),
         });
         let io_event_req_json = io_event_req.as_json();
-        let maybe_recorded_io_req = record_io_event_request(RECORDER_NAME, io_event_req_json);
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, io_event_req_json);
         let raw_io_response: Result<Vec<SerDe>, Error> =
             raw_query_multiple(client, query, parameters).await;
-        maybe_recorded_io_req.map(|recorded_io_req| {
-            record_io_response_as_query_result(recorded_io_req, raw_io_response.clone())
-        });
+        record_io_response_as_query_result(recorded_io_req, raw_io_response.clone());
         raw_io_response
     }
 }

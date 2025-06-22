@@ -9,18 +9,19 @@ pub struct IoEventRequest {
     pub execution_id: Uuid,
     pub event_id: Uuid,
 }
+
 pub fn record_io_event_request(
     io_provider_name: &'static str,
     event: serde_json::Value,
-) -> Option<IoEventRequest> {
-    let execution_id = get_current_execution()?;
+) -> IoEventRequest {
+    let execution_id = get_current_execution().unwrap();
     let event_id =
         get_global_collector().record_io_event(execution_id, io_provider_name, event, false, None);
-    Some(IoEventRequest {
+    IoEventRequest {
         io_provider_name,
         execution_id,
         event_id,
-    })
+    }
 }
 
 impl IoEventRequest {

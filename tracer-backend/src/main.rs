@@ -34,8 +34,7 @@ async fn main() {
             );
 
             let tracer_flush_request =
-                tracing_config_helper::setup_tracer_client_in_background_or_panic(tracer_config)
-                    .await;
+                tracing_config_helper::setup_server_exporter_task_or_panic(tracer_config).await;
             std::mem::forget(tracer_flush_request);
             join_handle
                 .await

@@ -3,9 +3,7 @@
 //! but also exports traces to a collector
 //!
 
-use crate::io_provider::execution_recorder::{
-    DataCollector, GLOBAL_DATA_COLLECTOR, get_global_collector,
-};
+use crate::io_provider::execution_recorder::get_global_collector;
 pub use api_structs::ServiceId;
 use api_structs::instance::registration::RegistrationResponse;
 use base64::Engine;
@@ -65,8 +63,16 @@ pub struct TracerHandle {
     pub export_now_requester: ExportNowRequester,
 }
 
-pub async fn setup_tracer_client_in_background_or_panic(config: TracerConfig) -> TracerHandle {
-    GLOBAL_DATA_COLLECTOR.set(DataCollector::new()).unwrap();
+pub async fn setup_noop_exporter() {
+    let _thread_handle = std::thread::spawn(move || {
+        loop {
+            let _execution_recordings = get_global_collector().get_all_pruning();
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
+}
+
+pub async fn setup_server_exporter_task_or_panic(config: TracerConfig) -> TracerHandle {
     println!("Starting up using: {config:#?}");
     // we start a new thread and runtime so it can still get data and debug issues involving the main program async
     // runtime starved from CPU time.
@@ -82,7 +88,7 @@ pub async fn setup_tracer_client_in_background_or_panic(config: TracerConfig) ->
             // we use a local set so tasks don't have to implement Send
             tokio::task::LocalSet::new()
                 .run_until(async {
-                    let tracer_tasks = setup_tracer_client_or_panic_impl(config).await;
+                    let tracer_tasks = setup_server_exporter_or_panic_impl(config).await;
                     s.send(tracer_tasks.export_now_request_sender.clone())
                         .unwrap();
                     tracer_tasks.wait_or_panic().await;
@@ -221,7 +227,7 @@ async fn registration_loop(
         }
     }
 }
-async fn setup_tracer_client_or_panic_impl(config: TracerConfig) -> TracerTasks {
+async fn setup_server_exporter_or_panic_impl(config: TracerConfig) -> TracerTasks {
     let reqwest_client = reqwest::ClientBuilder::new()
         .build()
         .expect("reqwest client to be able to be created");

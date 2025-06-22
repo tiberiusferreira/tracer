@@ -6,11 +6,14 @@ use serde::de::DeserializeOwned;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{LazyLock, RwLock};
 use uuid::Uuid;
 
 pub mod execution_tracking;
-pub static GLOBAL_DATA_COLLECTOR: OnceLock<DataCollector> = OnceLock::new();
+static GLOBAL_DATA_COLLECTOR: LazyLock<DataCollector> = LazyLock::new(|| DataCollector::new());
+pub fn get_global_collector() -> &'static DataCollector {
+    &GLOBAL_DATA_COLLECTOR
+}
 
 pub async fn record_execution<
     F: Future,
@@ -45,18 +48,15 @@ pub async fn play_execution<
 pub struct DataCollector {
     executions: RwLock<HashMap<Uuid, ExecutionRecording>>,
 }
+
 impl DataCollector {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             executions: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn register_new_execution(
-        &self,
-        input: serde_json::Value,
-        recording_enabled: bool,
-    ) -> Uuid {
+    fn register_new_execution(&self, input: serde_json::Value, recording_enabled: bool) -> Uuid {
         let id = Uuid::new_v4();
         assert!(
             self.executions
@@ -68,7 +68,7 @@ impl DataCollector {
         );
         id
     }
-    pub fn end_execution(&self, id: Uuid) {
+    fn end_execution(&self, id: Uuid) {
         let mut w_guard = self.executions.write().unwrap();
         let execution = w_guard.get_mut(&id).unwrap();
         assert!(!execution.ended);
@@ -103,7 +103,7 @@ impl DataCollector {
         event_id
     }
 
-    pub fn record_single_attribute(&self, execution_id: Uuid, name: String, value: String) {
+    fn record_single_attribute(&self, execution_id: Uuid, name: String, value: String) {
         let mut exec_context_w_guard = self.executions.write().unwrap();
         let execution = exec_context_w_guard.get_mut(&execution_id).unwrap();
         assert!(!execution.ended);
@@ -130,12 +130,6 @@ impl DataCollector {
 pub fn record_single_attribute(name: String, value: String) {
     let current_exec = get_current_execution().unwrap();
     get_global_collector().record_single_attribute(current_exec, name, value);
-}
-
-pub fn get_global_collector() -> &'static DataCollector {
-    GLOBAL_DATA_COLLECTOR
-        .get()
-        .expect("collector to have been initialized")
 }
 
 thread_local! {

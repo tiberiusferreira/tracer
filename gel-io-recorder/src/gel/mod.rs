@@ -32,6 +32,44 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
     query_str
 }
 
+pub fn generate_bulk_insert_query(
+    table: &str,
+    columns: &Vec<HashMap<String, Parameter>>,
+) -> Option<String> {
+    let mut column_set_queries = vec![];
+    let Some(first_entry) = columns.first() else {
+        return None;
+    };
+    for (name, value) in first_entry {
+        let bind_type = match value {
+            Parameter::String(_) => "<str>".to_string(),
+            Parameter::I32(_) => "<int32>".to_string(),
+            Parameter::Uuid { cast_to_table, .. } => match cast_to_table {
+                None => "<uuid>".to_string(),
+                Some(cast_to_table) => {
+                    format!("<{cast_to_table}><uuid>")
+                }
+            },
+            Parameter::Json(_json) => "<json>".to_string(),
+            Parameter::Datetime(_) => "<datetime>".to_string(),
+            Parameter::Bool(_) => "<bool>".to_string(),
+            Parameter::Date(_) => "<cal::local_date>".to_string(),
+        };
+        column_set_queries.push(format!("{name} := {bind_type}item['{name}']"));
+    }
+    let column_set_query = column_set_queries.join(",\n");
+    let query_str = format!(
+        "with
+  data := <json>$data,
+for item in json_array_unpack(data) union (
+  insert {table} {{
+   {column_set_query}
+  }}
+);"
+    );
+    Some(query_str)
+}
+
 pub fn generate_update_query(
     table: &str,
     id: Uuid,

@@ -72,8 +72,17 @@ will scale with "regular" program memory usage.
 
 ## TODO:
 
-- Load indicators
+- Load indicators ~ mostly fixed by making it all faster
 - Fix collector endpoint around diffs
+- What should we do if we are outside an execution and a recorder method is called?
+    - Tests -> No-op collector
+    - One-off
+    - Collector is down
+    - Recorder is trying to record too much information
+    - Serde panics
+- Most of these can be solved by being able to switch the "sender" to a no-op one and keep the rest the same.
+- The outermost "layer" should be the exporter. The export uses the Data Collector.
+
 
 
 
