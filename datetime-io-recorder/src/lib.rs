@@ -2,10 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
-use tracing_config_helper::io_provider::execution_recorder::{
-    get_current_execution, get_global_collector,
-};
-use tracing_config_helper::io_provider::{record_io_event_request, record_io_event_request2};
+use tracing_config_helper::io_provider::{record_io_event_request};
 
 pub const RECORDER_NAME: &str = "Datetime";
 
@@ -52,7 +49,7 @@ impl CurrentDatetimeIoRecorder {
             CurrentDatetimeIoRecorder::Live => {
                 let request = IoEvent::CurrentDateRequest;
                 let event_json = serde_json::to_value(&request).unwrap();
-                let io_request = record_io_event_request2(RECORDER_NAME, event_json);
+                let io_request = record_io_event_request(RECORDER_NAME, event_json);
                 let datetime = Utc::now();
                 let response = IoEvent::CurrentDateResponse(datetime);
                 let event_json = serde_json::to_value(&response).unwrap();

@@ -88,7 +88,7 @@ impl DataCollector {
         let execution = exec_context_w_guard.get_mut(&execution_id).unwrap();
         assert!(!execution.ended);
         let recorded_ios = execution
-            .replay_data
+            .replay_data_fragment
             .io_providers_events
             .entry(io_provider_name.to_owned())
             .or_default();
@@ -110,18 +110,25 @@ impl DataCollector {
         execution.attributes.insert(name, HashSet::from([value]));
     }
     pub fn get_all_pruning(&self) -> Vec<ExecutionRecording> {
-        let data: Vec<ExecutionRecording> = self
-            .executions
-            .read()
-            .unwrap()
+        let mut w_guard = self.executions.write().unwrap();
+        for exec in w_guard.values_mut() {
+            if !exec.ended {
+                exec.last_seen_at = Utc::now();
+            }
+        }
+        let data: Vec<ExecutionRecording> = w_guard
             .values()
             .filter(|v| v.recording_enabled)
             .cloned()
             .collect();
-        let mut w_guard = self.executions.write().unwrap();
         w_guard.retain(|_k, val| !val.ended);
         if !w_guard.is_empty() {
             println!("{} executions still running", w_guard.len());
+        }
+        for exec in w_guard.values_mut() {
+            exec.replay_data_fragment.input = None;
+            exec.replay_data_fragment.io_providers_events.clear();
+            exec.attributes.clear();
         }
         data
     }

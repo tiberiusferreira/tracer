@@ -17,7 +17,7 @@ use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
 
 pub mod io_provider;
-pub use api_structs::instance::update::{ExecutionRecording, ReplayData};
+pub use api_structs::instance::update::{ExecutionRecording, ReplayDataFragment};
 mod print_debugging;
 mod server_connection;
 

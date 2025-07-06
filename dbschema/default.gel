@@ -23,19 +23,22 @@ module default {
         required ended: bool {
             default := false
         };
-        required replay_data: json;
-#        required size_bytes := len(to_str(.replay_data));
-        required size_bytes : int64 {
-            rewrite insert, update using(
-                len(to_str(.replay_data))
-            )
-#            default := len(to_str(.replay_data))
-        }
+        multi replay_fragments := .<execution [is ReplayFragment];
+        required size_bytes : int64;
         required created_at: datetime {
             default := datetime_of_statement();
             readonly := true;
         };
         index on ((.started_at, .last_seen_at));
+    }
+
+    type ReplayFragment {
+        required execution: Execution;
+        required replay_data: json;
+        required created_at: datetime {
+            default := datetime_of_statement();
+            readonly := true;
+        };
     }
 
     type AttributeName {
@@ -54,12 +57,13 @@ module default {
         required execution: Execution;
         required normalized_name: AttributeName;
         required name := .normalized_name._value;
-        normalized_value: AttributeValue;
-        _value := .normalized_value._value;
+        required normalized_value: AttributeValue;
+        required _value := .normalized_value._value;
         required created_at: datetime {
             default := datetime_of_statement();
             readonly := true;
         };
+        constraint exclusive on ((.execution, .normalized_name, .normalized_value))
     }
 
 

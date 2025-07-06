@@ -35,6 +35,7 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
 pub fn generate_bulk_insert_query(
     table: &str,
     columns: &Vec<HashMap<String, Parameter>>,
+    order_by: &str,
 ) -> Option<String> {
     let mut column_set_queries = vec![];
     let Some(first_entry) = columns.first() else {
@@ -59,13 +60,18 @@ pub fn generate_bulk_insert_query(
     }
     let column_set_query = column_set_queries.join(",\n");
     let query_str = format!(
-        "with
-  data := <json>$data,
-for item in json_array_unpack(data) union (
-  insert {table} {{
-   {column_set_query}
-  }}
-);"
+        "
+with
+    data := <json>$data,
+    inserted_data := (
+        for item in json_array_unpack(data) union (
+          insert {table} {{
+            {column_set_query}
+          }}
+        )
+    ),
+select inserted_data order by .{order_by};
+"
     );
     Some(query_str)
 }

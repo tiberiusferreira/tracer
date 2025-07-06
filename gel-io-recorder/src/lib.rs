@@ -327,12 +327,14 @@ fn bulk_params_as_json(columns: &Vec<HashMap<String, Parameter>>) -> serde_json:
 }
 
 impl Transaction {
+    // the returned id order is non-specified, so an order_by is required
     pub async fn bulk_insert(
         &mut self,
         table: &str,
         rows_columns: Vec<HashMap<String, Parameter>>,
+        order_by: &str,
     ) -> Result<Vec<Uuid>, Error> {
-        let Some(query) = gel::generate_bulk_insert_query(table, &rows_columns) else {
+        let Some(query) = gel::generate_bulk_insert_query(table, &rows_columns, order_by) else {
             return Ok(vec![]);
         };
         let params_as_json: serde_json::Value = bulk_params_as_json(&rows_columns);
@@ -361,7 +363,8 @@ impl Transaction {
                 cols.insert("new".to_string(), Parameter::from(new));
                 bulk_insert_col.push(cols);
             }
-            let query = gel::generate_bulk_insert_query("EntityChange", &bulk_insert_col).unwrap();
+            let query =
+                gel::generate_bulk_insert_query("EntityChange", &bulk_insert_col, "id").unwrap();
             let params_as_json: serde_json::Value = bulk_params_as_json(&bulk_insert_col);
             let params = HashMap::from([("data".to_string(), Parameter::from(params_as_json))]);
             let _id: Vec<Id> = self.query_multiple(&query, params).await?;

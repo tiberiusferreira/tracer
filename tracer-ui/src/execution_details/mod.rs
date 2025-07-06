@@ -404,7 +404,7 @@ fn single_event_view(
                     let bg = if event.is_error {
                         "red"
                     } else if selected_event.get().as_ref().map(|e| e.id) == Some(event.id) {
-                        "#007bff"
+                        "#d910a7"
                     } else {
                         color.as_str()
                     };

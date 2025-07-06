@@ -22,8 +22,8 @@ pub struct IoEvent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ReplayData {
-    pub input: serde_json::Value,
+pub struct ReplayDataFragment {
+    pub input: Option<serde_json::Value>,
     pub io_providers_events: HashMap<IoRecorderName, Vec<IoEvent>>,
 }
 
@@ -33,7 +33,7 @@ pub struct ExecutionRecording {
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub ended: bool,
-    pub replay_data: ReplayData,
+    pub replay_data_fragment: ReplayDataFragment,
     pub attributes: HashMap<String, HashSet<String>>,
     pub recording_enabled: bool,
 }
@@ -42,8 +42,8 @@ impl ExecutionRecording {
     pub fn new(id: Uuid, input: serde_json::Value, recording_enabled: bool) -> ExecutionRecording {
         Self {
             id,
-            replay_data: ReplayData {
-                input,
+            replay_data_fragment: ReplayDataFragment {
+                input: Some(input),
                 io_providers_events: Default::default(),
             },
             started_at: Utc::now(),
