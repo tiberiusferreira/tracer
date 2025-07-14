@@ -54,15 +54,12 @@ pub fn App() -> impl IntoView {
                     </nav>
                 </header>
                 <Routes fallback=|| view!{<p style="color: white">"This page doesn't exist."</p>} >
-                    <Route path=leptos_router::StaticSegment("/") view=services::Services />
-                    <Route path=(
-                        leptos_router::StaticSegment("/"),
+                    <Route path=leptos_router::StaticSegment("") view=services::Services />
+                    <Route path=
                         leptos_router::StaticSegment(ALERTS_PATH)
-                    )
                         view=alerts::Alerts
                     />
                     <Route path=(
-                        leptos_router::StaticSegment("/"),
                         leptos_router::StaticSegment(EXECUTION_DETAILS_PATH),
                         leptos_router::ParamSegment("execution_id"),
 

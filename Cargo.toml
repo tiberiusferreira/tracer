@@ -20,8 +20,8 @@ tracing-config-helper = { path = "./tracing-config-helper" }
 base64 = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 serde = { version = "1", features = ["derive"] }
-gel-tokio = { version = "0.10", features = ["unstable"] }
-gel-protocol = { version = "0.8", features = ["with-chrono"] }
+gel-tokio = { version = "0.11", features = ["unstable"] }
+gel-protocol = { version = "0.9", features = ["with-chrono"] }
 tracing = { version = "0.1", features = ["valuable"] }
 tracing-subscriber = { version = "0.3", features = ['env-filter', 'json'] }
 thiserror = "2"

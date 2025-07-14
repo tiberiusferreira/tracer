@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::time::Duration;
 
 use crate::api::state::AppState;
@@ -10,7 +10,6 @@ use tracing_config_helper::TracerConfig;
 
 mod api;
 mod background_tasks;
-mod notification_worthy_events;
 mod series;
 
 #[tokio::main(flavor = "current_thread")]
@@ -43,7 +42,6 @@ async fn main() {
         .await
 }
 
-// This should not run forever, otherwise we lose the trace of starting up
 async fn start_api_and_background_tasks(
     config: LaunchConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
@@ -60,32 +58,7 @@ async fn start_api_and_background_tasks(
 
         loop {
             async {
-                // let state = app_state.clone();
-                println!("Checking for check_for_alerts_and_send");
-
-                // if let Err(e) =
-                //     background_tasks::alerts::checker::execute_series_and_check_for_alerts(
-                //         state.edgedb_client.clone(),
-                //     )
-                //     .await
-                // {
-                //     let error_chain_as_string = error_chain_to_pretty_formatted(&e);
-                //     error!("{}", error_chain_as_string);
-                // }
-                // info!("Sending alerts");
-                // if let Err(e) =
-                //     background_tasks::alerts::senders::telegram::send_alerts(state.con.clone(), 3)
-                //         .await
-                // {
-                //     let error_chain_as_string = error_chain_to_pretty_formatted(&e);
-                //     error!("{}", error_chain_as_string);
-                // }
-                // background_tasks::clean_up::instance_runtime_data::clean_up_dead_instances_and_services(
-                //     Arc::clone(&state.services_runtime_stats),
-                // );
-                // background_tasks::clean_up::database_old_traces_and_logs::delete_old_traces_logging_error(&state.con).await;
-                // background_tasks::clean_up::database_old_traces_and_logs::delete_old_orphan_events_logging_error(&state.con).await;
-                // background_tasks::clean_up::old_slack_notification::delete_old_slack_notifications_logging_error(&state.con).await;
+                // TODO remove old traces
             }
             .await;
             tokio::time::sleep(Duration::from_secs(60 * 60 * 60)).await;
@@ -97,54 +70,10 @@ async fn start_api_and_background_tasks(
 
 #[derive(Debug, Clone, clap::Parser)]
 pub struct LaunchConfig {
-    #[clap(flatten)]
-    pub db: DbConfig,
     #[clap(long, env, default_value_t = 4317)]
     pub collector_listen_port: u16,
     #[clap(long, env, default_value_t = 4200)]
     pub api_listen_port: u16,
-    #[clap(long, env)]
+    #[clap(long, env, default_value_t = {"local".to_string()})]
     pub environment: String,
 }
-
-#[derive(Clone, clap::Parser)]
-pub struct DbConfig {
-    #[clap(long, env = "DATABASE_URL")]
-    pub url: String,
-    #[clap(long, env, default_value_t = 10)]
-    pub max_db_connections: u16,
-}
-
-impl Debug for DbConfig {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DbConfig")
-            .field("max_db_connections", &self.max_db_connections)
-            .field(
-                "url",
-                &self
-                    .url
-                    .chars()
-                    .rev()
-                    .take(15)
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect::<String>(),
-            )
-            .finish()
-    }
-}
-
-// #[test]
-// fn a() {
-//     let bytes = std::fs::read(
-//         // "/Users/tiberiodarferreira/Documents/github/tracer/data_being_exported_3.json",
-//         "/Users/tiberiodarferreira/Documents/github/tracer/nest_1.json",
-//     )
-//     .unwrap();
-//     let string = String::from_utf8(bytes).unwrap();
-//     let bytes = serde_json::from_str::<Vec<u8>>(&string).unwrap();
-//     let string = String::from_utf8(bytes).unwrap();
-//     // println!("{:#?}", string);
-//     fs::write("./out.json", string).unwrap();
-// }

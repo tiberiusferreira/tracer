@@ -19,7 +19,7 @@ use wasm_bindgen::JsCast;
 #[component]
 pub fn ExecutionDetailsPage() -> impl IntoView {
     let execution_id = use_params_map()
-        .get()
+        .get_untracked()
         .get("execution_id")
         .expect("No execution id");
     let execution_id = Uuid::parse_str(&execution_id).expect("invalid execution id");
@@ -210,7 +210,7 @@ fn TraceView(
         // The content initially takes the whole container
         let original_width = container_coordinates_relative_to_viewport.width();
         let current_scale = scale_factor.get_untracked();
-        let new_scale = (current_scale * (1.0 + zoom_delta / 1000.0)).clamp(0.1, 10.0);
+        let new_scale = (current_scale * (1.0 + zoom_delta / 1000.0)).clamp(0.1, 20.0);
         let current_width = original_width * current_scale;
         let new_width = original_width * new_scale;
         let width_delta = new_width - current_width;

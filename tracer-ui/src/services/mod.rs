@@ -781,7 +781,10 @@ fn ServiceSelector(
 ) -> impl IntoView {
     let rows = move || {
         let mut rows = vec![];
-        for env in env_summaries.get().into_values() {
+        let mut envs = env_summaries.get().into_values().collect::<Vec<_>>();
+        envs.sort_by_key(|e| e.execution_count);
+        envs.reverse();
+        for env in envs {
             rows.push(env_view(env));
         }
         rows
@@ -798,11 +801,10 @@ fn ServiceSelector(
 fn env_view(env: EnvSummary) -> impl IntoView {
     let name = env.name;
     let count = env.execution_count;
-    let services: Vec<_> = env
-        .services
-        .into_values()
-        .map(|e| service_view(e))
-        .collect();
+    let mut services = env.services.into_values().collect::<Vec<_>>();
+    services.sort_by_key(|s| s.execution_count);
+    services.reverse();
+    let services: Vec<_> = services.into_iter().map(|e| service_view(e)).collect();
     view! {
         <div id="single-env-info">
             <div id="env-info">
@@ -860,7 +862,7 @@ fn instance_view(instance: InstanceSummary) -> impl IntoView {
     view! {
         <li style="margin: 5px 0 0 0">
             <span style="font-family: monospace; white-space: preserve">
-                {format!("{name} age {age_hours:>2}h {age_minutes:>2}m {count:>4}")}
+                {format!("{name} age: {age_hours:>2}h{age_minutes:>2}m execution count: {count:>4}")}
             </span>
             <div style="display: inline; margin-left: 15px">
                 {disabled}
