@@ -1,5 +1,5 @@
 use crate::api::handlers::instance::update::{InstanceServiceInformation, ProcessUpdateError};
-use api_structs::instance::update::ExecutionRecording;
+use api_structs::instance::update::ExecutionRecordingSnapshot;
 use gel_io_recorder::{Parameter, Transaction};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -33,7 +33,7 @@ pub async fn update_instance_profile(
 }
 
 pub fn add_instance_attributes(
-    recordings: &mut [ExecutionRecording],
+    recordings: &mut [ExecutionRecordingSnapshot],
     service_env: &str,
     service_name: &str,
     instance_id: Uuid,

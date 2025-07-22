@@ -16,11 +16,7 @@ pub async fn handler(
 ) -> Result<(), ApiError> {
     // coordinator
     let mut instance_snapshot = instance_snapshot.0;
-    let mut tx = app_state
-        .execution_io_provider
-        .database()
-        .transaction_start()
-        .await?;
+    let mut tx = app_state.execution_io_provider.transaction_start().await?;
     process_update(&mut tx, &mut instance_snapshot).await?;
     tx.commit().await?;
     Ok(())

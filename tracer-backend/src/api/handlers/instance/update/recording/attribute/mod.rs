@@ -1,6 +1,6 @@
 use crate::api::handlers::instance::update::GelError;
 use crate::api::handlers::instance::update::recording::DbAttribute;
-use api_structs::instance::update::ExecutionRecording;
+use api_structs::instance::update::ExecutionRecordingSnapshot;
 use gel_io_recorder::{Parameter, Transaction};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -9,7 +9,7 @@ pub struct FlattenedAttributesData {
     pub names: HashSet<String>,
     pub values: HashSet<String>,
 }
-pub fn get_all_used_attributes(recording: &[ExecutionRecording]) -> FlattenedAttributesData {
+pub fn get_all_used_attributes(recording: &[ExecutionRecordingSnapshot]) -> FlattenedAttributesData {
     let attribute_names = recording
         .iter()
         .flat_map(|r| r.attributes.keys())

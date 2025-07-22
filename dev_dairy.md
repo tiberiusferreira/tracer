@@ -73,7 +73,7 @@ will scale with "regular" program memory usage.
 ## TODO:
 
 - Load indicators ~ mostly fixed by making it all faster
-- Fix collector endpoint around diffs
+- Reset Zoom and location in Execution Details View
 - What should we do if we are outside an execution and a recorder method is called?
     - Tests -> No-op collector
     - One-off
@@ -82,8 +82,33 @@ will scale with "regular" program memory usage.
     - Serde panics
 - Most of these can be solved by being able to switch the "sender" to a no-op one and keep the rest the same.
 - The outermost "layer" should be the exporter. The export uses the Data Collector.
+- When running locally, we should be able to store locally the last few recordings as disk format.
+- This can be the same format as the one we download from the UI so we can replay it locally.
+- What mechanism should we use to switch between recording and live version? env var?
 
+The mechanism of using a recording or not is controlled by env vars.
+GLOBAL_RECORDING_PATH sets the global recording, it can be:
 
+- LIVE meaning don't use a recording, use a live version
+- LAST meaning use the last recording in the standard directory
+- A path to the recording file
 
+Example:
+
+```text
+GLOBAL_RECORDING_PATH="LIVE"
+GLOBAL_RECORDING_PATH="./recording.json"
+```
+
+Its possible to override a single provider to use a different recording or be live with the convention of {RECORDER_NAME}_RECORDING_PATH and same options as above.
+
+Example for the Gel IO recorder:
+
+```text
+GEL_RECORDING_PATH="LIVE"
+GEL_RECORDING_PATH="./recording.json"
+```
+
+Each provider should try to load its recording file from the global function before trying to do any initialization for the live version.
 
 

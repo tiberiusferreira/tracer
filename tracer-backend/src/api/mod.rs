@@ -189,7 +189,7 @@ pub fn create_router(app_state: AppState) -> Router<()> {
         )
         .route(
             "/execution",
-            axum::routing::get(handlers::ui::execution::get_single_execution),
+            axum::routing::get(handlers::ui::execution_details::get_single_execution),
         );
     let instance_routes = axum::Router::new()
         .route(

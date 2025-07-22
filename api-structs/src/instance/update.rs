@@ -6,7 +6,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InstanceSnapshot {
     pub instance_id: Uuid,
-    pub execution_recordings: Vec<ExecutionRecording>,
+    pub execution_recordings: Vec<ExecutionRecordingSnapshot>,
     pub cpu_profile_base64: Option<String>,
 }
 
@@ -28,7 +28,7 @@ pub struct ReplayDataFragment {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ExecutionRecording {
+pub struct ExecutionRecordingSnapshot {
     pub id: Uuid,
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
@@ -38,8 +38,8 @@ pub struct ExecutionRecording {
     pub recording_enabled: bool,
 }
 
-impl ExecutionRecording {
-    pub fn new(id: Uuid, input: serde_json::Value, recording_enabled: bool) -> ExecutionRecording {
+impl ExecutionRecordingSnapshot {
+    pub fn new(id: Uuid, input: serde_json::Value, recording_enabled: bool) -> ExecutionRecordingSnapshot {
         Self {
             id,
             replay_data_fragment: ReplayDataFragment {

@@ -1,4 +1,4 @@
-use crate::Parameter;
+use crate::parameters::Parameter;
 use gel_protocol::value::Value;
 use gel_protocol::value_opt::ValueOpt;
 use std::collections::HashMap;
@@ -7,20 +7,7 @@ use uuid::Uuid;
 pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) -> String {
     let mut column_set_queries = vec![];
     for (name, value) in columns {
-        let bind_type = match value {
-            Parameter::String(_) => "<str>".to_string(),
-            Parameter::I32(_) => "<int32>".to_string(),
-            Parameter::Uuid { cast_to_table, .. } => match cast_to_table {
-                None => "<uuid>".to_string(),
-                Some(cast_to_table) => {
-                    format!("<{cast_to_table}><uuid>")
-                }
-            },
-            Parameter::Json(_json) => "<json>".to_string(),
-            Parameter::Datetime(_) => "<datetime>".to_string(),
-            Parameter::Bool(_) => "<bool>".to_string(),
-            Parameter::Date(_) => "<cal::local_date>".to_string(),
-        };
+        let bind_type = value.as_gel_type_str();
         column_set_queries.push(format!("{name} := {bind_type}${name}"));
     }
     let column_set_query = column_set_queries.join(",\n");
@@ -42,20 +29,7 @@ pub fn generate_bulk_insert_query(
         return None;
     };
     for (name, value) in first_entry {
-        let bind_type = match value {
-            Parameter::String(_) => "<str>".to_string(),
-            Parameter::I32(_) => "<int32>".to_string(),
-            Parameter::Uuid { cast_to_table, .. } => match cast_to_table {
-                None => "<uuid>".to_string(),
-                Some(cast_to_table) => {
-                    format!("<{cast_to_table}><uuid>")
-                }
-            },
-            Parameter::Json(_json) => "<json>".to_string(),
-            Parameter::Datetime(_) => "<datetime>".to_string(),
-            Parameter::Bool(_) => "<bool>".to_string(),
-            Parameter::Date(_) => "<cal::local_date>".to_string(),
-        };
+        let bind_type = value.as_gel_type_str();
         column_set_queries.push(format!("{name} := {bind_type}item['{name}']"));
     }
     let column_set_query = column_set_queries.join(",\n");
@@ -83,20 +57,7 @@ pub fn generate_update_query(
 ) -> String {
     let mut column_update_queries = vec![];
     for (name, value) in columns {
-        let bind_type = match value {
-            Parameter::String(_) => "<str>".to_string(),
-            Parameter::I32(_) => "<int32>".to_string(),
-            Parameter::Uuid { cast_to_table, .. } => match cast_to_table {
-                None => "<uuid>".to_string(),
-                Some(cast_to_table) => {
-                    format!("<{cast_to_table}><uuid>")
-                }
-            },
-            Parameter::Json(_json) => "<json>".to_string(),
-            Parameter::Datetime(_) => "<datetime>".to_string(),
-            Parameter::Bool(_) => "<bool>".to_string(),
-            Parameter::Date(_) => "<cal::local_date>".to_string(),
-        };
+        let bind_type = value.as_gel_type_str();
         column_update_queries.push(format!("{name} := {bind_type}${name}"));
     }
     let column_set_query = column_update_queries.join(",\n");

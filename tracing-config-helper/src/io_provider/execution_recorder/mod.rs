@@ -1,5 +1,5 @@
 use crate::io_provider::execution_recorder::execution_tracking::track_task;
-use api_structs::instance::update::{ExecutionRecording, IoEvent};
+use api_structs::instance::update::{ExecutionRecordingSnapshot, IoEvent};
 use chrono::Utc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -46,7 +46,7 @@ pub async fn play_execution<
 
 #[derive(Debug)]
 pub struct DataCollector {
-    executions: RwLock<HashMap<Uuid, ExecutionRecording>>,
+    executions: RwLock<HashMap<Uuid, ExecutionRecordingSnapshot>>,
 }
 
 impl DataCollector {
@@ -62,7 +62,7 @@ impl DataCollector {
             self.executions
                 .write()
                 .unwrap()
-                .insert(id, ExecutionRecording::new(id, input, recording_enabled))
+                .insert(id, ExecutionRecordingSnapshot::new(id, input, recording_enabled))
                 .is_none(),
             "execution already registered"
         );
@@ -109,14 +109,14 @@ impl DataCollector {
         assert!(!execution.ended);
         execution.attributes.insert(name, HashSet::from([value]));
     }
-    pub fn get_all_pruning(&self) -> Vec<ExecutionRecording> {
+    pub fn get_all_pruning(&self) -> Vec<ExecutionRecordingSnapshot> {
         let mut w_guard = self.executions.write().unwrap();
         for exec in w_guard.values_mut() {
             if !exec.ended {
                 exec.last_seen_at = Utc::now();
             }
         }
-        let data: Vec<ExecutionRecording> = w_guard
+        let data: Vec<ExecutionRecordingSnapshot> = w_guard
             .values()
             .filter(|v| v.recording_enabled)
             .cloned()

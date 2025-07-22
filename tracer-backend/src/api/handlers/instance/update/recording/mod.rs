@@ -1,5 +1,5 @@
 use crate::api::handlers::instance::update::{GelError, InstanceServiceInformation};
-use api_structs::instance::update::ExecutionRecording;
+use api_structs::instance::update::ExecutionRecordingSnapshot;
 use chrono::{DateTime, Utc};
 use gel_io_recorder::{Parameter, Transaction};
 use serde::{Deserialize, Serialize};
@@ -8,10 +8,59 @@ use tracing_config_helper::io_provider::execution_recorder::record_single_attrib
 use uuid::Uuid;
 mod attribute;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExecutionExternalIdAndAttributes {
+    external_id: Uuid,
+    attributes: Vec<DbAttributeNameAndValue>,
+}
+fn executions_as_external_id_and_attributes(
+    recordings: &[ExecutionRecordingSnapshot],
+    attribute_name_to_db_id: &HashMap<String, Uuid>,
+    attribute_value_to_db_id: &HashMap<String, Uuid>,
+) -> Vec<ExecutionExternalIdAndAttributes> {
+    let mut executions_and_attributes_to_get = vec![];
+    for single_rec in recordings {
+        let attributes = get_execution_attributes_list_as_db_ids(
+            single_rec,
+            attribute_name_to_db_id,
+            attribute_value_to_db_id,
+        );
+        executions_and_attributes_to_get.push(ExecutionExternalIdAndAttributes {
+            external_id: single_rec.id,
+            attributes,
+        });
+    }
+    executions_and_attributes_to_get
+}
+
+fn get_execution_attributes_list_as_db_ids(
+    exec: &ExecutionRecordingSnapshot,
+    attribute_name_to_db_id: &HashMap<String, Uuid>,
+    attribute_value_to_db_id: &HashMap<String, Uuid>,
+) -> Vec<DbAttributeNameAndValue> {
+    exec.attributes
+        .iter()
+        .flat_map(|(k, v)| {
+            let mut db_attributes = vec![];
+            for value in v {
+                db_attributes.push(DbAttributeNameAndValue {
+                    name_uuid: *attribute_name_to_db_id
+                        .get(k)
+                        .expect("name to have been mapped"),
+                    value_uuid: *attribute_value_to_db_id
+                        .get(value)
+                        .expect("value to have been mapped"),
+                })
+            }
+            db_attributes
+        })
+        .collect::<Vec<DbAttributeNameAndValue>>()
+}
+
 pub async fn store_new_recording_data(
     tx: &mut Transaction,
     instance_service_info: &InstanceServiceInformation,
-    recording: &[ExecutionRecording],
+    recording: &[ExecutionRecordingSnapshot],
 ) -> Result<(), GelError> {
     // We can have multiple values for the same key, but we can't and don't want to store the same key-value pair twice.
     // To prevent this, we check if the key-value already exists before inserting it.
@@ -21,35 +70,19 @@ pub async fn store_new_recording_data(
         &mut *tx,
         used_attributes_data.names,
     )
-    .await?;
+        .await?;
     let attribute_value_to_db_id = attribute::map_attribute_values_to_db_inserting_missing(
         &mut *tx,
         used_attributes_data.values,
     )
-    .await?;
-    let mut executions_and_attributes_to_get = vec![];
-    for single_rec in recording {
-        let attributes = single_rec
-            .attributes
-            .iter()
-            .flat_map(|(k, v)| {
-                let mut db_attributes = vec![];
-                for value in v {
-                    db_attributes.push(DbAttributeNameAndValue {
-                        name_uuid: *attribute_name_to_db_id.get(k).unwrap(),
-                        value_uuid: *attribute_value_to_db_id.get(value).unwrap(),
-                    })
-                }
-                db_attributes
-            })
-            .collect();
-        executions_and_attributes_to_get.push(ExecutionToGet {
-            external_id: single_rec.id,
-            attributes,
-        });
-    }
+        .await?;
+    let executions_external_ids_and_attributes = executions_as_external_id_and_attributes(
+        recording,
+        &attribute_name_to_db_id,
+        &attribute_value_to_db_id,
+    );
     let existing_executions =
-        get_existing_executions(&mut *tx, &executions_and_attributes_to_get).await?;
+        get_existing_executions(&mut *tx, &executions_external_ids_and_attributes).await?;
     let mut executions_headers_to_insert = vec![];
     let mut executions_headers_to_update = vec![];
     let mut executions_attributes_to_insert = vec![];
@@ -61,10 +94,10 @@ pub async fn store_new_recording_data(
             .find(|e| e.external_id == single_rec.id);
         match matching_execution {
             None => {
-                let replay_data_json_value =
-                    serde_json::to_value(&single_rec.replay_data_fragment).unwrap();
+                let replay_data_json_value = serde_json::to_value(&single_rec.replay_data_fragment)
+                    .expect("replay data is valid json");
                 let json_size_bytes = serde_json::to_string(&replay_data_json_value)
-                    .unwrap()
+                    .expect("replay data is always serializable")
                     .len();
                 executions_headers_to_insert.push(ExecutionHeaderToInsert {
                     service_instance_id: instance_service_info.instance_id,
@@ -74,25 +107,16 @@ pub async fn store_new_recording_data(
                     size_bytes: json_size_bytes as i32,
                     ended: single_rec.ended,
                 });
-                let attributes: Vec<DbAttributeNameAndValue> = single_rec
-                    .attributes
-                    .iter()
-                    .flat_map(|(k, v)| {
-                        let mut db_attributes = vec![];
-                        for value in v {
-                            db_attributes.push(DbAttributeNameAndValue {
-                                name_uuid: *attribute_name_to_db_id.get(k).unwrap(),
-                                value_uuid: *attribute_value_to_db_id.get(value).unwrap(),
-                            })
-                        }
-                        db_attributes
-                    })
-                    .collect();
-                for attribute in attributes {
+                let attributes = get_execution_attributes_list_as_db_ids(
+                    single_rec,
+                    &attribute_name_to_db_id,
+                    &attribute_value_to_db_id,
+                );
+                for single_attr in attributes {
                     executions_attributes_to_insert.push(ExecutionAttributeToInsert {
                         execution_external_id: single_rec.id,
-                        name_uuid: attribute.name_uuid,
-                        value_uuid: attribute.value_uuid,
+                        name_uuid: single_attr.name_uuid,
+                        value_uuid: single_attr.value_uuid,
                     });
                 }
                 executions_replay_fragment_to_insert.push(ReplayDataToInsert {
@@ -106,10 +130,10 @@ pub async fn store_new_recording_data(
                     "updates_existing_execution".to_string(),
                     "true".to_string(),
                 );
-                let replay_data_json_value =
-                    serde_json::to_value(&single_rec.replay_data_fragment).unwrap();
+                let replay_data_json_value = serde_json::to_value(&single_rec.replay_data_fragment)
+                    .expect("replay data is valid json");
                 let json_size_bytes = serde_json::to_string(&replay_data_json_value)
-                    .unwrap()
+                    .expect("replay data is always serializable")
                     .len();
                 executions_headers_to_update.push(ExecutionHeaderToUpdate {
                     id: existing_execution.id,
@@ -117,20 +141,12 @@ pub async fn store_new_recording_data(
                     size_bytes: existing_execution.size_bytes + json_size_bytes as i32,
                     ended: single_rec.ended,
                 });
-                let attributes: Vec<DbAttributeNameAndValue> = single_rec
-                    .attributes
-                    .iter()
-                    .flat_map(|(k, v)| {
-                        let mut db_attributes = vec![];
-                        for value in v {
-                            db_attributes.push(DbAttributeNameAndValue {
-                                name_uuid: *attribute_name_to_db_id.get(k).unwrap(),
-                                value_uuid: *attribute_value_to_db_id.get(value).unwrap(),
-                            })
-                        }
-                        db_attributes
-                    })
-                    .collect();
+                let attributes = get_execution_attributes_list_as_db_ids(
+                    single_rec,
+                    &attribute_name_to_db_id,
+                    &attribute_value_to_db_id,
+                );
+
                 for attribute in attributes {
                     if existing_execution.attributes.contains(&attribute) {
                         continue;
@@ -259,23 +275,10 @@ struct ExecutionAttributeToInsert {
     name_uuid: Uuid,
     value_uuid: Uuid,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ExecutionToGet {
-    external_id: Uuid,
-    attributes: Vec<DbAttributeNameAndValue>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DbExecutionToGetResponse {
-    id: Uuid,
-    ended: bool,
-    external_id: Uuid,
-    attributes: Vec<DbAttribute>,
-}
 
 async fn get_existing_executions(
     tx: &mut Transaction,
-    executions_to_get: &[ExecutionToGet],
+    executions_to_get: &[ExecutionExternalIdAndAttributes],
 ) -> Result<Vec<DbPartialExecution>, gel_io_recorder::Error> {
     let existing_execution: Vec<DbPartialExecution> = tx
         .query_multiple(
@@ -310,20 +313,6 @@ for item in json_array_unpack(executions_to_get) union (
         )
         .await?;
     Ok(existing_execution)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MappedAttributeKeyValue {
-    attribute_name_id: Uuid,
-    attribute_name: String,
-    attribute_value_id: Uuid,
-    attribute_value: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DbExecutionAttribute {
-    attribute_name_id: Uuid,
-    attribute_value_id: Uuid,
 }
 
 struct ExecutionHeaderToInsert {

@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::api::state::AppState;
 use api_structs::ServiceId;
 use clap::Parser;
-use gel_io_recorder::{DatabaseIoRecorder, ExecutionIoProvider};
+use gel_io_recorder::DatabaseIoRecorder;
 use tokio::task::spawn_local;
 use tracing_config_helper::TracerConfig;
 
@@ -47,9 +47,7 @@ async fn start_api_and_background_tasks(
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let edgedb_client = gel_tokio::create_client().await.unwrap();
     let app_state = AppState {
-        execution_io_provider: ExecutionIoProvider {
-            database: DatabaseIoRecorder::Live(edgedb_client),
-        },
+        execution_io_provider: DatabaseIoRecorder::Live(edgedb_client),
     };
     let api_handle = api::start(app_state.clone(), config.api_listen_port);
     spawn_local(async move {

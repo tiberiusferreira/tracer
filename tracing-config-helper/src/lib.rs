@@ -17,7 +17,7 @@ use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
 
 pub mod io_provider;
-pub use api_structs::instance::update::{ExecutionRecording, ReplayDataFragment};
+pub use api_structs::instance::update::{ExecutionRecordingSnapshot, ReplayDataFragment};
 mod print_debugging;
 mod server_connection;
 
@@ -61,6 +61,56 @@ impl TracerConfig {
 pub struct TracerHandle {
     pub thread_handle: std::thread::JoinHandle<()>,
     pub export_now_requester: ExportNowRequester,
+}
+
+
+fn export_to_disk(root_dir_path: std::path::PathBuf) {
+    let execution_recordings = get_global_collector().get_all_pruning();
+    for e in execution_recordings {
+        let recording_dir = root_dir_path.join(e.id.to_string());
+        std::fs::create_dir_all(&recording_dir).expect("to be able to create directory");
+        let file_path = recording_dir.join(format!("{}.json", e.last_seen_at.to_rfc3339()));
+        let as_json = serde_json::to_string_pretty(&e).expect("to be able to serialize");
+        let mut file = std::fs::File::create(file_path).expect("to be able to create directory");
+        file.write_all(as_json.as_bytes()).expect("to be able to write to file");
+    }
+}
+pub async fn setup_disk_exporter(path: &str) -> ExportNowRequester {
+    let root_dir_path = std::path::Path::new(path).to_path_buf();
+
+    let (mut export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
+    let _thread_handle = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .thread_name("tracer_disk_exporter")
+            .build()
+            .expect("runtime to be able to start");
+        runtime.block_on(async {
+            loop {
+                tokio::select! {
+                    request = export_now_request_receiver.recv() => {
+                        let request: Option<FlushRequest> = request;
+                        match request {
+                            None => {
+                                // channel handle dropped
+                                tokio::time::sleep(Duration::from_secs(10)).await;
+                            }
+                            Some(request) => {
+                                export_to_disk(root_dir_path.clone());
+                                let _ = request.respond_to.send(Ok(()));
+                                println!("flushing recording to disk");
+                            }
+                        }
+
+                    }
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        println!("regular export");
+                    }
+                }
+            }
+        })
+    });
+    export_now_request_sender
 }
 
 pub async fn setup_noop_exporter() {
@@ -139,11 +189,14 @@ pub struct ExportNowRequester {
 
 impl Drop for ExportNowRequester {
     fn drop(&mut self) {
-        println!("Trying to export last data");
-        if let Err(e) = self.try_export_dont_wait_result() {
-            println!("{e:#?}");
-        }
-        std::thread::sleep(Duration::new(5, 0));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .thread_name("tracer_disk_exporter")
+            .build()
+            .expect("runtime to be able to start");
+        runtime.block_on(async move {
+            self.export(Duration::from_secs(5)).await.unwrap();
+        });
     }
 }
 
@@ -212,7 +265,7 @@ async fn registration_loop(
             &service_id,
             Duration::from_secs(10),
         )
-        .await
+            .await
         {
             Ok(registration_response) => return registration_response,
             Err(err) => {
@@ -236,7 +289,7 @@ async fn setup_server_exporter_or_panic_impl(config: TracerConfig) -> TracerTask
         &config.collector_url,
         config.service_id.clone(),
     )
-    .await;
+        .await;
     println!("registered with collector");
     let (export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
     let cpu_profiler_guard = start_cpu_profiler();
@@ -337,7 +390,7 @@ async fn trace_export_loop(
                 config.export_timeout,
                 config.service_id.name.clone(),
             )
-            .await
+                .await
             {
                 Ok(()) => {
                     break;

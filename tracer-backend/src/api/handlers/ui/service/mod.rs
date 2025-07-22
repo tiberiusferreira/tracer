@@ -54,7 +54,7 @@ pub(crate) async fn execution_list(
     let bucket = filters.bucket;
     let start = bucket;
     let end = bucket + Duration::minutes(5);
-    let db = app_state.execution_io_provider.database();
+    let db = &app_state.execution_io_provider;
     let mut params = HashMap::from([
         ("start_date".to_string(), Parameter::from(start)),
         ("end_date".to_string(), Parameter::from(end)),
@@ -120,7 +120,7 @@ pub async fn instance_profile(
     Query(query): Query<InstanceProfileQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let uuid = query.instance_id;
-    let db = app_state.execution_io_provider.database();
+    let db = &app_state.execution_io_provider;
     let mut tx = db.transaction_start().await?;
     let instance_profile: Option<InstanceProfile> = tx
         .query_optional(
@@ -149,7 +149,9 @@ pub async fn instance_profile(
                     format!("filename=\"{uuid}-profile.svg\""),
                 ),
             ]);
-            let profile = STANDARD_NO_PAD.decode(&profile).unwrap();
+            let profile = STANDARD_NO_PAD
+                .decode(&profile)
+                .expect("profile data should be base64 always");
 
             Ok((headers, profile))
         }
@@ -167,9 +169,9 @@ pub async fn summaries_for_graph(
         end_datetime - Duration::minutes(minutes_since_end_window_start as i64);
     let end_rounded_to_window_start = end_rounded_to_window_start
         .with_nanosecond(0)
-        .unwrap()
+        .expect("0 is a valid nanosecond value")
         .with_second(0)
-        .unwrap();
+        .expect("0 is a valid second value");
     let end_rounded_to_window_end =
         end_rounded_to_window_start + Duration::minutes(rollover_window_minutes as i64);
     let minutes_since_start_window_start = start_datetime.minute() % rollover_window_minutes;
@@ -177,11 +179,11 @@ pub async fn summaries_for_graph(
         start_datetime - Duration::minutes(minutes_since_start_window_start as i64);
     let start_rounded_to_window_start = start_rounded_to_window_start
         .with_nanosecond(0)
-        .unwrap()
+        .expect("0 is a valid nanosecond value")
         .with_second(0)
-        .unwrap();
+        .expect("0 is a valid second value");
 
-    let db = app_state.execution_io_provider.database();
+    let db = &app_state.execution_io_provider;
     let mut params = HashMap::from([
         (
             "start_date".to_string(),
@@ -339,7 +341,12 @@ select Execution{{
             instance.execution_count += 1;
             if let Some(status_code) = &e.status_code {
                 summaries.requests.total += 1;
-                summaries.requests.values.last_mut().unwrap().add_assign(1.);
+                summaries
+                    .requests
+                    .values
+                    .last_mut()
+                    .expect("we pushed 0 as initial value")
+                    .add_assign(1.);
                 if status_code == "200" {
                     summaries.requests.with_200_status_count += 1;
                 } else {
@@ -350,7 +357,7 @@ select Execution{{
                 .size_bytes
                 .values
                 .last_mut()
-                .unwrap()
+                .expect("we pushed 0 as initial value")
                 .add_assign(e.size_bytes as f64);
             summaries.size_bytes.total += e.size_bytes;
             let duration_ms = (e.last_seen_at - e.started_at).num_milliseconds() as f64;
