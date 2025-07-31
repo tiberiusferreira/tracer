@@ -32,14 +32,16 @@ pub async fn record_execution<
     res
 }
 
-pub async fn play_execution<
+
+pub async fn play_global_recording<
     F: Future,
     Input: Serialize + DeserializeOwned,
     Fun: FnOnce(Input) -> F,
 >(
-    input: Input,
     future_generator: Fun,
 ) -> <F as Future>::Output {
+    let input = crate::io_provider::get_current_recording_input().expect("no recording input");
+    let input: Input = serde_json::from_value(input).expect("input to match expected type");
     let future = future_generator(input).await;
     future
 }

@@ -22,6 +22,15 @@ pub struct IoEvent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SpecializedIoEvent<T> {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub is_response_of: Option<Uuid>,
+    pub is_error: bool,
+    pub value: T,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayDataFragment {
     pub input: Option<serde_json::Value>,
     pub io_providers_events: HashMap<IoRecorderName, Vec<IoEvent>>,

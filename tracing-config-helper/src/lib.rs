@@ -17,7 +17,7 @@ use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
 
 pub mod io_provider;
-pub use api_structs::instance::update::{ExecutionRecordingSnapshot, ReplayDataFragment};
+pub use api_structs::instance::update::{ExecutionRecordingSnapshot, ReplayDataFragment, SpecializedIoEvent};
 mod print_debugging;
 mod server_connection;
 
@@ -75,11 +75,11 @@ fn export_to_disk(root_dir_path: std::path::PathBuf) {
         file.write_all(as_json.as_bytes()).expect("to be able to write to file");
     }
 }
-pub async fn setup_disk_exporter(path: &str) -> ExportNowRequester {
+pub async fn setup_disk_exporter(path: &str) -> TracerHandle {
     let root_dir_path = std::path::Path::new(path).to_path_buf();
 
     let (mut export_now_request_receiver, export_now_request_sender) = ExportNowRequester::new();
-    let _thread_handle = std::thread::spawn(move || {
+    let thread_handle = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .thread_name("tracer_disk_exporter")
@@ -110,7 +110,10 @@ pub async fn setup_disk_exporter(path: &str) -> ExportNowRequester {
             }
         })
     });
-    export_now_request_sender
+    TracerHandle {
+        thread_handle,
+        export_now_requester: export_now_request_sender,
+    }
 }
 
 pub async fn setup_noop_exporter() {

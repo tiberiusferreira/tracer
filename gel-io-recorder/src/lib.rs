@@ -4,37 +4,55 @@ use gel_tokio::RawTransaction;
 pub use parameters::Parameter;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::panic::Location;
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tracing_config_helper::io_provider::execution_recorder::get_current_execution;
-use tracing_config_helper::io_provider::{IoEventRequest, record_io_event_request};
+use tracing_config_helper::io_provider::{IoEventRequest, record_io_event_request, specialize_events_or_panic, EventRecordingPlayhead};
 use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
+use tracing_config_helper::SpecializedIoEvent;
+
 mod parameters;
 pub const RECORDER_NAME: &str = "Gel";
 
 #[derive(Clone)]
 pub enum DatabaseIoRecorder {
-    Recorded(()),
+    Recorded(Arc<RwLock<EventRecordingPlayhead<IoEvent>>>),
     Live(gel_tokio::Client),
 }
 
 pub enum TransactionIoProvider {
-    Recorded(()),
+    Recorded(Arc<RwLock<EventRecordingPlayhead<IoEvent>>>),
     Live(RawTransaction),
 }
 
+
 impl DatabaseIoRecorder {
+    pub fn from_global_recording() -> Self {
+        let io_events = tracing_config_helper::io_provider::get_io_provider_recording_events(RECORDER_NAME).expect("Gel events to exist if in recording");
+        let io_events: Vec<SpecializedIoEvent<IoEvent>> = specialize_events_or_panic(io_events);
+        DatabaseIoRecorder::Recorded(Arc::new(RwLock::new(EventRecordingPlayhead { events: io_events, used_events: HashSet::new() })))
+    }
     pub async fn transaction_start(&self) -> Result<Transaction, Error> {
+        let request_event = IoEvent::TxStartRequest;
         let client = match &self {
-            DatabaseIoRecorder::Recorded(_) => {
-                unimplemented!()
+            DatabaseIoRecorder::Recorded(recording) => {
+                let mut w_guard = recording.write().unwrap();
+                let recorded_response_event = w_guard.get_io_event_response_marking_events_as_used(&request_event);
+                let IoEvent::TxStartResult(TxStartResult(result)) = recorded_response_event.value else {
+                    panic!("unexpected response type")
+                };
+                let tx_id = result?;
+                return Ok(Transaction {
+                    id: tx_id,
+                    tx: TransactionIoProvider::Recorded(Arc::clone(&recording)),
+                });
             }
             DatabaseIoRecorder::Live(client) => client,
         };
-        let event = IoEvent::TxStartRequest;
-        let recorded_io_req = record_io_event_request(RECORDER_NAME, event.as_json());
+        let recorded_io_req = record_io_event_request(RECORDER_NAME, request_event.as_json());
         let tx = client.transaction_raw().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
             let err_str = format!("{err_str} start tx");
@@ -370,7 +388,7 @@ impl Transaction {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum IoEvent {
     QueryRequest(QueryRequest),
     QueryResult(QueryResult),
@@ -393,14 +411,14 @@ pub struct QueryWithParameters {
     pub parameters: HashMap<String, Parameter>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum QueryType {
     Optional,
     RequiredSingle,
     Multiple,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct QueryRequest {
     pub tx_id: Option<Uuid>,
     pub query_text: String,
@@ -408,20 +426,20 @@ pub struct QueryRequest {
     pub parameters: HashMap<String, Parameter>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct QueryResult(Result<serde_json::Value, Error>);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TxCommitRequest {
     pub tx_id: Uuid,
 }
 
 pub type TxId = Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TxStartResult(Result<TxId, Error>);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TxCommitResult(Result<(), Error>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,7 +448,7 @@ pub struct Id {
 }
 mod gel;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Error)]
+#[derive(Debug, Clone, Serialize, Deserialize, Error, PartialEq)]
 pub enum Error {
     #[error("Internal {msg} at {location}")]
     Internal { msg: String, location: String },
