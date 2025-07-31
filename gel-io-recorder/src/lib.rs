@@ -343,19 +343,28 @@ impl Transaction {
     ) -> Result<Vec<T>, Error> {
         let parameters: HashMap<String, Parameter> =
             parameters.into_iter().map(|(k, v)| (k.into(), v)).collect();
-        let client = match &mut self.tx {
-            TransactionIoProvider::Recorded(_) => {
-                unimplemented!()
-            }
-            TransactionIoProvider::Live(tx) => tx,
-        };
-        let io_request = IoEvent::QueryRequest(QueryRequest {
+        let request_event = IoEvent::QueryRequest(QueryRequest {
             tx_id: Some(self.id),
             query_text: query.to_string(),
             query_type: QueryType::Multiple,
             parameters: parameters.clone(),
         });
-        let io_request_json = io_request.as_json();
+        let client = match &mut self.tx {
+            TransactionIoProvider::Recorded(recording) => {
+                let mut w_guard = recording.write().unwrap();
+                let recorded_response_event = w_guard.get_io_event_response_marking_events_as_used(&request_event);
+                let IoEvent::QueryResult(QueryResult(result)) = recorded_response_event.value else {
+                    panic!("unexpected response type")
+                };
+                let json_response = result?;
+                let result: Vec<T> = serde_json::from_value(json_response).expect("result was not the correct type");
+
+                return Ok(result);
+            }
+            TransactionIoProvider::Live(tx) => tx,
+        };
+
+        let io_request_json = request_event.as_json();
         let recorded_io_req = record_io_event_request(RECORDER_NAME, io_request_json);
         let raw_io_response: Result<Vec<T>, Error> =
             raw_tx_query_multiple(client, query, parameters).await;
@@ -364,14 +373,19 @@ impl Transaction {
         raw_io_response
     }
     pub async fn commit(self) -> Result<(), Error> {
+        let request_event = IoEvent::TxCommitRequest(TxCommitRequest { tx_id: self.id });
         let tx = match self.tx {
-            TransactionIoProvider::Recorded(_) => {
-                unimplemented!()
+            TransactionIoProvider::Recorded(recording) => {
+                let mut w_guard = recording.write().unwrap();
+                let recorded_response_event = w_guard.get_io_event_response_marking_events_as_used(&request_event);
+                let IoEvent::TxCommitResult(TxCommitResult(result)) = recorded_response_event.value else {
+                    panic!("unexpected response type")
+                };
+                return result;
             }
             TransactionIoProvider::Live(tx) => tx,
         };
-        let io_req = IoEvent::TxCommitRequest(TxCommitRequest { tx_id: self.id });
-        let io_req_json = io_req.as_json();
+        let io_req_json = request_event.as_json();
         let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
         let raw_io_response = tx.commit().await.map_err(|e| {
             let err_str = error_chain_to_pretty_formatted(&e);
