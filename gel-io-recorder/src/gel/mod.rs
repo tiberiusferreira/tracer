@@ -2,9 +2,10 @@ use crate::parameters::Parameter;
 use gel_protocol::value::Value;
 use gel_protocol::value_opt::ValueOpt;
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use uuid::Uuid;
 
-pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) -> String {
+pub fn generate_insert_query(table: &str, columns: &IndexMap<String, Parameter>) -> String {
     let mut column_set_queries = vec![];
     for (name, value) in columns {
         let bind_type = value.as_gel_type_str();
@@ -21,7 +22,7 @@ pub fn generate_insert_query(table: &str, columns: &HashMap<String, Parameter>) 
 
 pub fn generate_bulk_insert_query(
     table: &str,
-    columns: &Vec<HashMap<String, Parameter>>,
+    columns: &Vec<IndexMap<String, Parameter>>,
     order_by: &str,
 ) -> Option<String> {
     let mut column_set_queries = vec![];
@@ -53,7 +54,7 @@ select inserted_data order by .{order_by};
 pub fn generate_update_query(
     table: &str,
     id: Uuid,
-    columns: &HashMap<String, Parameter>,
+    columns: &IndexMap<String, Parameter>,
 ) -> String {
     let mut column_update_queries = vec![];
     for (name, value) in columns {
@@ -81,7 +82,7 @@ pub fn generate_select_query(table: &str, id: Uuid, columns: &[String]) -> Strin
     )
 }
 
-pub fn params_to_gel(parameters: HashMap<String, Parameter>) -> HashMap<String, ValueOpt> {
+pub fn params_to_gel(parameters: IndexMap<String, Parameter>) -> HashMap<String, ValueOpt> {
     let mut hashmap = HashMap::new();
     for (k, v) in parameters {
         let a = match v {

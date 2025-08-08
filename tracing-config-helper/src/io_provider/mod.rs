@@ -143,9 +143,9 @@ pub struct EventRecordingPlayhead<T> {
     pub used_events: HashSet<Uuid>,
 }
 
-impl<T: Clone + PartialEq> EventRecordingPlayhead<T> {
+impl<T: Clone + PartialEq + std::fmt::Debug> EventRecordingPlayhead<T> {
     pub fn find_first_unused(&self, io: &T) -> &SpecializedIoEvent<T> {
-        let event = self.events.iter().find(|e| &e.value == io && !self.used_events.contains(&e.id)).expect("event not found");
+        let event = self.events.iter().find(|e| &e.value == io && !self.used_events.contains(&e.id)).unwrap_or_else(|| panic!("event not found: {io:#?}"));
         event
     }
     pub fn find_unused_response_of(&self, io_event_id: Uuid) -> &SpecializedIoEvent<T> {

@@ -13,3 +13,4 @@ gel-tokio.workspace = true
 gel-protocol.workspace = true
 tracked_error.workspace = true
 thiserror.workspace = true
+indexmap.workspace = true

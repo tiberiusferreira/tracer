@@ -3,6 +3,7 @@ use crate::api::handlers::instance::update::recording::DbAttribute;
 use api_structs::instance::update::ExecutionRecordingSnapshot;
 use gel_io_recorder::{Parameter, Transaction};
 use std::collections::{HashMap, HashSet};
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 pub struct FlattenedAttributesData {
@@ -89,6 +90,8 @@ async fn get_db_attribute_values(
     tx: &mut Transaction,
     attribute_values: &HashSet<String>,
 ) -> Result<Vec<DbAttribute>, gel_io_recorder::Error> {
+    let mut attribute_values = attribute_values.into_iter().collect::<Vec<_>>();
+    attribute_values.sort();
     let existing_attribute_values: Vec<DbAttribute> = tx
         .query_multiple(
             "with
@@ -104,7 +107,7 @@ select AttributeValue{
   value := ._value
 } filter ._value in attribute_names_set;
       ",
-            HashMap::from([(
+            IndexMap::from([(
                 "attribute_values_json".to_string(),
                 Parameter::from(
                     serde_json::to_value(&attribute_values).expect("values are serializable"),
@@ -149,7 +152,7 @@ async fn insert_attribute_vals_into_db(
 ) -> Result<Vec<Uuid>, GelError> {
     let mut name_params = vec![];
     for name in order_attributes_names_not_in_db {
-        let mut single_params = HashMap::new();
+        let mut single_params = IndexMap::new();
         single_params.insert("_value".to_string(), Parameter::from(name));
         name_params.push(single_params);
     }
@@ -164,7 +167,7 @@ async fn insert_attribute_names_into_db(
 ) -> Result<Vec<Uuid>, GelError> {
     let mut name_params = vec![];
     for name in order_attributes_names_not_in_db {
-        let mut single_params = HashMap::new();
+        let mut single_params = IndexMap::new();
         single_params.insert("_value".to_string(), Parameter::from(name));
         name_params.push(single_params);
     }
@@ -178,6 +181,8 @@ async fn get_db_attribute_names(
     tx: &mut Transaction,
     attribute_name: &HashSet<String>,
 ) -> Result<Vec<DbAttribute>, gel_io_recorder::Error> {
+    let mut attribute_name = attribute_name.into_iter().collect::<Vec<_>>();
+    attribute_name.sort();
     let existing_attribute_names: Vec<DbAttribute> = tx
         .query_multiple(
             "with
@@ -193,7 +198,7 @@ select AttributeName{
   value := ._value
 } filter ._value in attribute_names_set;
       ",
-            HashMap::from([(
+            IndexMap::from([(
                 "attribute_names_json".to_string(),
                 Parameter::from(
                     serde_json::to_value(&attribute_name).expect("names are serializable"),

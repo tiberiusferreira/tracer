@@ -14,6 +14,7 @@ use std::fmt::Display;
 use std::net::Shutdown::Write;
 use std::ops::{Add, Sub};
 use std::thread::current;
+use indexmap::IndexMap;
 use tracing::info;
 
 use crate::API_SERVER_URL_NO_TRAILING_SLASH;
@@ -96,7 +97,7 @@ pub fn Services() -> impl IntoView {
         });
 
     let selected_attributes_r = Signal::derive_local(move || {
-        let mut map: HashMap<String, Option<String>> = HashMap::new();
+        let mut map: IndexMap<String, Option<String>> = IndexMap::new();
         let state = state_r.get();
         let attributes = state.selected_attributes;
         for a in attributes {
@@ -114,7 +115,7 @@ pub fn Services() -> impl IntoView {
     });
     let api_service_list_request_sender = LocalResource::new(move || {
         let state = state_r.get();
-        let attributes: HashMap<String, Option<String>> = selected_attributes_r.get();
+        let attributes: IndexMap<String, Option<String>> = selected_attributes_r.get();
         get_and_write_get_service_data_result(state.time_range, attributes, service_data_w)
     });
 
@@ -202,13 +203,13 @@ pub fn Services() -> impl IntoView {
                     {els}
                 </div>
             }
-            .into_any()
+                .into_any()
         }
         _ => view! {
             <div id="attr-name-checkbox-list">
             </div>
         }
-        .into_any(),
+            .into_any(),
     };
 
     let attribute_value_selection_view = move || {
@@ -218,7 +219,7 @@ pub fn Services() -> impl IntoView {
                 <div id="attr-value-checkbox-list">
                 </div>
             }
-            .into_any();
+                .into_any();
         }
         match service_data_r.get() {
             Some(Ok(mut data)) => {
@@ -251,13 +252,13 @@ pub fn Services() -> impl IntoView {
                         {els}
                     </div>
                 }
-                .into_any()
+                    .into_any()
             }
             _ => view! {
                 <div id="attr-value-checkbox-list">
                 </div>
             }
-            .into_any(),
+                .into_any(),
         }
     };
 
@@ -401,14 +402,14 @@ fn bucket_selection_effect(
                 "dataIndex": {pos}
             }}"#
                 ))
-                .unwrap()
+                    .unwrap()
             } else {
                 js_sys::JSON::parse(&format!(
                     r#"{{
                 "type": "select"
             }}"#
                 ))
-                .unwrap()
+                    .unwrap()
             };
             dispatch_action
                 .call1(&echarts.val, &val)
@@ -637,7 +638,7 @@ fn duration_graph(
     view! {
               <div id="duration-charts">
                     <div style="margin-top: 10px">
-                        <h3 style="display: inline; margin: 0">"Trace Duration: "</h3>
+                        <h3 style="display: inline; margin: 0">"Duration: "</h3>
                         <p style="display: inline; margin: 0 0 0 10px">{format!("Max {max_duration:.0}ms")}</p>
                         <p style="display: inline; margin: 0">" - Bar shows"</p>
                         <select style="margin: 0 5px 0 5px" id="time-range-selector">
@@ -679,14 +680,14 @@ fn Visualizations(
             view! {
                 <div>"empty"</div>
             }
-            .into_any()
+                .into_any()
         }
         Some(value) => match value {
             Ok(data) => service_graph(&data, set_time_bucket, current_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
-            .into_any(),
+                .into_any(),
         },
     };
     let reqs_graph = move || match service_data_r.get() {
@@ -695,7 +696,7 @@ fn Visualizations(
             view! {
                 <div>"empty"</div>
             }
-            .into_any()
+                .into_any()
         }
         Some(value) => match value {
             Ok(data) => {
@@ -704,7 +705,7 @@ fn Visualizations(
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
-            .into_any(),
+                .into_any(),
         },
     };
 
@@ -714,14 +715,14 @@ fn Visualizations(
             view! {
                 <div>"empty"</div>
             }
-            .into_any()
+                .into_any()
         }
         Some(value) => match value {
             Ok(data) => crate::services::size_graph(&data, set_time_bucket, current_time_bucket),
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
-            .into_any(),
+                .into_any(),
         },
     };
 
@@ -731,7 +732,7 @@ fn Visualizations(
             view! {
                 <div>"empty"</div>
             }
-            .into_any()
+                .into_any()
         }
         Some(value) => match value {
             Ok(data) => {
@@ -740,7 +741,7 @@ fn Visualizations(
             Err(err) => view! {
                 <div><p>{format!("{err:#?}")}</p></div>
             }
-            .into_any(),
+                .into_any(),
         },
     };
     let on_click_back = move |_| {
@@ -852,12 +853,12 @@ fn instance_view(instance: InstanceSummary) -> impl IntoView {
         view! {
             <a href={url}>"CPU Profile"</a>
         }
-        .into_any()
+            .into_any()
     } else {
         view! {
             <a style="pointer-events: none">"No Profile Yet"</a>
         }
-        .into_any()
+            .into_any()
     };
     view! {
         <li style="margin: 5px 0 0 0">
@@ -943,7 +944,7 @@ fn GlobalSelector() -> impl IntoView {
 #[component]
 fn TracesGrid(
     current_time_bucket: Signal<Option<DateTime<Utc>>, LocalStorage>,
-    selected_attributes_r: Signal<HashMap<String, Option<String>>, LocalStorage>,
+    selected_attributes_r: Signal<IndexMap<String, Option<String>>, LocalStorage>,
 ) -> impl IntoView {
     let (service_data_r, service_data_w) =
         signal_local::<Option<Result<Vec<ExecutionHeader>, TrackedGlooError>>>(None);
@@ -981,7 +982,7 @@ fn TracesGrid(
                         </table>
                     </div>
                 }
-                .into_any()
+                    .into_any()
             }
             Err(err) => view! { <div><p>{format!("{err:#?}")}</p></div>}.into_any(),
         },
@@ -1302,7 +1303,7 @@ fn grid_row(idx: usize, header: ExecutionHeader) -> impl IntoView {
 
 async fn get_and_write_get_execution_headers_result(
     datetime: chrono::DateTime<Utc>,
-    attributes: HashMap<String, Option<String>>,
+    attributes: IndexMap<String, Option<String>>,
     w: WriteSignal<
         Option<Result<Vec<api_structs::ui::service::ExecutionHeader>, TrackedGlooError>>,
         LocalStorage,
@@ -1314,7 +1315,7 @@ async fn get_and_write_get_execution_headers_result(
 
 async fn get_and_write_get_service_data_result(
     time_range: TimeRange,
-    attributes: HashMap<String, Option<String>>,
+    attributes: IndexMap<String, Option<String>>,
     w: WriteSignal<Option<Result<SummariesForGraph, TrackedGlooError>>, LocalStorage>,
 ) {
     let res = get_services_impl(time_range, attributes).await;
@@ -1323,41 +1324,41 @@ async fn get_and_write_get_service_data_result(
 
 async fn get_services_impl(
     time_range: TimeRange,
-    attributes: HashMap<String, Option<String>>,
+    attributes: IndexMap<String, Option<String>>,
 ) -> Result<SummariesForGraph, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         API_SERVER_URL_NO_TRAILING_SLASH, "/api/ui/service/data"
     ))
-    .json(&SummaryFilters {
-        start_date: time_range.start_time,
-        end_date: time_range.end_time,
-        attributes,
-    })
-    .unwrap()
-    .send()
-    .await?
-    .json()
-    .await?;
+        .json(&SummaryFilters {
+            start_date: time_range.start_time,
+            end_date: time_range.end_time,
+            attributes,
+        })
+        .unwrap()
+        .send()
+        .await?
+        .json()
+        .await?;
     Ok(services)
 }
 
 async fn get_executions_headers_impl(
     datetime: DateTime<Utc>,
-    attributes: HashMap<String, Option<String>>,
+    attributes: IndexMap<String, Option<String>>,
 ) -> Result<Vec<ExecutionHeader>, TrackedGlooError> {
     let services = gloo_net::http::Request::post(&format!(
         "{}{}",
         API_SERVER_URL_NO_TRAILING_SLASH, "/api/ui/service/execution_list"
     ))
-    .json(&ExecutionListFilters {
-        bucket: datetime,
-        attributes,
-    })
-    .unwrap()
-    .send()
-    .await?
-    .json()
-    .await?;
+        .json(&ExecutionListFilters {
+            bucket: datetime,
+            attributes,
+        })
+        .unwrap()
+        .send()
+        .await?
+        .json()
+        .await?;
     Ok(services)
 }

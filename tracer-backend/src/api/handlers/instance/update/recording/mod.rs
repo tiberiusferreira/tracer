@@ -3,7 +3,8 @@ use api_structs::instance::update::ExecutionRecordingSnapshot;
 use chrono::{DateTime, Utc};
 use gel_io_recorder::{Parameter, Transaction};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use indexmap::IndexMap;
 use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
 use uuid::Uuid;
 mod attribute;
@@ -38,9 +39,13 @@ fn get_execution_attributes_list_as_db_ids(
     attribute_name_to_db_id: &HashMap<String, Uuid>,
     attribute_value_to_db_id: &HashMap<String, Uuid>,
 ) -> Vec<DbAttributeNameAndValue> {
-    exec.attributes
+    let mut attributes = exec.attributes.clone().into_iter().collect::<Vec<(String, HashSet<String>)>>();
+    attributes.sort_by_key(|e| e.0.clone());
+    attributes
         .iter()
         .flat_map(|(k, v)| {
+            let mut v = v.iter().collect::<Vec<&String>>();
+            v.sort();
             let mut db_attributes = vec![];
             for value in v {
                 db_attributes.push(DbAttributeNameAndValue {
@@ -166,7 +171,7 @@ pub async fn store_new_recording_data(
     }
     let mut multi_exec_params = vec![];
     for e in &executions_headers_to_insert {
-        let mut params = HashMap::new();
+        let mut params = IndexMap::new();
         params.insert(
             "service_instance".to_string(),
             Parameter::from((e.service_instance_id, "ServiceInstance")),
@@ -179,7 +184,7 @@ pub async fn store_new_recording_data(
         multi_exec_params.push(params);
     }
     for to_update in executions_headers_to_update {
-        let mut params = HashMap::new();
+        let mut params = IndexMap::new();
         params.insert(
             "size_bytes".to_string(),
             Parameter::from(to_update.size_bytes),
@@ -207,7 +212,7 @@ pub async fn store_new_recording_data(
 
     let mut all_params = Vec::new();
     for missing_attr in &executions_attributes_to_insert {
-        let mut params = HashMap::new();
+        let mut params = IndexMap::new();
         let execution_db_id = *external_id_to_db_id
             .get(&missing_attr.execution_external_id)
             .unwrap();
@@ -230,7 +235,7 @@ pub async fn store_new_recording_data(
 
     let mut all_params = Vec::new();
     for replay_fragment in executions_replay_fragment_to_insert {
-        let mut params = HashMap::new();
+        let mut params = IndexMap::new();
         let execution_db_id = *external_id_to_db_id
             .get(&replay_fragment.execution_external_id)
             .unwrap();
@@ -304,7 +309,7 @@ for item in json_array_unpack(executions_to_get) union (
   }
   filter .external_id=<uuid>item['external_id']
 )",
-            HashMap::from([(
+            IndexMap::from([(
                 "executions_to_get".to_string(),
                 Parameter::from(
                     serde_json::to_value(executions_to_get).expect("uuids are serializable"),

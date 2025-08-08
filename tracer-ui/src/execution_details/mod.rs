@@ -15,6 +15,8 @@ use std::fmt::Display;
 use tracing::info;
 use uuid::Uuid;
 use wasm_bindgen::JsCast;
+use web_sys::{Blob, HtmlAnchorElement, Url};
+use api_structs::instance::update::ExecutionRecordingSnapshot;
 
 #[component]
 pub fn ExecutionDetailsPage() -> impl IntoView {
@@ -59,7 +61,7 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
             return view! {
                 <p style="color: white">{format!("{err:?}")}</p>
             }
-            .into_any();
+                .into_any();
         }
     };
     let duration_ms = (execution.last_seen_at - execution.started_at).num_milliseconds();
@@ -104,6 +106,16 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
     let selected_event = RwSignal::new(None::<RenderableIoEvent>);
     let execution_start = execution.started_at;
     let execution_end = execution.last_seen_at;
+
+    let execution_recording_snapshot = ExecutionRecordingSnapshot {
+        id: execution.external_id,
+        started_at: execution.started_at,
+        last_seen_at: execution.last_seen_at,
+        ended,
+        replay_data_fragment: execution.replay_data,
+        attributes: HashMap::new(),
+        recording_enabled: true,
+    };
     view! {
         <div style="color: white; margin: 25px">
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px">
@@ -111,8 +123,8 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
                     <h3 style="margin: 0 0 10px 0">"Execution Info"</h3>
                     <div style="display: grid; grid-template-columns: auto 1fr; gap: 5px">
                         <span>"ID:"</span><span>{execution.external_id.to_string()}</span>
-                        <span>"Environment:"</span><span>{execution.service_env}</span>
-                        <span>"Service:"</span><span>{execution.service_name}</span>
+                        <span>"Environment:"</span><span>{execution.service_env.clone()}</span>
+                        <span>"Service:"</span><span>{execution.service_name.clone()}</span>
                         <span>"Instance:"</span><span>{execution.service_instance_id.to_string()}</span>
                     </div>
                 </div>
@@ -137,9 +149,15 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
                 </table>
             </div>
             <details>
-                <summary style="font-size: larger; font-weight: bold; cursor: pointer; margin: 5px 0 0 5px">"Replay data"</summary>
+                <summary style="font-size: larger; font-weight: bold; cursor: pointer; margin: 5px 0 0 5px">
+                    <div style="display: inline">
+                        <p style="display: inline; margin-right: 5px">"Replay data"</p>
+                        <DownloadJsonButton json_string=serde_json::to_string_pretty(&execution_recording_snapshot).unwrap()/>
+                    </div>
+                </summary>
+
                 <textarea readonly style="color: white; background-color: black; width: 100%; height: 700px;">
-                    {serde_json::to_string_pretty(&execution.replay_data).unwrap()}
+                    {serde_json::to_string_pretty(&execution_recording_snapshot).unwrap()}
                 </textarea>
             </details>
             <div style="display: flex; flex-direction: column">
@@ -152,15 +170,56 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
         .into_any()
 }
 
+#[component]
+pub fn DownloadJsonButton(json_string: String) -> impl IntoView {
+    let download = move |_| {
+        // Convert JSON string to a Blob
+        let array = js_sys::Array::new();
+        array.push(&wasm_bindgen::JsValue::from_str(&json_string));
+
+        let mut blob_properties = web_sys::BlobPropertyBag::new();
+        blob_properties.type_("application/json");
+
+        let blob = Blob::new_with_str_sequence_and_options(&array, &blob_properties)
+            .expect("Failed to create Blob");
+
+        // Create an object URL
+        let url = Url::create_object_url_with_blob(&blob)
+            .expect("Failed to create object URL");
+
+        // Create a temporary anchor element
+        let document = web_sys::window().unwrap().document().unwrap();
+        let a = document
+            .create_element("a")
+            .unwrap()
+            .dyn_into::<HtmlAnchorElement>()
+            .unwrap();
+        a.set_href(&url);
+        a.set_download("execution.json"); // file name
+        // Append, click, and remove the anchor
+        document.body().unwrap().append_child(&a).unwrap();
+        a.click();
+        document.body().unwrap().remove_child(&a).unwrap();
+
+        // Clean up
+        Url::revoke_object_url(&url).unwrap();
+    };
+
+    view! {
+        <button on:click=download>
+            "Download JSON"
+        </button>
+    }
+}
 async fn get_execution_details(id: Uuid) -> Result<Execution, TrackedGlooError> {
     let services = gloo_net::http::Request::get(&format!(
         "{}/api/ui/service/execution?id={id}",
         crate::API_SERVER_URL_NO_TRAILING_SLASH,
     ))
-    .send()
-    .await?
-    .json()
-    .await?;
+        .send()
+        .await?
+        .json()
+        .await?;
     Ok(services)
 }
 

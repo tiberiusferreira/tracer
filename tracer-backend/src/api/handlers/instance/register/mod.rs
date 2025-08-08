@@ -4,10 +4,10 @@ use api_structs::ServiceId;
 use api_structs::instance::registration::RegistrationResponse;
 use axum::Json;
 use axum::extract::State;
-use std::collections::HashMap;
 
 use gel_io_recorder::Parameter;
 use gel_tokio::Queryable;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Queryable)]
@@ -24,7 +24,7 @@ async fn register_instance(
     env: &str,
     service: &str,
 ) -> Result<InstanceInsertionData, gel_io_recorder::Error> {
-    let params = HashMap::from([
+    let params = IndexMap::from([
         ("env".to_string(), Parameter::from(env)),
         ("service".to_string(), Parameter::from(service)),
     ]);
@@ -42,7 +42,7 @@ select Service{
         .await?;
     let service_id = match service_id {
         None => {
-            let map = HashMap::from([
+            let map = IndexMap::from([
                 ("env", Parameter::from(env)),
                 ("name", Parameter::from(service)),
             ]);
@@ -50,7 +50,7 @@ select Service{
         }
         Some(id) => id.id,
     };
-    let map = HashMap::from([("service", Parameter::from((service_id, "Service")))]);
+    let map = IndexMap::from([("service", Parameter::from((service_id, "Service")))]);
     let service_instance_id = tx.insert("ServiceInstance", map).await?;
     Ok(InstanceInsertionData {
         service_instance_id,

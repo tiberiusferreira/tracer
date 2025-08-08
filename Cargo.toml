@@ -32,3 +32,4 @@ reqwest = { version = "0.12", features = ['brotli', "json"] }
 brotli = "8"
 tokio = { version = "1", features = ["macros", "sync"] }
 dotenvy = "0.15"
+indexmap = { version = "2.10.0", features = ["serde"] }

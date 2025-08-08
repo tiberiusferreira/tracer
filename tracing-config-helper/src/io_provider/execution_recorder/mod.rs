@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, RwLock};
 use uuid::Uuid;
+use crate::io_provider::load_all_recordings_from_dir;
 
 pub mod execution_tracking;
 static GLOBAL_DATA_COLLECTOR: LazyLock<DataCollector> = LazyLock::new(|| DataCollector::new());
@@ -40,6 +41,10 @@ pub async fn play_global_recording<
 >(
     future_generator: Fun,
 ) -> <F as Future>::Output {
+    let global_recording_path = std::env::var("GLOBAL_RECORDING_PATH".to_string()).ok().unwrap();
+    let recording_fragments = load_all_recordings_from_dir(&global_recording_path);
+    let recording_id = recording_fragments[0].id;
+    set_current_execution(recording_id);
     let input = crate::io_provider::get_current_recording_input().expect("no recording input");
     let input: Input = serde_json::from_value(input).expect("input to match expected type");
     let future = future_generator(input).await;

@@ -18,8 +18,8 @@ use std::ops::AddAssign;
 use uuid::Uuid;
 
 fn attributes_filtering_statement(
-    attributes: &HashMap<String, Option<String>>,
-    params: &mut HashMap<String, Parameter>,
+    attributes: &IndexMap<String, Option<String>>,
+    params: &mut IndexMap<String, Parameter>,
 ) -> String {
     let mut attribute_filter_stmt: Vec<String> = vec![];
     for (idx, (name, maybe_val)) in attributes.iter().enumerate() {
@@ -55,7 +55,7 @@ pub(crate) async fn execution_list(
     let start = bucket;
     let end = bucket + Duration::minutes(5);
     let db = &app_state.execution_io_provider;
-    let mut params = HashMap::from([
+    let mut params = IndexMap::from([
         ("start_date".to_string(), Parameter::from(start)),
         ("end_date".to_string(), Parameter::from(end)),
     ]);
@@ -111,6 +111,8 @@ pub struct InstanceProfileQuery {
     pub instance_id: Uuid,
 }
 use base64::prelude::*;
+use indexmap::IndexMap;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InstanceProfile {
     pub latest_profile_base64: Option<String>,
@@ -127,7 +129,7 @@ pub async fn instance_profile(
             "select ServiceInstance{
   latest_profile_base64
 } filter .id=<uuid>$instance_id",
-            HashMap::from([("instance_id".to_string(), Parameter::from(uuid))]),
+            IndexMap::from([("instance_id".to_string(), Parameter::from(uuid))]),
         )
         .await?;
     let Some(instance_profile) = instance_profile else {
@@ -184,7 +186,7 @@ pub async fn summaries_for_graph(
         .expect("0 is a valid second value");
 
     let db = &app_state.execution_io_provider;
-    let mut params = HashMap::from([
+    let mut params = IndexMap::from([
         (
             "start_date".to_string(),
             Parameter::from(start_rounded_to_window_start),

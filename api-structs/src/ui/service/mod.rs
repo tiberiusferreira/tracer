@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -13,13 +14,13 @@ pub struct ProfileData {
 pub struct SummaryFilters {
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
-    pub attributes: HashMap<String, Option<String>>,
+    pub attributes: IndexMap<String, Option<String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExecutionListFilters {
     pub bucket: DateTime<Utc>,
-    pub attributes: HashMap<String, Option<String>>,
+    pub attributes: IndexMap<String, Option<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

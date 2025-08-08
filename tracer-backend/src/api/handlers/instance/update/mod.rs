@@ -10,6 +10,7 @@ use thiserror::Error;
 use uuid::Uuid;
 mod instance;
 mod recording;
+
 pub async fn handler(
     State(app_state): State<AppState>,
     instance_snapshot: Json<InstanceSnapshot>,
@@ -17,7 +18,9 @@ pub async fn handler(
     // coordinator
     let mut instance_snapshot = instance_snapshot.0;
     let mut tx = app_state.execution_io_provider.transaction_start().await?;
+    println!("Running update");
     process_update(&mut tx, &mut instance_snapshot).await?;
+    println!("Running commit");
     tx.commit().await?;
     Ok(())
 }
@@ -33,14 +36,14 @@ async fn process_update(
                 id: instance_snapshot.instance_id,
                 location: Location::caller(),
             })?;
-
+    println!("{:#?}", instance_service_info);
     if let Some(cpu_profile_base64) = &instance_snapshot.cpu_profile_base64 {
         instance::update_instance_profile(
             &mut *tx,
             instance_snapshot.instance_id,
             cpu_profile_base64,
         )
-        .await?;
+            .await?;
     }
     instance::add_instance_attributes(
         &mut instance_snapshot.execution_recordings,
@@ -53,7 +56,7 @@ async fn process_update(
         &instance_service_info,
         &instance_snapshot.execution_recordings,
     )
-    .await?;
+        .await?;
     Ok(())
 }
 

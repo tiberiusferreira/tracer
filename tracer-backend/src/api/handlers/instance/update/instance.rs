@@ -1,7 +1,8 @@
 use crate::api::handlers::instance::update::{InstanceServiceInformation, ProcessUpdateError};
 use api_structs::instance::update::ExecutionRecordingSnapshot;
 use gel_io_recorder::{Parameter, Transaction};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 pub async fn get_instance_service_information(
@@ -15,7 +16,7 @@ pub async fn get_instance_service_information(
   service_env := .service.env,
   instance_id := .id,
 } filter .id=<uuid>$instance_id",
-            HashMap::from([("instance_id".to_string(), Parameter::from(instance_id))]),
+            IndexMap::from([("instance_id".to_string(), Parameter::from(instance_id))]),
         )
         .await?;
     Ok(instance_service_info)
@@ -26,7 +27,7 @@ pub async fn update_instance_profile(
     instance_id: Uuid,
     profile: &str,
 ) -> Result<(), super::GelError> {
-    let params = HashMap::from([("latest_profile_base64", Parameter::from(profile))]);
+    let params = IndexMap::from([("latest_profile_base64", Parameter::from(profile))]);
     let updated = tx.update("ServiceInstance", instance_id, params).await?;
     assert!(updated);
     Ok(())

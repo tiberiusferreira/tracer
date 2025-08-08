@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use gel_io_recorder::Parameter;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -53,7 +53,7 @@ pub(crate) async fn get_single_execution(
     value := ._value
   }
 } filter .external_id=<uuid>$external_id",
-            HashMap::from([(
+            IndexMap::from([(
                 "external_id".to_string(),
                 Parameter::from(execution_external_id),
             )]),

@@ -10,14 +10,15 @@ use std::ops::DerefMut;
 use std::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
+use tracing_config_helper::io_provider::is_playing_recording;
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod handlers;
 pub mod state;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct MyRequest {
-    parts: MyParts,
+struct RecordedRequest {
+    parts: RecordedRequestParts,
     body: Vec<u8>,
 }
 
@@ -50,13 +51,13 @@ impl Display for MyMethod {
     }
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct MyParts {
+struct RecordedRequestParts {
     pub method: MyMethod,
     pub uri: String,
     pub headers: HashMap<String, String>,
 }
 
-fn my_request_to_axum(request: MyRequest) -> axum::extract::Request {
+fn recorded_request_to_axum(request: RecordedRequest) -> axum::extract::Request {
     let builder = http::request::Builder::new();
     let method = match request.parts.method {
         MyMethod::Options => &Method::OPTIONS,
@@ -78,7 +79,7 @@ fn my_request_to_axum(request: MyRequest) -> axum::extract::Request {
     let w = builder.body(axum_body).unwrap();
     w
 }
-async fn axum_request_to_serializable(request: axum::extract::Request) -> MyRequest {
+async fn axum_request_to_serializable(request: axum::extract::Request) -> RecordedRequest {
     let uri = request.uri().to_string();
     let method = match request.method() {
         &Method::OPTIONS => MyMethod::Options,
@@ -103,8 +104,8 @@ async fn axum_request_to_serializable(request: axum::extract::Request) -> MyRequ
         .await
         .unwrap()
         .to_vec();
-    MyRequest {
-        parts: MyParts {
+    RecordedRequest {
+        parts: RecordedRequestParts {
             method,
             uri,
             headers,
@@ -122,13 +123,13 @@ async fn my_middleware(
     let my_request = axum_request_to_serializable(request).await;
     let recording_enabled = if my_request.parts.uri == "/api/instance/update"
         && my_request
-            .parts
-            .headers
-            .get("service-name")
-            .is_some_and(|service_name| service_name == "tracer-backend")
+        .parts
+        .headers
+        .get("service-name")
+        .is_some_and(|service_name| service_name == "tracer-backend")
     {
         let size_kb = my_request.body.len() / 1000;
-        println!("Got self request of size {size_kb}kb",);
+        println!("Got self request of size {size_kb}kb", );
         let mut w_guard = SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT.write().unwrap();
         let count = w_guard.deref_mut();
         if *count >= 3 && size_kb <= 1_000 {
@@ -143,13 +144,18 @@ async fn my_middleware(
     } else {
         true
     };
+    if is_playing_recording() {
+        let axum_req = recorded_request_to_axum(my_request);
+        let resp = next.run(axum_req).await;
+        return resp;
+    }
     let response = tracing_config_helper::io_provider::execution_recorder::record_execution(
         my_request,
         |my_request| async {
             let uri = my_request.parts.uri.clone();
             record_single_attribute("uri".to_string(), uri);
             record_single_attribute("method".to_string(), my_request.parts.method.to_string());
-            let axum_req = my_request_to_axum(my_request);
+            let axum_req = recorded_request_to_axum(my_request);
             let resp = next.run(axum_req).await;
             let status = resp.status();
             record_single_attribute("status_code".to_string(), status.as_u16().to_string());
@@ -157,7 +163,7 @@ async fn my_middleware(
         },
         recording_enabled,
     )
-    .await;
+        .await;
     response
 }
 
@@ -171,9 +177,9 @@ pub fn create_router(app_state: AppState) -> Router<()> {
     let serve_ui = tower_http::services::ServeDir::new(
         "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist",
     )
-    .fallback(tower_http::services::ServeFile::new(
-        "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html",
-    ));
+        .fallback(tower_http::services::ServeFile::new(
+            "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html",
+        ));
     let service_routes = axum::Router::new()
         .route(
             "/data",
@@ -216,22 +222,47 @@ pub fn create_router(app_state: AppState) -> Router<()> {
 pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
     // List, Overview and Manage Services
     let app = create_router(app_state);
-
     tokio::spawn(async move {
+        if is_playing_recording() {
+            panic!("Should not be running in playback mode and get here");
+        }
         let listener = tokio::net::TcpListener::bind(
             &format!("0.0.0.0:{}", api_port)
                 .parse::<SocketAddr>()
                 .expect("should be able to api server desired address and port"),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         axum::serve(
             listener,
             ServiceExt::<axum::extract::Request>::into_make_service(app),
         )
-        .await
-        .expect("http server launch to not fail")
+            .await
+            .expect("http server launch to not fail")
     })
+}
+
+#[tokio::test]
+async fn replay_api_recording() {
+    dotenvy::dotenv().ok();
+    unsafe { std::env::set_var("GLOBAL_RECORDING_PATH", "/Users/tiberiodarferreira/Documents/github/tracer/rec"); }
+    use tower_service::Service;
+    let app_state = AppState {
+        execution_io_provider: gel_io_recorder::DatabaseIoRecorder::from_global_recording(),
+    };
+    let mut app = create_router(app_state);
+    let resp = tracing_config_helper::io_provider::execution_recorder::play_global_recording(move |request: RecordedRequest| async move {
+        let axum_request = recorded_request_to_axum(request);
+        app.call(axum_request).await.unwrap()
+    }).await;
+    let (parts, body) = resp.into_parts();
+    let body_bytes = axum::body::to_bytes(body, 100_000_000)
+        .await
+        .unwrap()
+        .to_vec();
+    let text = String::from_utf8(body_bytes).unwrap();
+    println!("Body:\n{}", text);
+    println!("{:#?}", parts);
 }
 
 #[derive(Debug)]
