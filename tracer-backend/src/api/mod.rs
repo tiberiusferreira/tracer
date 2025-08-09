@@ -2,13 +2,12 @@ use crate::api::handlers::instance::update::ProcessUpdateError;
 use crate::api::state::AppState;
 use axum::response::IntoResponse;
 use axum::{Router, ServiceExt};
-use http::{Method, StatusCode};
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use http::{StatusCode};
 use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::RwLock;
 use tokio::task::JoinHandle;
+use axum_adapter::{axum_request_to_serializable, recorded_request_to_axum};
 use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
 use tracing_config_helper::io_provider::is_playing_recording;
 use tracked_error::error_chain_to_pretty_formatted;
@@ -16,103 +15,6 @@ use tracked_error::error_chain_to_pretty_formatted;
 pub mod handlers;
 pub mod state;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct RecordedRequest {
-    parts: RecordedRequestParts,
-    body: Vec<u8>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-enum MyMethod {
-    Options,
-    Get,
-    Post,
-    Put,
-    Delete,
-    Head,
-    Trace,
-    Connect,
-    Patch,
-}
-
-impl Display for MyMethod {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MyMethod::Options => f.write_str("options"),
-            MyMethod::Get => f.write_str("get"),
-            MyMethod::Post => f.write_str("post"),
-            MyMethod::Put => f.write_str("put"),
-            MyMethod::Delete => f.write_str("delete"),
-            MyMethod::Head => f.write_str("head"),
-            MyMethod::Trace => f.write_str("trace"),
-            MyMethod::Connect => f.write_str("connect"),
-            MyMethod::Patch => f.write_str("patch"),
-        }
-    }
-}
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct RecordedRequestParts {
-    pub method: MyMethod,
-    pub uri: String,
-    pub headers: HashMap<String, String>,
-}
-
-fn recorded_request_to_axum(request: RecordedRequest) -> axum::extract::Request {
-    let builder = http::request::Builder::new();
-    let method = match request.parts.method {
-        MyMethod::Options => &Method::OPTIONS,
-        MyMethod::Get => &Method::GET,
-        MyMethod::Post => &Method::POST,
-        MyMethod::Put => &Method::PUT,
-        MyMethod::Delete => &Method::DELETE,
-        MyMethod::Head => &Method::HEAD,
-        MyMethod::Trace => &Method::TRACE,
-        MyMethod::Connect => &Method::CONNECT,
-        MyMethod::Patch => &Method::PATCH,
-    };
-    let mut builder = builder.uri(request.parts.uri).method(method);
-    for (k, v) in &request.parts.headers {
-        builder = builder.header(k.to_string(), v.to_string());
-    }
-
-    let axum_body = axum::body::Body::new(axum::body::Body::from(request.body));
-    let w = builder.body(axum_body).unwrap();
-    w
-}
-async fn axum_request_to_serializable(request: axum::extract::Request) -> RecordedRequest {
-    let uri = request.uri().to_string();
-    let method = match request.method() {
-        &Method::OPTIONS => MyMethod::Options,
-        &Method::GET => MyMethod::Get,
-        &Method::POST => MyMethod::Post,
-        &Method::PUT => MyMethod::Put,
-        &Method::DELETE => MyMethod::Delete,
-        &Method::HEAD => MyMethod::Head,
-        &Method::TRACE => MyMethod::Trace,
-        &Method::CONNECT => MyMethod::Connect,
-        &Method::PATCH => MyMethod::Patch,
-        _ => panic!("{}", request.method()),
-    };
-
-    let headers: HashMap<String, String> = request
-        .headers()
-        .clone()
-        .into_iter()
-        .filter_map(|(k, v)| Some((k?.to_string(), v.to_str().unwrap().to_string())))
-        .collect();
-    let body_bytes = axum::body::to_bytes(request.into_body(), 100_000_000)
-        .await
-        .unwrap()
-        .to_vec();
-    RecordedRequest {
-        parts: RecordedRequestParts {
-            method,
-            uri,
-            headers,
-        },
-        body: body_bytes,
-    }
-}
 
 static SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT: RwLock<u8> = RwLock::new(0);
 

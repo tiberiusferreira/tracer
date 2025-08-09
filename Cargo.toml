@@ -8,6 +8,8 @@ members = [
     "tracked_error",
     "datetime-io-recorder",
     "gel-io-recorder",
+    "postgresql-io-recorder",
+    "axum-adapter",
 ]
 
 

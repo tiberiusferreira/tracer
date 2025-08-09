@@ -66,6 +66,9 @@ pub struct TracerHandle {
 
 fn export_to_disk(root_dir_path: std::path::PathBuf) {
     let execution_recordings = get_global_collector().get_all_pruning();
+    if execution_recordings.is_empty() {
+        println!("no execution recordings to export");
+    }
     for e in execution_recordings {
         let recording_dir = root_dir_path.join(e.id.to_string());
         std::fs::create_dir_all(&recording_dir).expect("to be able to create directory");
@@ -96,15 +99,16 @@ pub async fn setup_disk_exporter(path: &str) -> TracerHandle {
                                 tokio::time::sleep(Duration::from_secs(10)).await;
                             }
                             Some(request) => {
+                                println!("flushing recording to disk");
                                 export_to_disk(root_dir_path.clone());
                                 let _ = request.respond_to.send(Ok(()));
-                                println!("flushing recording to disk");
                             }
                         }
 
                     }
                     _ = tokio::time::sleep(Duration::from_secs(10)) => {
                         println!("regular export");
+                        export_to_disk(root_dir_path.clone());
                     }
                 }
             }

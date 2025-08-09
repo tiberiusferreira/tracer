@@ -1,0 +1,10 @@
+[package]
+name = "axum-adapter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde.workspace = true
+tower-service = "0.3.3"
+axum = "0.8"
+http = "1"

@@ -28,6 +28,7 @@ api-structs = { path = "../api-structs" }
 tracked_error = { path = "../tracked_error", features = ["gel-tokio"] }
 http = "1"
 tower-service = "0.3.3"
+axum-adapter = { path = "../axum-adapter" }
 
 [dependencies.tracing-config-helper]
 version = "0.1.0"
