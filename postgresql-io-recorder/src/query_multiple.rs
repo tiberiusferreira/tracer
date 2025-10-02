@@ -4,10 +4,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sqlx::{FromRow, PgPool, Postgres};
 use tracing_config_helper::io_provider::record_io_event_request;
-use crate::{record_io_response_as_query_result, sqlx_error_to_recorder_error, DatabaseIoRecorder, Error, IoEvent, QueryRequest, QueryResult, QueryType, RECORDER_NAME};
+use crate::{record_io_response_as_query_result, sqlx_error_to_recorder_error, PgIoRecorder, Error, IoEvent, QueryRequest, QueryResult, QueryType, RECORDER_NAME};
 use crate::parameters::Parameter;
 
-impl DatabaseIoRecorder {
+impl PgIoRecorder {
     pub async fn query_multiple<
         IntoString: Into<String>,
         Out: Serialize + DeserializeOwned + Clone + Send + Unpin + for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row>,
@@ -25,7 +25,7 @@ impl DatabaseIoRecorder {
             parameters: parameters.clone(),
         });
         let client = match &self {
-            DatabaseIoRecorder::Recorded(recording) => {
+            PgIoRecorder::Recorded(recording) => {
                 let mut w_guard = recording.write().unwrap();
                 let recorded_response_event = w_guard.get_io_event_response_marking_events_as_used(&request_event);
                 let IoEvent::QueryResult(QueryResult(result)) = recorded_response_event.value else {
@@ -35,7 +35,7 @@ impl DatabaseIoRecorder {
                 let res: Vec<Out> = serde_json::from_value(res).expect("result was not the correct type");
                 return Ok(res);
             }
-            DatabaseIoRecorder::Live(client) => client,
+            PgIoRecorder::Live(client) => client,
         };
         let io_req_json = request_event.as_json();
         let recorded_io_req = record_io_event_request(RECORDER_NAME, io_req_json);
@@ -83,6 +83,9 @@ async fn raw_query_multiple<T: Serialize + DeserializeOwned + Clone + Send + Unp
                 query = query.bind(p);
             }
             Parameter::I64(p) => {
+                query = query.bind(p);
+            }
+            Parameter::I32Array(p) => {
                 query = query.bind(p);
             }
         }

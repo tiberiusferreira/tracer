@@ -10,6 +10,7 @@ members = [
     "gel-io-recorder",
     "postgresql-io-recorder",
     "axum-adapter",
+    "recordable_params_macro"
 ]
 
 

@@ -15,6 +15,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
+pub use io_provider::execution_recorder::record_execution;
 
 pub mod io_provider;
 pub use api_structs::instance::update::{ExecutionRecordingSnapshot, ReplayDataFragment, SpecializedIoEvent};

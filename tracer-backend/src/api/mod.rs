@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::RwLock;
 use tokio::task::JoinHandle;
-use axum_adapter::{axum_request_to_serializable, recorded_request_to_axum};
+use axum_adapter::{axum_request_to_serializable, recorded_request_to_axum, RecordedRequest};
 use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
 use tracing_config_helper::io_provider::is_playing_recording;
 use tracked_error::error_chain_to_pretty_formatted;
@@ -30,7 +30,7 @@ async fn my_middleware(
         .get("service-name")
         .is_some_and(|service_name| service_name == "tracer-backend")
     {
-        let size_kb = my_request.body.len() / 1000;
+        let size_kb = my_request.body_base64.len() / 1000;
         println!("Got self request of size {size_kb}kb", );
         let mut w_guard = SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT.write().unwrap();
         let count = w_guard.deref_mut();
@@ -53,7 +53,7 @@ async fn my_middleware(
     }
     let response = tracing_config_helper::io_provider::execution_recorder::record_execution(
         my_request,
-        |my_request| async {
+        |my_request: RecordedRequest| async {
             let uri = my_request.parts.uri.clone();
             record_single_attribute("uri".to_string(), uri);
             record_single_attribute("method".to_string(), my_request.parts.method.to_string());

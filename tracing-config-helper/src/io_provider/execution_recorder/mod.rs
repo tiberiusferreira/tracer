@@ -17,14 +17,14 @@ pub fn get_global_collector() -> &'static DataCollector {
 }
 
 pub async fn record_execution<
-    F: Future,
+    Output,
     Input: Serialize + DeserializeOwned,
-    Fun: FnOnce(Input) -> F,
+    Fun: AsyncFnOnce(Input) -> Output,
 >(
     input: Input,
     future_generator: Fun,
     recording_enabled: bool,
-) -> <F as Future>::Output {
+) -> Output {
     let input_json = serde_json::to_value(&input).unwrap();
     let execution_context_id =
         get_global_collector().register_new_execution(input_json, recording_enabled);
@@ -33,14 +33,24 @@ pub async fn record_execution<
     res
 }
 
-
-pub async fn play_global_recording<
-    F: Future,
-    Input: Serialize + DeserializeOwned,
-    Fun: FnOnce(Input) -> F,
+pub async fn record_execution_simple<
+    Output,
+    Fun: AsyncFnOnce() -> Output,
 >(
     future_generator: Fun,
-) -> <F as Future>::Output {
+    recording_enabled: bool,
+) -> Output {
+    record_execution((), |()| future_generator(), recording_enabled).await
+}
+
+
+pub async fn play_global_recording<
+    Output,
+    Input: Serialize + DeserializeOwned,
+    Fun: AsyncFnOnce(Input) -> Output,
+>(
+    future_generator: Fun,
+) -> Output {
     let global_recording_path = std::env::var("GLOBAL_RECORDING_PATH".to_string()).ok().unwrap();
     let recording_fragments = load_all_recordings_from_dir(&global_recording_path);
     let recording_id = recording_fragments[0].id;

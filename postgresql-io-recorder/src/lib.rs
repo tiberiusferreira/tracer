@@ -17,15 +17,15 @@ mod parameters;
 mod placeholder_replacements;
 
 
-impl DatabaseIoRecorder {
+impl PgIoRecorder {
     pub fn from_global_recording() -> Self {
         let io_events = tracing_config_helper::io_provider::get_io_provider_recording_events(RECORDER_NAME).expect("Gel events to exist if in recording");
         let io_events: Vec<SpecializedIoEvent<IoEvent>> = specialize_events_or_panic(io_events);
-        DatabaseIoRecorder::Recorded(Arc::new(RwLock::new(EventRecordingPlayhead { events: io_events, used_events: HashSet::new() })))
+        PgIoRecorder::Recorded(Arc::new(RwLock::new(EventRecordingPlayhead { events: io_events, used_events: HashSet::new() })))
     }
 
     pub fn from_live_connection(pool: PgPool) -> Self {
-        DatabaseIoRecorder::Live(pool)
+        PgIoRecorder::Live(pool)
     }
 }
 
@@ -121,7 +121,7 @@ pub struct TxStartResult(Result<TxId, Error>);
 pub struct TxCommitResult(Result<(), Error>);
 
 #[derive(Clone)]
-pub enum DatabaseIoRecorder {
+pub enum PgIoRecorder {
     Recorded(Arc<RwLock<EventRecordingPlayhead<IoEvent>>>),
     Live(sqlx::PgPool),
 }

@@ -14,6 +14,7 @@ pub enum Parameter {
     Bool(Option<bool>),
     Json(Option<serde_json::Value>),
     I32(Option<i32>),
+    I64(Option<i64>),
 }
 
 impl Parameter {
@@ -23,6 +24,7 @@ impl Parameter {
             Parameter::Uuid { val, .. } => serde_json::Value::from(val.map(|v| v.to_string())),
             Parameter::String(val) => serde_json::to_value(val).expect(err),
             Parameter::I32(val) => serde_json::to_value(val).expect(err),
+            Parameter::I64(val) => serde_json::to_value(val).expect(err),
             Parameter::Json(val) => serde_json::to_value(val).expect(err),
             Parameter::Datetime(val) => serde_json::to_value(val).expect(err),
             Parameter::Bool(val) => serde_json::to_value(val).expect(err),
@@ -33,6 +35,7 @@ impl Parameter {
         match self {
             Parameter::String(_) => "<str>".to_string(),
             Parameter::I32(_) => "<int32>".to_string(),
+            Parameter::I64(_) => "<int64>".to_string(),
             Parameter::Uuid { cast_to_table, .. } => match cast_to_table {
                 None => "<uuid>".to_string(),
                 Some(cast_to_table) => {
@@ -167,5 +170,16 @@ impl From<i32> for Parameter {
 impl From<Option<i32>> for Parameter {
     fn from(value: Option<i32>) -> Self {
         Parameter::I32(value)
+    }
+}
+impl From<i64> for Parameter {
+    fn from(value: i64) -> Self {
+        Parameter::I64(Some(value))
+    }
+}
+
+impl From<Option<i64>> for Parameter {
+    fn from(value: Option<i64>) -> Self {
+        Parameter::I64(value)
     }
 }

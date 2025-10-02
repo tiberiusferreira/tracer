@@ -88,6 +88,7 @@ pub fn params_to_gel(parameters: IndexMap<String, Parameter>) -> HashMap<String,
         let a = match v {
             Parameter::String(v) => ValueOpt::from(v),
             Parameter::I32(v) => ValueOpt::from(v),
+            Parameter::I64(v) => ValueOpt::from(v),
             Parameter::Uuid { val, .. } => ValueOpt::from(val),
             Parameter::Json(json) => ValueOpt::from(Value::Json(
                 gel_protocol::model::Json::new_unchecked(serde_json::to_string(&json).unwrap()),

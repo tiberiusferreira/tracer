@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use base64::Engine;
 use http::Method;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RecordedRequest {
     pub parts: RecordedRequestParts,
-    pub body: Vec<u8>,
+    pub body_base64: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -60,8 +61,8 @@ pub fn recorded_request_to_axum(request: RecordedRequest) -> axum::extract::Requ
     for (k, v) in &request.parts.headers {
         builder = builder.header(k.to_string(), v.to_string());
     }
-
-    let axum_body = axum::body::Body::new(axum::body::Body::from(request.body));
+    let body_bytes = base64::engine::general_purpose::STANDARD.decode(request.body_base64).expect("Invalid base64 in body");
+    let axum_body = axum::body::Body::new(axum::body::Body::from(body_bytes));
     let w = builder.body(axum_body).unwrap();
     w
 }
@@ -90,12 +91,13 @@ pub async fn axum_request_to_serializable(request: axum::extract::Request) -> Re
         .await
         .unwrap()
         .to_vec();
+    let body_base64 = base64::engine::general_purpose::STANDARD.encode(&body_bytes);
     RecordedRequest {
         parts: RecordedRequestParts {
             method,
             uri,
             headers,
         },
-        body: body_bytes,
+        body_base64,
     }
 }

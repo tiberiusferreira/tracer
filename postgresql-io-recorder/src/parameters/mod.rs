@@ -9,6 +9,7 @@ pub enum Parameter {
     Bool(Option<bool>),
     Json(Option<serde_json::Value>),
     I32(Option<i32>),
+    I32Array(Option<Vec<i32>>),
     I64(Option<i64>),
 }
 
@@ -23,6 +24,7 @@ impl Parameter {
             Parameter::Datetime(val) => serde_json::to_value(val).expect(err),
             Parameter::Bool(val) => serde_json::to_value(val).expect(err),
             Parameter::Date(val) => serde_json::to_value(val).expect(err),
+            Parameter::I32Array(val) => serde_json::to_value(val).expect(err)
         }
     }
 }

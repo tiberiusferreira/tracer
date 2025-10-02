@@ -1,11 +1,10 @@
 use std::panic::Location;
-use thiserror::__private::AsDynError;
 
 pub fn error_chain_to_pretty_formatted<E>(error: E) -> String
 where
     E: std::error::Error,
 {
-    let mut error = error.as_dyn_error();
+    let mut error = &error as &dyn std::error::Error;
     let mut err = format!("{}", error);
     while let Some(inner_err) = error.source() {
         err.push_str(&format!("\nCaused by: \n{}", inner_err));

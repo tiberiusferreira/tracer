@@ -1,0 +1,12 @@
+[package]
+name = "recordable_params_macro"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0"
+syn = "2.0.104"
+gel-io-recorder = { path = "../gel-io-recorder" }

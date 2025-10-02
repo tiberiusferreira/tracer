@@ -1,7 +1,7 @@
 fn find_first_placeholder(query: &str) -> Option<String> {
     let (_before, after) = query.split_once("$")?;
     // find first non-alphabetic character after "$"
-    let placeholder = after.chars().take_while(|c| c.is_ascii_alphanumeric()).collect::<String>();
+    let placeholder = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect::<String>();
     Some(placeholder)
 }
 
@@ -55,6 +55,7 @@ pub fn replace_query(mut non_replaced_query: String) -> ReplacedQuery {
         placeholders.push(replaced_query.placeholder);
         non_replaced_query = replaced_query.right_part;
     }
+    replaced_query_str.push_str(&non_replaced_query);
     ReplacedQuery {
         replaced_query: replaced_query_str,
         placeholders,
@@ -63,11 +64,11 @@ pub fn replace_query(mut non_replaced_query: String) -> ReplacedQuery {
 
 #[test]
 fn test_replace_query() {
-    let query = "SELECT $id , $id2, $id3;";
+    let query = "SELECT $id , $id2, $id3, ANY($ids::INT[]), ANY($placeholder_ids::INT[]);;";
     let res = replace_query(query.to_string());
     assert_eq!(res, ReplacedQuery {
-        replaced_query: "SELECT $1 , $2, $3".to_string(),
-        placeholders: vec!["id".to_string(), "id2".to_string(), "id3".to_string()],
+        replaced_query: "SELECT $1 , $2, $3, ANY($4::INT[]), ANY($5::INT[]);;".to_string(),
+        placeholders: vec!["id".to_string(), "id2".to_string(), "id3".to_string(), "ids".to_string(), "placeholder_ids".to_string()],
     });
 }
 #[test]

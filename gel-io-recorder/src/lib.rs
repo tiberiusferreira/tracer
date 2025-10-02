@@ -18,6 +18,10 @@ use tracing_config_helper::SpecializedIoEvent;
 mod parameters;
 pub const RECORDER_NAME: &str = "Gel";
 
+pub trait ToParameters {
+    fn to_parameters(&self) -> IndexMap<String, Parameter>;
+}
+
 #[derive(Clone)]
 pub enum DatabaseIoRecorder {
     Recorded(Arc<RwLock<EventRecordingPlayhead<IoEvent>>>),
