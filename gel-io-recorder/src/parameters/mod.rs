@@ -31,23 +31,6 @@ impl Parameter {
             Parameter::Date(val) => serde_json::to_value(val).expect(err),
         }
     }
-    pub fn as_gel_type_str(&self) -> String {
-        match self {
-            Parameter::String(_) => "<str>".to_string(),
-            Parameter::I32(_) => "<int32>".to_string(),
-            Parameter::I64(_) => "<int64>".to_string(),
-            Parameter::Uuid { cast_to_table, .. } => match cast_to_table {
-                None => "<uuid>".to_string(),
-                Some(cast_to_table) => {
-                    format!("<{cast_to_table}><uuid>")
-                }
-            },
-            Parameter::Json(_json) => "<json>".to_string(),
-            Parameter::Datetime(_) => "<datetime>".to_string(),
-            Parameter::Bool(_) => "<bool>".to_string(),
-            Parameter::Date(_) => "<cal::local_date>".to_string(),
-        }
-    }
 }
 
 impl From<Uuid> for Parameter {

@@ -8,8 +8,8 @@ use std::ops::DerefMut;
 use std::sync::RwLock;
 use tokio::task::JoinHandle;
 use axum_adapter::{axum_request_to_serializable, recorded_request_to_axum, RecordedRequest};
-use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
-use tracing_config_helper::io_provider::is_playing_recording;
+use tracer::io_provider::execution_recorder::record_single_attribute;
+use tracer::io_provider::is_playing_recording;
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod handlers;
@@ -51,7 +51,7 @@ async fn my_middleware(
         let resp = next.run(axum_req).await;
         return resp;
     }
-    let response = tracing_config_helper::io_provider::execution_recorder::record_execution(
+    let response = tracer::io_provider::execution_recorder::record_execution(
         my_request,
         |my_request: RecordedRequest| async {
             let uri = my_request.parts.uri.clone();
@@ -153,7 +153,7 @@ async fn replay_api_recording() {
         execution_io_provider: gel_io_recorder::DatabaseIoRecorder::from_global_recording(),
     };
     let mut app = create_router(app_state);
-    let resp = tracing_config_helper::io_provider::execution_recorder::play_global_recording(move |request: RecordedRequest| async move {
+    let resp = tracer::io_provider::execution_recorder::play_global_recording(move |request: RecordedRequest| async move {
         let axum_request = recorded_request_to_axum(request);
         app.call(axum_request).await.unwrap()
     }).await;

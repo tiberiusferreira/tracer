@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sqlx::{FromRow, PgPool, Postgres};
-use tracing_config_helper::io_provider::record_io_event_request;
+use tracer::io_provider::record_io_event_request;
 use crate::{record_io_response_as_query_result, sqlx_error_to_recorder_error, PgIoRecorder, Error, IoEvent, QueryRequest, QueryResult, QueryType, RECORDER_NAME};
 use crate::parameters::Parameter;
 

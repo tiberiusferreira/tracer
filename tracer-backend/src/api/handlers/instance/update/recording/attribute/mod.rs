@@ -1,10 +1,12 @@
 use crate::api::handlers::instance::update::GelError;
 use crate::api::handlers::instance::update::recording::DbAttribute;
 use api_structs::instance::update::ExecutionRecordingSnapshot;
-use gel_io_recorder::{Parameter, Transaction};
+use gel_io_recorder::{Parameter, ToParameters, Transaction};
 use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use recordable_params_macro::ToParameters;
 
 pub struct FlattenedAttributesData {
     pub names: HashSet<String>,
@@ -153,13 +155,31 @@ async fn insert_attribute_vals_into_db(
     let mut name_params = vec![];
     for name in order_attributes_names_not_in_db {
         let mut single_params = IndexMap::new();
-        single_params.insert("_value".to_string(), Parameter::from(name));
+        single_params.insert("_value".to_string(), name.clone());
         name_params.push(single_params);
     }
-    let inserted_attr_names_ids = tx
-        .bulk_insert("AttributeValue", name_params, "_value")
-        .await?;
-    Ok(inserted_attr_names_ids)
+    // GelGen(query, out=Inserted, id=2729b7)
+    let q = "with
+  raw_data := <json>$data,
+for item in json_array_unpack(raw_data) union (
+  insert AttributeValue { _value := <str>item['_value'] }
+);";
+
+    // GelGen(in, id=2729b7)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        data: serde_json::Value,
+    }
+    // GelGen(out, id=2729b7)
+    #[derive(Clone, Serialize, Deserialize)]
+    struct Inserted {
+        id: Uuid,
+    }
+    let inserted: Vec<Inserted> = tx.query_multiple(q, Args {
+        data: serde_json::to_value(&name_params).unwrap(),
+    }.to_parameters()).await?;
+    let as_uuid: Vec<Uuid> = inserted.into_iter().map(|i| i.id).collect();
+    Ok(as_uuid)
 }
 async fn insert_attribute_names_into_db(
     tx: &mut Transaction,
@@ -168,13 +188,33 @@ async fn insert_attribute_names_into_db(
     let mut name_params = vec![];
     for name in order_attributes_names_not_in_db {
         let mut single_params = IndexMap::new();
-        single_params.insert("_value".to_string(), Parameter::from(name));
+        single_params.insert("_value".to_string(), name.to_string());
         name_params.push(single_params);
     }
-    let inserted_attr_names_ids = tx
-        .bulk_insert("AttributeName", name_params, "_value")
-        .await?;
-    Ok(inserted_attr_names_ids)
+
+
+    // GelGen(query, out=Inserted, id=03393a)
+    let q = "with
+  raw_data := <json>$data,
+for item in json_array_unpack(raw_data) union (
+  insert AttributeName { _value := <str>item['_value'] }
+);";
+
+    // GelGen(in, id=03393a)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        data: serde_json::Value,
+    }
+    // GelGen(out, id=03393a)
+    #[derive(Clone, Serialize, Deserialize)]
+    struct Inserted {
+        id: Uuid,
+    }
+    let inserted_attr_names_ids: Vec<Inserted> = tx.query_multiple(q, Args {
+        data: serde_json::to_value(&name_params).unwrap(),
+    }.to_parameters()).await?;
+    let as_uuid: Vec<Uuid> = inserted_attr_names_ids.into_iter().map(|i| i.id).collect();
+    Ok(as_uuid)
 }
 
 async fn get_db_attribute_names(

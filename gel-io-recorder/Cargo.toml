@@ -7,10 +7,10 @@ edition = "2024"
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
-tracing-config-helper.workspace = true
+tracer = { path = "../tracer" }
+tracked_error = { path = "../tracked_error" }
 uuid.workspace = true
 gel-tokio.workspace = true
 gel-protocol.workspace = true
-tracked_error.workspace = true
 thiserror.workspace = true
 indexmap.workspace = true

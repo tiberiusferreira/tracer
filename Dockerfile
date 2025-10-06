@@ -16,7 +16,7 @@ RUN /bin/bash -c 'ARCH=`uname -m` && \
 # RUN wget -qO- https://github.com/thedodd/trunk/releases/download/v0.16.0/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf- && chmod +x ./trunk
 RUN rustup target add wasm32-unknown-unknown
 COPY tracer-backend tracer-backend
-COPY tracing-config-helper tracing-config-helper
+COPY tracer tracer
 COPY tracer-ui tracer-ui
 COPY api-structs api-structs
 COPY Cargo.lock .

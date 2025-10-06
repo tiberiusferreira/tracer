@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 tracing.workspace = true
 thiserror.workspace = true
-tracked_error = { workspace = true, default-features = false, features = [] }
 api-structs = { path = "../api-structs" }
 console_error_panic_hook = "0.1"
 tracing-subscriber-wasm = "0.1"

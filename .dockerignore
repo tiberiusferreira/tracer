@@ -1,7 +1,7 @@
 *
 !tracer-ui
 !tracer-backend
-!tracing-config-helper
+!tracer
 !api-structs
 !Cargo.toml
 !Cargo.lock

@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use gel_protocol::value_opt::ValueOpt;
 use gel_tokio::RawTransaction;
 pub use parameters::Parameter;
@@ -9,13 +8,13 @@ use std::panic::Location;
 use std::sync::{Arc, RwLock};
 use indexmap::IndexMap;
 use thiserror::Error;
-use tracing_config_helper::io_provider::execution_recorder::get_current_execution;
-use tracing_config_helper::io_provider::{IoEventRequest, record_io_event_request, specialize_events_or_panic, EventRecordingPlayhead};
+use tracer::io_provider::{IoEventRequest, record_io_event_request, specialize_events_or_panic, EventRecordingPlayhead};
 use tracked_error::error_chain_to_pretty_formatted;
 use uuid::Uuid;
-use tracing_config_helper::SpecializedIoEvent;
+use tracer::SpecializedIoEvent;
 
 mod parameters;
+mod gel;
 pub const RECORDER_NAME: &str = "Gel";
 
 pub trait ToParameters {
@@ -36,7 +35,7 @@ pub enum TransactionIoProvider {
 
 impl DatabaseIoRecorder {
     pub fn from_global_recording() -> Self {
-        let io_events = tracing_config_helper::io_provider::get_io_provider_recording_events(RECORDER_NAME).expect("Gel events to exist if in recording");
+        let io_events = tracer::io_provider::get_io_provider_recorded_events(RECORDER_NAME).expect("Gel events to exist if in recording");
         let io_events: Vec<SpecializedIoEvent<IoEvent>> = specialize_events_or_panic(io_events);
         DatabaseIoRecorder::Recorded(Arc::new(RwLock::new(EventRecordingPlayhead { events: io_events, used_events: HashSet::new() })))
     }
@@ -193,113 +192,6 @@ impl DatabaseIoRecorder {
 }
 
 impl Transaction {
-    // the returned id order is non-specified, so an order_by is required
-    pub async fn bulk_insert(
-        &mut self,
-        table: &str,
-        rows_columns: Vec<IndexMap<String, Parameter>>,
-        order_by: &str,
-    ) -> Result<Vec<Uuid>, Error> {
-        let Some(query) = gel::generate_bulk_insert_query(table, &rows_columns, order_by) else {
-            return Ok(vec![]);
-        };
-        let params_as_json: serde_json::Value = bulk_params_as_json(&rows_columns);
-        let params = IndexMap::from([("data".to_string(), Parameter::from(params_as_json))]);
-        let inserted_entity_id: Vec<Id> = self.query_multiple(&query, params).await?;
-        if let Some(execution_external_id) = get_current_execution() {
-            let mut bulk_insert_col = vec![];
-            for (idx, columns) in rows_columns.into_iter().enumerate() {
-                let mut cols = IndexMap::new();
-                let new = parameter_map_as_json_value(&columns);
-                cols.insert("entity_name".to_string(), Parameter::from(table));
-                cols.insert(
-                    "entity_id".to_string(),
-                    Parameter::from(
-                        inserted_entity_id
-                            .get(idx)
-                            .expect("all elements to have been inserted")
-                            .id,
-                    ),
-                );
-                cols.insert(
-                    "execution_external_id".to_string(),
-                    Parameter::from(execution_external_id),
-                );
-                cols.insert("old".to_string(), Parameter::Json(None));
-                cols.insert("new".to_string(), Parameter::from(new));
-                bulk_insert_col.push(cols);
-            }
-            let query =
-                gel::generate_bulk_insert_query("EntityChange", &bulk_insert_col, "id").unwrap();
-            let params_as_json: serde_json::Value = bulk_params_as_json(&bulk_insert_col);
-            let params = IndexMap::from([("data".to_string(), Parameter::from(params_as_json))]);
-            let _id: Vec<Id> = self.query_multiple(&query, params).await?;
-        }
-        Ok(inserted_entity_id.into_iter().map(|e| e.id).collect())
-    }
-
-    pub async fn insert<IntoString: Into<String>>(
-        &mut self,
-        table: &str,
-        columns: IndexMap<IntoString, Parameter>,
-    ) -> Result<Uuid, Error> {
-        let columns: IndexMap<String, Parameter> =
-            columns.into_iter().map(|(k, v)| (k.into(), v)).collect();
-        let query = gel::generate_insert_query(table, &columns);
-        let inserted_entity_id: Id = self.query_required_single(&query, columns.clone()).await?;
-        if let Some(execution_external_id) = get_current_execution() {
-            let new = parameter_map_as_json_value(&columns);
-            let query_with_params = generate_entity_change_query(
-                execution_external_id,
-                table,
-                inserted_entity_id.id,
-                None,
-                new,
-            );
-            let _id: Id = self
-                .query_required_single(&query_with_params.query_text, query_with_params.parameters)
-                .await?;
-        }
-        Ok(inserted_entity_id.id)
-    }
-
-    // True if an entity was updated. It might not exist or the update data could be empty.
-    pub async fn update<IntoString: Into<String>>(
-        &mut self,
-        table: &str,
-        id: Uuid,
-        columns: IndexMap<IntoString, Parameter>,
-    ) -> Result<bool, Error> {
-        let columns: IndexMap<String, Parameter> =
-            columns.into_iter().map(|(k, v)| (k.into(), v)).collect();
-        if columns.is_empty() {
-            return Ok(false);
-        }
-        let keys = columns.keys().map(|k| k.clone()).collect::<Vec<String>>();
-        let previous_state_query = gel::generate_select_query(table, id, &keys);
-        let Some(old): Option<serde_json::Value> = self
-            .query_optional(
-                &previous_state_query,
-                IndexMap::<String, Parameter>::from([]),
-            )
-            .await?
-        else {
-            return Ok(false);
-        };
-        let update_query = gel::generate_update_query(table, id, &columns);
-        let _id: Id = self
-            .query_required_single(&update_query, columns.clone())
-            .await?;
-        let new = parameter_map_as_json_value(&columns);
-        if let Some(execution_external_id) = get_current_execution() {
-            let query_with_params =
-                generate_entity_change_query(execution_external_id, table, id, Some(old), new);
-            let _id: Id = self
-                .query_required_single(&query_with_params.query_text, query_with_params.parameters)
-                .await?;
-        }
-        Ok(true)
-    }
     pub async fn query_required_single<
         IntoString: Into<String>,
         T: Serialize + DeserializeOwned + Clone,
@@ -496,11 +388,6 @@ pub struct TxStartResult(Result<TxId, Error>);
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TxCommitResult(Result<(), Error>);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Id {
-    pub id: Uuid,
-}
-mod gel;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Error, PartialEq)]
 pub enum Error {
@@ -524,62 +411,12 @@ impl Error {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransactionResult {
-    pub ended_at: DateTime<Utc>,
-    pub result: Result<(), Error>,
-}
 
 pub struct Transaction {
     id: Uuid,
     tx: TransactionIoProvider,
 }
 
-fn parameter_map_as_json_value(columns: &IndexMap<String, Parameter>) -> serde_json::Value {
-    let mut new = serde_json::map::Map::new();
-    for (k, v) in columns {
-        new.insert(k.to_string(), v.as_json());
-    }
-    serde_json::Value::Object(new)
-}
-
-fn generate_entity_change_query(
-    execution_external_id: Uuid,
-    entity_name: &str,
-    entity_id: Uuid,
-    old: Option<serde_json::Value>,
-    new: serde_json::Value,
-) -> QueryWithParameters {
-    let args = IndexMap::from([
-        ("entity_name".to_string(), Parameter::from(entity_name)),
-        ("entity_id".to_string(), Parameter::from(entity_id)),
-        (
-            "execution_external_id".to_string(),
-            Parameter::from(execution_external_id),
-        ),
-        ("old".to_string(), Parameter::from(old)),
-        ("new".to_string(), Parameter::from(new)),
-    ]);
-    let query = "insert EntityChange{
-    entity_name := <str>$entity_name,
-    entity_id := <uuid>$entity_id,
-    execution_external_id := <uuid>$execution_external_id,
-    new := <json>$new
-};";
-    QueryWithParameters {
-        query_text: query.to_string(),
-        query_type: QueryType::RequiredSingle,
-        parameters: args,
-    }
-}
-
-fn bulk_params_as_json(columns: &Vec<IndexMap<String, Parameter>>) -> serde_json::Value {
-    let w: Vec<serde_json::Value> = columns
-        .iter()
-        .map(|e| parameter_map_as_json_value(&e))
-        .collect();
-    serde_json::Value::Array(w)
-}
 
 async fn raw_query_optional<T: Serialize + DeserializeOwned + Clone>(
     client: &gel_tokio::Client,

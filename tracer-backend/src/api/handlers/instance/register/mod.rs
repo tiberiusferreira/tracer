@@ -7,53 +7,114 @@ use axum::extract::State;
 
 use gel_io_recorder::Parameter;
 use gel_tokio::Queryable;
-use indexmap::IndexMap;
+use indexmap::{indexmap, IndexMap};
 use serde::{Deserialize, Serialize};
-
+use uuid::Uuid;
+use recordable_params_macro::ToParameters;
+use gel_io_recorder::ToParameters;
 #[derive(Queryable)]
 struct InstanceInsertionData {
-    service_instance_id: uuid::Uuid,
+    service_instance_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Id {
     pub id: uuid::Uuid,
 }
+
+
+async fn get_existing_service(tx: &mut gel_io_recorder::Transaction, env: String,
+                              service: String) -> Result<Option<Uuid>, gel_io_recorder::Error> {
+    // GelGen(query, out=Id, id=de995d)
+    let q = "select Service{id}
+    filter .env = <str>$env and .name = <str>$service;";
+
+    // GelGen(in, id=de995d)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        env: String,
+        service: String,
+    }
+    // GelGen(out, id=de995d)
+    #[derive(Clone, Serialize, Deserialize)]
+    struct Id {
+        id: Uuid,
+    }
+
+    let out: Option<Id> = tx.query_optional(q, Args {
+        env,
+        service,
+    }.to_parameters()).await?;
+    Ok(out.map(|id| id.id))
+}
+
+async fn insert_service(tx: &mut gel_io_recorder::Transaction, env: String,
+                        service: String) -> Result<Uuid, gel_io_recorder::Error> {
+    // GelGen(query, out=InsertedService, id=5c04bc)
+    let insert_service_instance_query = "insert Service {
+        env := <str>$env,
+        name := <str>$name
+    };";
+
+    // GelGen(in, id=5c04bc)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        env: String,
+        name: String,
+    }
+    // GelGen(out, id=5c04bc)
+    #[derive(Clone, Serialize, Deserialize)]
+    struct InsertedService {
+        id: Uuid,
+    }
+    let service: InsertedService = tx.query_required_single(insert_service_instance_query, Args {
+        env,
+        name: service,
+    }.to_parameters())
+        .await?;
+    Ok(service.id)
+}
+
+
 async fn register_instance(
     tx: &mut gel_io_recorder::Transaction,
     env: &str,
     service: &str,
 ) -> Result<InstanceInsertionData, gel_io_recorder::Error> {
-    let params = IndexMap::from([
-        ("env".to_string(), Parameter::from(env)),
-        ("service".to_string(), Parameter::from(service)),
-    ]);
+    let existing_service = get_existing_service(tx, env.to_string(), service.to_string()).await?;
 
-    let service_id: Option<Id> = tx
-        .query_optional(
-            "with
-    env := <str>$env,
-    name := <str>$service,
-select Service{
-  id
-} filter .env = env and .name = name;",
-            params,
+    let service_id = match existing_service {
+        None => {
+            insert_service(tx, env.to_string(), service.to_string()).await?
+        }
+        Some(id) => id,
+    };
+    // GelGen(query, out=InsertedServiceInstance, id=60a689)
+    let insert_service_instance_query = "insert ServiceInstance {
+        service := <Service><uuid>$service_id,
+    };";
+
+    // GelGen(in, id=60a689)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        service_id: Uuid,
+    }
+    // GelGen(out, id=60a689)
+    #[derive(Clone, Serialize, Deserialize)]
+    struct InsertedServiceInstance {
+        id: Uuid,
+    }
+
+    let service_instance_id: InsertedServiceInstance = tx
+        .query_required_single(insert_service_instance_query, Args {
+            service_id,
+        }.to_parameters(),
         )
         .await?;
-    let service_id = match service_id {
-        None => {
-            let map = IndexMap::from([
-                ("env", Parameter::from(env)),
-                ("name", Parameter::from(service)),
-            ]);
-            tx.insert("Service", map).await?
-        }
-        Some(id) => id.id,
-    };
-    let map = IndexMap::from([("service", Parameter::from((service_id, "Service")))]);
-    let service_instance_id = tx.insert("ServiceInstance", map).await?;
+
+
     Ok(InstanceInsertionData {
-        service_instance_id,
+        service_instance_id: service_instance_id.id,
     })
 }
 

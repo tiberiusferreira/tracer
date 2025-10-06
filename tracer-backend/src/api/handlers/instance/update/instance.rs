@@ -28,8 +28,9 @@ pub async fn update_instance_profile(
     profile: &str,
 ) -> Result<(), super::GelError> {
     let params = IndexMap::from([("latest_profile_base64", Parameter::from(profile))]);
-    let updated = tx.update("ServiceInstance", instance_id, params).await?;
-    assert!(updated);
+    // let updated = tx.update("ServiceInstance", instance_id, params).await?;
+    // assert!(updated);
+    unimplemented!();
     Ok(())
 }
 

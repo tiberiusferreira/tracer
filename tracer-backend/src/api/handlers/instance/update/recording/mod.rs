@@ -1,12 +1,14 @@
 use crate::api::handlers::instance::update::{GelError, InstanceServiceInformation};
 use api_structs::instance::update::ExecutionRecordingSnapshot;
 use chrono::{DateTime, Utc};
-use gel_io_recorder::{Parameter, Transaction};
+use gel_io_recorder::{Parameter, ToParameters, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
-use tracing_config_helper::io_provider::execution_recorder::record_single_attribute;
+use tracer::io_provider::execution_recorder::record_single_attribute;
 use uuid::Uuid;
+use recordable_params_macro::ToParameters;
+
 mod attribute;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,37 +171,11 @@ pub async fn store_new_recording_data(
             }
         }
     }
-    let mut multi_exec_params = vec![];
-    for e in &executions_headers_to_insert {
-        let mut params = IndexMap::new();
-        params.insert(
-            "service_instance".to_string(),
-            Parameter::from((e.service_instance_id, "ServiceInstance")),
-        );
-        params.insert("external_id".to_string(), Parameter::from(e.external_id));
-        params.insert("size_bytes".to_string(), Parameter::from(e.size_bytes));
-        params.insert("started_at".to_string(), Parameter::from(e.started_at));
-        params.insert("last_seen_at".to_string(), Parameter::from(e.last_seen_at));
-        params.insert("ended".to_string(), Parameter::from(e.ended));
-        multi_exec_params.push(params);
-    }
-    for to_update in executions_headers_to_update {
-        let mut params = IndexMap::new();
-        params.insert(
-            "size_bytes".to_string(),
-            Parameter::from(to_update.size_bytes),
-        );
-        params.insert(
-            "last_seen_at".to_string(),
-            Parameter::from(to_update.last_seen_at),
-        );
-        params.insert("ended".to_string(), Parameter::from(to_update.ended));
 
-        let was_updated = tx.update("Execution", to_update.id, params).await?;
-        assert!(was_updated);
-    }
-    let ids = tx
-        .bulk_insert("Execution", multi_exec_params, "external_id")
+    update_execution_headers(tx, executions_headers_to_update).await?;
+
+
+    let ids = insert_execution_headers_returning_order_external_id(tx, &executions_headers_to_insert)
         .await?;
     let mut external_ids = executions_headers_to_insert
         .iter()
@@ -209,48 +185,151 @@ pub async fn store_new_recording_data(
     for (idx, external_id) in external_ids.iter().enumerate() {
         external_id_to_db_id.insert(*external_id, *ids.get(idx).unwrap());
     }
+    insert_execution_attribute(tx, executions_attributes_to_insert).await?;
+    insert_replay_fragment(tx, executions_replay_fragment_to_insert).await?;
 
-    let mut all_params = Vec::new();
-    for missing_attr in &executions_attributes_to_insert {
-        let mut params = IndexMap::new();
-        let execution_db_id = *external_id_to_db_id
-            .get(&missing_attr.execution_external_id)
-            .unwrap();
-        params.insert(
-            "execution".to_string(),
-            Parameter::from((execution_db_id, "Execution")),
-        );
-        params.insert(
-            "normalized_name".to_string(),
-            Parameter::from((missing_attr.name_uuid, "AttributeName")),
-        );
-        params.insert(
-            "normalized_value".to_string(),
-            Parameter::from((missing_attr.value_uuid, "AttributeValue")),
-        );
-        all_params.push(params);
+    Ok(())
+}
+
+async fn update_execution_headers(tx: &mut Transaction, executions_headers_to_update: Vec<ExecutionHeaderToUpdate>) -> Result<(), gel_io_recorder::Error> {
+    // GelGen(query, out=UpdateOut, id=2b2d63)
+    let q = "with
+  raw_data := <json>$data,
+for item in json_array_unpack(raw_data) union (
+  update Execution
+  filter .id=<uuid>item['id']
+  set {
+    size_bytes := <int32>item['size_bytes'],
+    last_seen_at := <datetime>item['last_seen_at'],
+    ended := <bool>item['ended'],
+  }
+);";
+
+    // GelGen(in, id=2b2d63)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        data: serde_json::Value,
     }
-    tx.bulk_insert("ExecutionAttribute", all_params, "id")
-        .await?;
-
-    let mut all_params = Vec::new();
-    for replay_fragment in executions_replay_fragment_to_insert {
-        let mut params = IndexMap::new();
-        let execution_db_id = *external_id_to_db_id
-            .get(&replay_fragment.execution_external_id)
-            .unwrap();
-        params.insert(
-            "execution".to_string(),
-            Parameter::from((execution_db_id, "Execution")),
-        );
-        params.insert(
-            "replay_data".to_string(),
-            Parameter::from(replay_fragment.replay_data),
-        );
-        all_params.push(params);
+    // GelGen(out, id=2b2d63)
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct UpdateOut {
+        id: Uuid,
     }
-    tx.bulk_insert("ReplayFragment", all_params, "id").await?;
+    #[derive(Clone, Serialize, Deserialize)]
+    struct UpdateData {
+        id: Uuid,
+        size_bytes: i32,
+        last_seen_at: DateTime<Utc>,
+        ended: bool,
+    }
+    let mut update_data = Vec::new();
+    for to_update in executions_headers_to_update {
+        update_data.push(UpdateData {
+            id: to_update.id,
+            size_bytes: to_update.size_bytes,
+            last_seen_at: to_update.last_seen_at,
+            ended: to_update.ended,
+        });
+    }
+    let updated: Vec<UpdateOut> = tx.query_multiple(q, Args {
+        data: serde_json::to_value(&update_data).unwrap(),
+    }.to_parameters()).await?;
+    tracing::info!("Updated: {updated:?}");
+    Ok(())
+}
 
+async fn insert_execution_headers_returning_order_external_id(tx: &mut Transaction, executions_headers_to_insert: &[ExecutionHeaderToInsert]) -> Result<Vec<Uuid>, gel_io_recorder::Error> {
+    // GelGen(query, out=InsertOut, id=5baec4)
+    let q = "with
+  raw_data := <json>$data,
+  inserted := (
+      for item in json_array_unpack(raw_data) union (
+        insert Execution {
+          service_instance := <ServiceInstance><uuid>item['service_instance_id'],
+          external_id := <uuid>item['external_id'],
+          started_at := <datetime>item['started_at'],
+          last_seen_at := <datetime>item['last_seen_at'],
+          size_bytes := <int32>item['size_bytes'],
+          ended := <bool>item['ended'],
+        }
+      )
+  ),
+  select inserted
+order by inserted.external_id;";
+
+    // GelGen(in, id=5baec4)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        data: serde_json::Value,
+    }
+    // GelGen(out, id=5baec4)
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct InsertOut {
+        id: Uuid,
+    }
+
+    let inserted: Vec<InsertOut> = tx.query_multiple(q, Args {
+        data: serde_json::to_value(&executions_headers_to_insert).unwrap(),
+    }.to_parameters()).await?;
+    tracing::info!("inserted: {inserted:?}");
+    let ids = inserted.into_iter().map(|e| e.id).collect::<Vec<Uuid>>();
+    Ok(ids)
+}
+
+async fn insert_replay_fragment(tx: &mut Transaction, executions_attrs: Vec<ReplayDataToInsert>) -> Result<(), gel_io_recorder::Error> {
+    // GelGen(query, out=Inserted, id=2bedeb)
+    let q = "with
+  raw_data := <json>$data,
+for item in json_array_unpack(raw_data) union (
+  insert ReplayFragment {
+    execution := (select Execution filter .external_id = <uuid>item['execution_external_id']),
+    replay_data := <json>item['replay_data']
+  }
+);";
+
+    // GelGen(in, id=2bedeb)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        data: serde_json::Value,
+    }
+    // GelGen(out, id=2bedeb)
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct Inserted {
+        id: Uuid,
+    }
+    let inserted: Vec<Inserted> = tx.query_multiple(q, Args {
+        data: serde_json::to_value(&executions_attrs).unwrap(),
+    }.to_parameters()).await?;
+    tracing::info!("inserted: {inserted:?}");
+    Ok(())
+}
+async fn insert_execution_attribute(tx: &mut Transaction, executions_attrs: Vec<ExecutionAttributeToInsert>) -> Result<(), gel_io_recorder::Error> {
+    // GelGen(query, out=Inserted, id=6525e4)
+    let q = "with
+  raw_data := <json>$data,
+for item in json_array_unpack(raw_data) union (
+  insert ExecutionAttribute {
+    execution := (select Execution filter .external_id = <uuid>item['execution_external_id']),
+    normalized_name := <AttributeName><uuid>item['name_uuid'],
+    normalized_value := <AttributeValue><uuid>item['value_uuid']
+  }
+);";
+
+    // GelGen(in, id=6525e4)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        data: serde_json::Value,
+    }
+    // GelGen(out, id=6525e4)
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Inserted {
+        id: Uuid,
+    }
+
+    let inserted: Vec<Inserted> = tx.query_multiple(q, Args {
+        data: serde_json::to_value(&executions_attrs).unwrap(),
+    }.to_parameters()).await?;
+    tracing::info!("inserted: {inserted:?}");
     Ok(())
 }
 
@@ -320,6 +399,7 @@ for item in json_array_unpack(executions_to_get) union (
     Ok(existing_execution)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExecutionHeaderToInsert {
     service_instance_id: Uuid,
     external_id: Uuid,
@@ -335,6 +415,8 @@ struct ExecutionHeaderToUpdate {
     size_bytes: i32,
     ended: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReplayDataToInsert {
     execution_external_id: Uuid,
     replay_data: serde_json::Value,

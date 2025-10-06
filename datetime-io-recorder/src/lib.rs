@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
-use tracing_config_helper::io_provider::{record_io_event_request, EventRecordingPlayhead};
+use tracer::io_provider::{record_io_event_request, EventRecordingPlayhead};
 
 pub const RECORDER_NAME: &str = "Datetime";
 
@@ -20,9 +20,9 @@ pub enum CurrentDatetimeIoRecorder {
 
 impl CurrentDatetimeIoRecorder {
     pub fn from_global_recording() -> Self {
-        let io_events = tracing_config_helper::io_provider::get_io_provider_recording_events(RECORDER_NAME)
+        let io_events = tracer::io_provider::get_io_provider_recorded_events(RECORDER_NAME)
             .unwrap_or_else(|| panic!("{RECORDER_NAME} to have recording"));
-        let io_events: Vec<tracing_config_helper::SpecializedIoEvent<IoEvent>> = tracing_config_helper::io_provider::specialize_events_or_panic(io_events);
+        let io_events: Vec<tracer::SpecializedIoEvent<IoEvent>> = tracer::io_provider::specialize_events_or_panic(io_events);
 
         Self::Recording(Arc::new(RwLock::new(EventRecordingPlayhead {
             events: io_events,

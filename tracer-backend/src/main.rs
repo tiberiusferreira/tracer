@@ -6,7 +6,9 @@ use api_structs::ServiceId;
 use clap::Parser;
 use gel_io_recorder::DatabaseIoRecorder;
 use tokio::task::spawn_local;
-use tracing_config_helper::TracerConfig;
+use tracing::Level;
+use tracing_subscriber::EnvFilter;
+use tracer::TracerConfig;
 
 mod api;
 mod background_tasks;
@@ -14,12 +16,13 @@ mod series;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    // load env vars so clap can use it when parsing a config
+    println!("Loading env vars");
+    dotenvy::dotenv().ok();
+    tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
     let current_thread_runner = tokio::task::LocalSet::new();
     current_thread_runner
         .run_until(async {
-            // load env vars so clap can use it when parsing a config
-            println!("Loading env vars");
-            dotenvy::dotenv().ok();
             let launch_config = LaunchConfig::parse();
             let join_handle = start_api_and_background_tasks(launch_config.clone())
                 .await
@@ -33,7 +36,7 @@ async fn main() {
             );
 
             let tracer_flush_request =
-                tracing_config_helper::setup_server_exporter_task_or_panic(tracer_config).await;
+                tracer::setup_server_exporter_task_or_panic(tracer_config).await;
             std::mem::forget(tracer_flush_request);
             join_handle
                 .await
@@ -58,7 +61,7 @@ async fn start_api_and_background_tasks(
             async {
                 // TODO remove old traces
             }
-            .await;
+                .await;
             tokio::time::sleep(Duration::from_secs(60 * 60 * 60)).await;
         }
     });

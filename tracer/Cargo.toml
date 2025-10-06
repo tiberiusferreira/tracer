@@ -1,5 +1,5 @@
 [package]
-name = "tracing-config-helper"
+name = "tracer"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,8 +11,8 @@ reqwest.workspace = true
 brotli.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
-api-structs.workspace = true
-tracked_error = { workspace = true, features = ["reqwest"] }
+api-structs = { path = "../api-structs" }
+tracked_error = { path = "../tracked_error", features = ["reqwest"] }
 futures.workspace = true
 serde_json.workspace = true
 pprof = { version = "0.15", features = ["flamegraph", "frame-pointer", "prost-codec"] }

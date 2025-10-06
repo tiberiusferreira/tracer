@@ -8,8 +8,8 @@ edition = "2024"
 [dependencies]
 serde_json.workspace = true
 uuid.workspace = true
-
-
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 gel-tokio.workspace = true
 gel-protocol.workspace = true
 gel-io-recorder = { path = "../gel-io-recorder" }
@@ -17,6 +17,7 @@ axum = { version = "0.8", features = ['query', 'macros'] }
 tower-http = { version = "0.6", features = ['limit', 'cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+recordable_params_macro = { path = "/Users/tiberiodarferreira/Documents/github/tracer/recordable_params_macro" }
 dotenvy.workspace = true
 thiserror = { workspace = true }
 serde.workspace = true
@@ -30,6 +31,6 @@ http = "1"
 tower-service = "0.3.3"
 axum-adapter = { path = "../axum-adapter" }
 
-[dependencies.tracing-config-helper]
+[dependencies.tracer]
 version = "0.1.0"
-path = "../tracing-config-helper"
+path = "../tracer"

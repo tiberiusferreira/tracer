@@ -4,28 +4,23 @@ members = [
     "tracer-backend",
     "tracer-ui",
     "api-structs",
-    "tracing-config-helper",
+    "tracer",
     "tracked_error",
     "datetime-io-recorder",
     "gel-io-recorder",
-    "postgresql-io-recorder",
     "axum-adapter",
     "recordable_params_macro"
+    #    "postgresql-io-recorder",
 ]
 
 
 [workspace.dependencies]
-api-structs = { path = "./api-structs" }
-
-
-tracked_error = { path = "./tracked_error", default-features = false }
-tracing-config-helper = { path = "./tracing-config-helper" }
 base64 = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
 serde = { version = "1", features = ["derive"] }
 gel-tokio = { version = "0.11", features = ["unstable"] }
 gel-protocol = { version = "0.9", features = ["with-chrono"] }
-tracing = { version = "0.1", features = ["valuable"] }
+tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ['env-filter', 'json'] }
 thiserror = "2"
 futures = "0.3"
@@ -35,4 +30,4 @@ reqwest = { version = "0.12", features = ['brotli', "json"] }
 brotli = "8"
 tokio = { version = "1", features = ["macros", "sync"] }
 dotenvy = "0.15"
-indexmap = { version = "2.10.0", features = ["serde"] }
+indexmap = { version = "2", features = ["serde"] }

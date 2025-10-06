@@ -77,7 +77,7 @@ pub fn get_current_recording_input() -> Option<serde_json::Value> {
     }
     curr_input
 }
-pub fn get_io_provider_recording_events(io_provider_name: &'static str) -> Option<Vec<IoEvent>> {
+pub fn get_io_provider_recorded_events(io_provider_name: &'static str) -> Option<Vec<IoEvent>> {
     // if no global recording, we are live
     let global_recording_path = std::env::var("GLOBAL_RECORDING_PATH".to_string()).ok()?;
 
