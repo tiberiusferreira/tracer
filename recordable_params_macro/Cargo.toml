@@ -7,6 +7,5 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
-quote = "1.0"
-syn = "2.0.104"
-gel-io-recorder = { path = "../gel-io-recorder" }
+quote = "1"
+syn = "2"

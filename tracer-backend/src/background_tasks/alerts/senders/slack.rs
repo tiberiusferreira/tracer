@@ -114,9 +114,9 @@ async fn send_slack_msg_logging_error(
     }
 }
 
+#[allow(unused)]
 #[derive(Clone)]
 pub struct SlackConfig {
-    #[allow(unused)]
     pub id: i32,
     pub bot_user_oauth_token: String,
     pub channel_id: String,

@@ -159,6 +159,26 @@ pub async fn instance_profile(
         }
     }
 }
+
+
+trait SummariesForGraphDatabase {}
+
+
+enum SummariesForGraphError {}
+
+
+struct Request {
+    body: Vec<u8>,
+    parts: (),
+}
+
+pub async fn summaries_for_graph2<Database: SummariesForGraphDatabase>(
+    summaries_for_graph: Database,
+    filters: api_structs::ui::service::SummaryFilters,
+) -> Result<SummariesForGraph, SummariesForGraphError> {
+    unimplemented!()
+}
+
 pub async fn summaries_for_graph(
     State(app_state): State<AppState>,
     Json(filters): Json<api_structs::ui::service::SummaryFilters>,

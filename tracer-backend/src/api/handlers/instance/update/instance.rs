@@ -1,9 +1,12 @@
 use crate::api::handlers::instance::update::{InstanceServiceInformation, ProcessUpdateError};
 use api_structs::instance::update::ExecutionRecordingSnapshot;
-use gel_io_recorder::{Parameter, Transaction};
+use gel_io_recorder::{Parameter, ToParameters, Transaction};
 use std::collections::{HashSet};
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+use tracing::trace;
 use uuid::Uuid;
+use recordable_params_macro::ToParameters;
 
 pub async fn get_instance_service_information(
     tx: &mut Transaction,
@@ -27,10 +30,29 @@ pub async fn update_instance_profile(
     instance_id: Uuid,
     profile: &str,
 ) -> Result<(), super::GelError> {
-    let params = IndexMap::from([("latest_profile_base64", Parameter::from(profile))]);
-    // let updated = tx.update("ServiceInstance", instance_id, params).await?;
-    // assert!(updated);
-    unimplemented!();
+    // GelGen(query, out=InsertOut, id=6fd5f6)
+    let q = "update ServiceInstance
+  filter .id = <uuid>$id
+  set {
+    latest_profile_base64 := <str>$profile_base64
+  };";
+
+    // GelGen(in, id=6fd5f6)
+    #[derive(Clone, Serialize, Deserialize, ToParameters)]
+    struct Args {
+        profile_base64: String,
+        id: Uuid,
+    }
+    // GelGen(out, id=6fd5f6)
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct InsertOut {
+        id: Uuid,
+    }
+    let inserted: Vec<InsertOut> = tx.query_multiple(q, Args {
+        profile_base64: profile.to_string(),
+        id: instance_id,
+    }.to_parameters()).await?;
+    trace!("inserted: {:?}", inserted);
     Ok(())
 }
 

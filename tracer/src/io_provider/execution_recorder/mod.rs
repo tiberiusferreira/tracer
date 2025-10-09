@@ -33,14 +33,14 @@ pub async fn record_execution<
     res
 }
 
+
 pub async fn record_execution_simple<
-    Output,
-    Fun: AsyncFnOnce() -> Output,
+    Fut: Future<Output=()>,
 >(
-    future_generator: Fun,
+    fut: Fut,
     recording_enabled: bool,
-) -> Output {
-    record_execution((), |()| future_generator(), recording_enabled).await
+) {
+    record_execution((), async |()| { fut.await }, recording_enabled).await
 }
 
 

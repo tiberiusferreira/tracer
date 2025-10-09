@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod database;
 
+#[allow(unused)]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TimeSeries {
     pub id: i32,
@@ -14,6 +15,7 @@ pub struct TimeSeries {
     pub query: String,
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TimeSeriesWithChecks {
     pub id: i32,
@@ -26,6 +28,7 @@ pub struct TimeSeriesWithChecks {
     pub alert_checks: Vec<AlertCheck>,
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AlertCheck {
     pub id: i32,

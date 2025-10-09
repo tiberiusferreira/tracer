@@ -5,21 +5,13 @@ use api_structs::instance::registration::RegistrationResponse;
 use axum::Json;
 use axum::extract::State;
 
-use gel_io_recorder::Parameter;
-use gel_tokio::Queryable;
-use indexmap::{indexmap, IndexMap};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use recordable_params_macro::ToParameters;
 use gel_io_recorder::ToParameters;
-#[derive(Queryable)]
+
 struct InstanceInsertionData {
     service_instance_id: Uuid,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Id {
-    pub id: uuid::Uuid,
 }
 
 

@@ -3249,7 +3249,6 @@ dependencies = [
 name = "recordable_params_macro"
 version = "0.1.0"
 dependencies = [
- "gel-io-recorder",
  "quote",
  "syn",
 ]
@@ -4444,7 +4443,6 @@ dependencies = [
  "clap",
  "dotenvy",
  "gel-io-recorder",
- "gel-protocol",
  "gel-tokio",
  "http 1.3.1",
  "indexmap 2.10.0",
@@ -4455,7 +4453,6 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tower-http",
- "tower-service",
  "tracer",
  "tracing",
  "tracing-subscriber",

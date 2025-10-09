@@ -7,6 +7,7 @@ use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::RwLock;
 use tokio::task::JoinHandle;
+use tracing::info;
 use axum_adapter::{axum_request_to_serializable, recorded_request_to_axum, RecordedRequest};
 use tracer::io_provider::execution_recorder::record_single_attribute;
 use tracer::io_provider::is_playing_recording;
@@ -31,15 +32,15 @@ async fn my_middleware(
         .is_some_and(|service_name| service_name == "tracer-backend")
     {
         let size_kb = my_request.body_base64.len() / 1000;
-        println!("Got self request of size {size_kb}kb", );
+        info!("Got self request of size {size_kb}kb", );
         let mut w_guard = SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT.write().unwrap();
         let count = w_guard.deref_mut();
         if *count >= 3 && size_kb <= 1_000 {
-            println!("keeping");
+            info!("keeping");
             *count = 0;
             true
         } else {
-            println!("skipping");
+            info!("skipping");
             *count += 1;
             false
         }
@@ -68,6 +69,7 @@ async fn my_middleware(
         .await;
     response
 }
+
 
 pub fn create_router(app_state: AppState) -> Router<()> {
     println!("Starting API, checking if index.html UI file exist");
