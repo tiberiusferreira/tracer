@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -22,16 +23,7 @@ pub struct IoEvent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SpecializedIoEvent<T> {
-    pub id: Uuid,
-    pub created_at: DateTime<Utc>,
-    pub is_response_of: Option<Uuid>,
-    pub is_error: bool,
-    pub value: T,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ReplayDataFragment {
+pub struct ExecutionIOFragment {
     pub input: Option<serde_json::Value>,
     pub io_providers_events: HashMap<IoRecorderName, Vec<IoEvent>>,
 }
@@ -42,24 +34,7 @@ pub struct ExecutionRecordingSnapshot {
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub ended: bool,
-    pub replay_data_fragment: ReplayDataFragment,
-    pub attributes: HashMap<String, HashSet<String>>,
-    pub recording_enabled: bool,
+    pub execution_io_fragment: ExecutionIOFragment,
+    pub attributes: IndexMap<String, HashSet<String>>,
 }
 
-impl ExecutionRecordingSnapshot {
-    pub fn new(id: Uuid, input: serde_json::Value, recording_enabled: bool) -> ExecutionRecordingSnapshot {
-        Self {
-            id,
-            replay_data_fragment: ReplayDataFragment {
-                input: Some(input),
-                io_providers_events: Default::default(),
-            },
-            started_at: Utc::now(),
-            last_seen_at: Utc::now(),
-            ended: false,
-            attributes: Default::default(),
-            recording_enabled,
-        }
-    }
-}

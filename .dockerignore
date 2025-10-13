@@ -1,6 +1,8 @@
 *
 !tracer-ui
 !tracer-backend
+!io-providers
+!tracked_error
 !tracer
 !api-structs
 !Cargo.toml

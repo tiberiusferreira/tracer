@@ -6,11 +6,12 @@ use http::{StatusCode};
 use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::RwLock;
+use axum::routing::{get, post};
 use tokio::task::JoinHandle;
 use tracing::info;
-use axum_adapter::{axum_request_to_serializable, recorded_request_to_axum, RecordedRequest};
-use tracer::io_provider::execution_recorder::record_single_attribute;
-use tracer::io_provider::is_playing_recording;
+use axum_io_provider::{axum_request_to_serializable, recorded_request_to_axum, RecordedRequest};
+use tracer::application_api::record_attribute;
+use tracer::is_playing_recording;
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod handlers;
@@ -19,12 +20,12 @@ pub mod state;
 
 static SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT: RwLock<u8> = RwLock::new(0);
 
-async fn my_middleware(
+pub async fn recording_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let my_request = axum_request_to_serializable(request).await;
-    let recording_enabled = if my_request.parts.uri == "/api/instance/update"
+    let drop_before_export = if my_request.parts.uri == "/api/instance/update"
         && my_request
         .parts
         .headers
@@ -38,33 +39,33 @@ async fn my_middleware(
         if *count >= 3 && size_kb <= 1_000 {
             info!("keeping");
             *count = 0;
-            true
+            false
         } else {
             info!("skipping");
             *count += 1;
-            false
+            true
         }
     } else {
-        true
+        false
     };
     if is_playing_recording() {
         let axum_req = recorded_request_to_axum(my_request);
         let resp = next.run(axum_req).await;
         return resp;
     }
-    let response = tracer::io_provider::execution_recorder::record_execution(
+    let response = tracer::application_api::record_execution(
         my_request,
         |my_request: RecordedRequest| async {
             let uri = my_request.parts.uri.clone();
-            record_single_attribute("uri".to_string(), uri);
-            record_single_attribute("method".to_string(), my_request.parts.method.to_string());
+            record_attribute("uri".to_string(), uri);
+            record_attribute("method".to_string(), my_request.parts.method.to_string());
             let axum_req = recorded_request_to_axum(my_request);
             let resp = next.run(axum_req).await;
             let status = resp.status();
-            record_single_attribute("status_code".to_string(), status.as_u16().to_string());
+            record_attribute("status_code".to_string(), status.as_u16().to_string());
             resp
         },
-        recording_enabled,
+        drop_before_export,
     )
         .await;
     response
@@ -73,51 +74,51 @@ async fn my_middleware(
 
 pub fn create_router(app_state: AppState) -> Router<()> {
     println!("Starting API, checking if index.html UI file exist");
-    if std::fs::read("/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html")
+    if std::fs::read("./tracer-ui/dist/index.html")
         .is_err()
     {
         panic!("Failed to read ./tracer-ui/dist/index.html");
     }
     let serve_ui = tower_http::services::ServeDir::new(
-        "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist",
+        "./tracer-ui/dist",
     )
         .fallback(tower_http::services::ServeFile::new(
-            "/Users/tiberiodarferreira/Documents/github/tracer/tracer-ui/dist/index.html",
+            "./tracer-ui/dist/index.html",
         ));
-    let service_routes = axum::Router::new()
+    let service_routes = Router::new()
         .route(
             "/data",
-            axum::routing::post(handlers::ui::service::summaries_for_graph),
+            post(handlers::ui::service::summaries_for_graph),
         )
         .route(
             "/instance-profile",
-            axum::routing::get(handlers::ui::service::instance_profile),
+            get(handlers::ui::service::instance_profile),
         )
         .route(
             "/execution_list",
-            axum::routing::post(handlers::ui::service::execution_list),
+            post(handlers::ui::service::execution_list),
         )
         .route(
             "/execution",
-            axum::routing::get(handlers::ui::execution_details::get_single_execution),
+            get(handlers::ui::execution_details::get_single_execution),
         );
-    let instance_routes = axum::Router::new()
+    let instance_routes = Router::new()
         .route(
             "/register",
-            axum::routing::post(handlers::instance::register::handler),
+            post(handlers::instance::register::handler),
         )
         .route(
             "/update",
-            axum::routing::post(handlers::instance::update::handler),
+            post(handlers::instance::update::handler),
         );
     let app = Router::new()
-        .route("/api/ready", axum::routing::get(ready_get))
+        .route("/api/ready", get(ready_get))
         .nest("/api/ui/service", service_routes)
         .nest("/api/instance", instance_routes)
         .with_state(app_state)
         .fallback_service(serve_ui)
         .layer(axum::extract::DefaultBodyLimit::max(50_000_000))
-        .layer(axum::middleware::from_fn(my_middleware))
+        .layer(axum::middleware::from_fn(recording_middleware))
         .layer(tower_http::cors::CorsLayer::very_permissive())
         .layer(tower_http::compression::CompressionLayer::new())
         .layer(tower_http::decompression::RequestDecompressionLayer::new());
@@ -152,10 +153,10 @@ async fn replay_api_recording() {
     unsafe { std::env::set_var("GLOBAL_RECORDING_PATH", "/Users/tiberiodarferreira/Documents/github/tracer/rec"); }
     use tower_service::Service;
     let app_state = AppState {
-        execution_io_provider: gel_io_recorder::DatabaseIoRecorder::from_global_recording(),
+        execution_io_provider: gel_io_provider::DatabaseIoRecorder::from_global_recording(),
     };
     let mut app = create_router(app_state);
-    let resp = tracer::io_provider::execution_recorder::play_global_recording(move |request: RecordedRequest| async move {
+    let resp = tracer::recording::execution_recorder::play_global_recording(move |request: RecordedRequest| async move {
         let axum_request = recorded_request_to_axum(request);
         app.call(axum_request).await.unwrap()
     }).await;
@@ -190,8 +191,8 @@ impl From<tracked_error::SerdeJsonError> for ApiError {
     }
 }
 
-impl From<gel_io_recorder::Error> for ApiError {
-    fn from(err: gel_io_recorder::Error) -> Self {
+impl From<gel_io_provider::Error> for ApiError {
+    fn from(err: gel_io_provider::Error) -> Self {
         ApiError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             message: error_chain_to_pretty_formatted(&err),
@@ -228,7 +229,7 @@ impl From<tracked_error::EdgeDBError> for ApiError {
     }
 }
 
-async fn ready_get() -> impl IntoResponse {
+pub async fn ready_get() -> impl IntoResponse {
     (
         StatusCode::OK,
         [(http::header::CONTENT_TYPE, "text/plain; charset=UTF-8")],

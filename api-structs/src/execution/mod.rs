@@ -1,4 +1,4 @@
-use crate::instance::update::ReplayDataFragment;
+use crate::instance::update::ExecutionIOFragment;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -19,6 +19,6 @@ pub struct Execution {
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub ended: bool,
-    pub replay_data: ReplayDataFragment,
+    pub replay_data: ExecutionIOFragment,
     pub attributes: Vec<Attribute>,
 }

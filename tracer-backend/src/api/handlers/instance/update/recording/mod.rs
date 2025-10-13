@@ -1,13 +1,13 @@
 use crate::api::handlers::instance::update::{GelError, InstanceServiceInformation};
 use api_structs::instance::update::ExecutionRecordingSnapshot;
 use chrono::{DateTime, Utc};
-use gel_io_recorder::{Parameter, ToParameters, Transaction};
+use gel_io_provider::{Parameter, ToParameters, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
-use tracer::io_provider::execution_recorder::record_single_attribute;
 use uuid::Uuid;
-use recordable_params_macro::ToParameters;
+use gel_io_to_parameters::ToParameters;
+use tracer::application_api::record_attribute;
 
 mod attribute;
 
@@ -101,7 +101,7 @@ pub async fn store_new_recording_data(
             .find(|e| e.external_id == single_rec.id);
         match matching_execution {
             None => {
-                let replay_data_json_value = serde_json::to_value(&single_rec.replay_data_fragment)
+                let replay_data_json_value = serde_json::to_value(&single_rec.execution_io_fragment)
                     .expect("replay data is valid json");
                 let json_size_bytes = serde_json::to_string(&replay_data_json_value)
                     .expect("replay data is always serializable")
@@ -133,11 +133,11 @@ pub async fn store_new_recording_data(
             }
             Some(existing_execution) => {
                 external_id_to_db_id.insert(single_rec.id, existing_execution.id);
-                record_single_attribute(
+                record_attribute(
                     "updates_existing_execution".to_string(),
                     "true".to_string(),
                 );
-                let replay_data_json_value = serde_json::to_value(&single_rec.replay_data_fragment)
+                let replay_data_json_value = serde_json::to_value(&single_rec.execution_io_fragment)
                     .expect("replay data is valid json");
                 let json_size_bytes = serde_json::to_string(&replay_data_json_value)
                     .expect("replay data is always serializable")
@@ -191,7 +191,7 @@ pub async fn store_new_recording_data(
     Ok(())
 }
 
-async fn update_execution_headers(tx: &mut Transaction, executions_headers_to_update: Vec<ExecutionHeaderToUpdate>) -> Result<(), gel_io_recorder::Error> {
+async fn update_execution_headers(tx: &mut Transaction, executions_headers_to_update: Vec<ExecutionHeaderToUpdate>) -> Result<(), gel_io_provider::Error> {
     // GelGen(query, out=UpdateOut, id=2b2d63)
     let q = "with
   raw_data := <json>$data,
@@ -238,7 +238,7 @@ for item in json_array_unpack(raw_data) union (
     Ok(())
 }
 
-async fn insert_execution_headers_returning_order_external_id(tx: &mut Transaction, executions_headers_to_insert: &[ExecutionHeaderToInsert]) -> Result<Vec<Uuid>, gel_io_recorder::Error> {
+async fn insert_execution_headers_returning_order_external_id(tx: &mut Transaction, executions_headers_to_insert: &[ExecutionHeaderToInsert]) -> Result<Vec<Uuid>, gel_io_provider::Error> {
     // GelGen(query, out=InsertOut, id=5baec4)
     let q = "with
   raw_data := <json>$data,
@@ -276,7 +276,7 @@ order by inserted.external_id;";
     Ok(ids)
 }
 
-async fn insert_replay_fragment(tx: &mut Transaction, executions_attrs: Vec<ReplayDataToInsert>) -> Result<(), gel_io_recorder::Error> {
+async fn insert_replay_fragment(tx: &mut Transaction, executions_attrs: Vec<ReplayDataToInsert>) -> Result<(), gel_io_provider::Error> {
     // GelGen(query, out=Inserted, id=2bedeb)
     let q = "with
   raw_data := <json>$data,
@@ -303,7 +303,7 @@ for item in json_array_unpack(raw_data) union (
     tracing::info!("inserted: {inserted:?}");
     Ok(())
 }
-async fn insert_execution_attribute(tx: &mut Transaction, executions_attrs: Vec<ExecutionAttributeToInsert>) -> Result<(), gel_io_recorder::Error> {
+async fn insert_execution_attribute(tx: &mut Transaction, executions_attrs: Vec<ExecutionAttributeToInsert>) -> Result<(), gel_io_provider::Error> {
     // GelGen(query, out=Inserted, id=6525e4)
     let q = "with
   raw_data := <json>$data,
@@ -363,7 +363,7 @@ struct ExecutionAttributeToInsert {
 async fn get_existing_executions(
     tx: &mut Transaction,
     executions_to_get: &[ExecutionExternalIdAndAttributes],
-) -> Result<Vec<DbPartialExecution>, gel_io_recorder::Error> {
+) -> Result<Vec<DbPartialExecution>, gel_io_provider::Error> {
     let existing_execution: Vec<DbPartialExecution> = tx
         .query_multiple(
             "with

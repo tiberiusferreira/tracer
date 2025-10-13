@@ -1,12 +1,12 @@
 use crate::api::handlers::instance::update::{InstanceServiceInformation, ProcessUpdateError};
 use api_structs::instance::update::ExecutionRecordingSnapshot;
-use gel_io_recorder::{Parameter, ToParameters, Transaction};
+use gel_io_provider::{Parameter, ToParameters, Transaction};
 use std::collections::{HashSet};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 use uuid::Uuid;
-use recordable_params_macro::ToParameters;
+use gel_io_to_parameters::ToParameters;
 
 pub async fn get_instance_service_information(
     tx: &mut Transaction,

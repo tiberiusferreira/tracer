@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use gel_io_recorder::{ToParameters, Transaction};
-use recordable_params_macro::ToParameters;
+use gel_io_provider::{ToParameters, Transaction};
+use gel_io_to_parameters::ToParameters;
 use crate::api::handlers::instance::update::GelError;
 
 pub mod database_old_traces_and_logs;

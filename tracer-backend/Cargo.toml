@@ -13,6 +13,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 gel-tokio.workspace = true
 axum = { version = "0.8", features = ['query', 'macros'] }
 tower-http = { version = "0.6", features = ['limit', 'cors', 'fs', 'trace', 'decompression-br', 'compression-br', 'normalize-path'] }
+tower-service = "0.3.3"
 tokio = { version = "1", features = ["rt", "macros"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 dotenvy.workspace = true
@@ -23,10 +24,10 @@ chrono.workspace = true
 base64.workspace = true
 indexmap.workspace = true
 http = "1"
-gel-io-recorder = { path = "../gel-io-recorder" }
-recordable_params_macro = { path = "../recordable_params_macro" }
+gel-io-provider = { path = "../io-providers/gel-io-provider" }
+gel-io-to-parameters = { path = "../io-providers/gel-io-to-parameters" }
 tracer = { path = "../tracer" }
 api-structs = { path = "../api-structs" }
 tracked_error = { path = "../tracked_error", features = ["gel-tokio"] }
-axum-adapter = { path = "../axum-adapter" }
+axum-io-provider = { path = "../io-providers/axum-io-provider" }
 

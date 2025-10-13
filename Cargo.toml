@@ -6,11 +6,10 @@ members = [
     "api-structs",
     "tracer",
     "tracked_error",
-    "datetime-io-recorder",
-    "gel-io-recorder",
-    "axum-adapter",
-    "recordable_params_macro"
-    #    "postgresql-io-recorder",
+    "io-providers/datetime-io-provider",
+    "io-providers/gel-io-provider",
+    "io-providers/axum-io-provider",
+    "io-providers/gel-io-to-parameters"
 ]
 
 

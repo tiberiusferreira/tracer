@@ -12,6 +12,7 @@ use leptos_router::hooks::{use_params, use_params_map};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
+use indexmap::IndexMap;
 use tracing::info;
 use uuid::Uuid;
 use wasm_bindgen::JsCast;
@@ -112,9 +113,8 @@ fn execution_view(execution: Result<Execution, TrackedGlooError>) -> impl IntoVi
         started_at: execution.started_at,
         last_seen_at: execution.last_seen_at,
         ended,
-        replay_data_fragment: execution.replay_data,
-        attributes: HashMap::new(),
-        recording_enabled: true,
+        execution_io_fragment: execution.replay_data,
+        attributes: IndexMap::new(),
     };
     view! {
         <div style="color: white; margin: 25px">

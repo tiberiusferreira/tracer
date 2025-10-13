@@ -1,12 +1,12 @@
 use crate::api::handlers::instance::update::GelError;
 use crate::api::handlers::instance::update::recording::DbAttribute;
 use api_structs::instance::update::ExecutionRecordingSnapshot;
-use gel_io_recorder::{Parameter, ToParameters, Transaction};
+use gel_io_provider::{Parameter, ToParameters, Transaction};
 use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use recordable_params_macro::ToParameters;
+use gel_io_to_parameters::ToParameters;
 
 pub struct FlattenedAttributesData {
     pub names: HashSet<String>,
@@ -91,7 +91,7 @@ pub async fn map_attribute_names_to_db_inserting_missing(
 async fn get_db_attribute_values(
     tx: &mut Transaction,
     attribute_values: &HashSet<String>,
-) -> Result<Vec<DbAttribute>, gel_io_recorder::Error> {
+) -> Result<Vec<DbAttribute>, gel_io_provider::Error> {
     let mut attribute_values = attribute_values.into_iter().collect::<Vec<_>>();
     attribute_values.sort();
     let existing_attribute_values: Vec<DbAttribute> = tx
@@ -220,7 +220,7 @@ for item in json_array_unpack(raw_data) union (
 async fn get_db_attribute_names(
     tx: &mut Transaction,
     attribute_name: &HashSet<String>,
-) -> Result<Vec<DbAttribute>, gel_io_recorder::Error> {
+) -> Result<Vec<DbAttribute>, gel_io_provider::Error> {
     let mut attribute_name = attribute_name.into_iter().collect::<Vec<_>>();
     attribute_name.sort();
     let existing_attribute_names: Vec<DbAttribute> = tx

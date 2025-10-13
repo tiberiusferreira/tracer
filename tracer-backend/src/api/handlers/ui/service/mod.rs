@@ -9,7 +9,7 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use chrono::{DateTime, Duration, Timelike, Utc};
-use gel_io_recorder::Parameter;
+use gel_io_provider::Parameter;
 use http::{StatusCode, header};
 use serde::{Deserialize, Serialize};
 use std::cmp::max_by;
@@ -160,24 +160,6 @@ pub async fn instance_profile(
     }
 }
 
-
-trait SummariesForGraphDatabase {}
-
-
-enum SummariesForGraphError {}
-
-
-struct Request {
-    body: Vec<u8>,
-    parts: (),
-}
-
-pub async fn summaries_for_graph2<Database: SummariesForGraphDatabase>(
-    summaries_for_graph: Database,
-    filters: api_structs::ui::service::SummaryFilters,
-) -> Result<SummariesForGraph, SummariesForGraphError> {
-    unimplemented!()
-}
 
 pub async fn summaries_for_graph(
     State(app_state): State<AppState>,

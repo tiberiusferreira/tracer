@@ -1,11 +1,11 @@
 use crate::api::ApiError;
 use crate::api::state::AppState;
 use api_structs::execution::{Attribute, Execution};
-use api_structs::instance::update::ReplayDataFragment;
+use api_structs::instance::update::ExecutionIOFragment;
 use axum::Json;
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
-use gel_io_recorder::Parameter;
+use gel_io_provider::Parameter;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
@@ -26,7 +26,7 @@ struct DbExecution {
     pub started_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub ended: bool,
-    pub replay_data: Vec<ReplayDataFragment>,
+    pub replay_data: Vec<ExecutionIOFragment>,
     pub attributes: Vec<Attribute>,
 }
 pub(crate) async fn get_single_execution(
@@ -63,7 +63,7 @@ pub(crate) async fn get_single_execution(
         code: StatusCode::NOT_FOUND,
         message: "invalid execution id".to_string(),
     })?;
-    let mut replay_data = ReplayDataFragment {
+    let mut replay_data = ExecutionIOFragment {
         input: None,
         io_providers_events: Default::default(),
     };

@@ -3,7 +3,7 @@ use crate::api::state::AppState;
 use api_structs::instance::update::InstanceSnapshot;
 use axum::Json;
 use axum::extract::State;
-use gel_io_recorder::{Error, Transaction};
+use gel_io_provider::{Error, Transaction};
 use serde::{Deserialize, Serialize};
 use std::panic::Location;
 use thiserror::Error;
@@ -82,11 +82,11 @@ pub enum ProcessUpdateError {
 #[error("Gel Error at {location}")]
 pub struct GelError {
     #[source]
-    source: gel_io_recorder::Error,
+    source: gel_io_provider::Error,
     location: &'static Location<'static>,
 }
 
-impl From<gel_io_recorder::Error> for GelError {
+impl From<gel_io_provider::Error> for GelError {
     fn from(value: Error) -> Self {
         GelError {
             source: value,
@@ -95,7 +95,7 @@ impl From<gel_io_recorder::Error> for GelError {
     }
 }
 
-impl From<gel_io_recorder::Error> for ProcessUpdateError {
+impl From<gel_io_provider::Error> for ProcessUpdateError {
     fn from(value: Error) -> Self {
         Self::Gel(GelError {
             source: value,

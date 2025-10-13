@@ -7,6 +7,7 @@ edition = "2024"
 
 [dependencies]
 serde.workspace = true
+indexmap.workspace = true
 reqwest.workspace = true
 brotli.workspace = true
 tokio.workspace = true
@@ -18,7 +19,7 @@ serde_json.workspace = true
 pprof = { version = "0.15", features = ["flamegraph", "frame-pointer", "prost-codec"] }
 base64.workspace = true
 chrono.workspace = true
-
+tracing = "0.1"
 
 pin-project-lite = "0.2.16"
 uuid.workspace = true
