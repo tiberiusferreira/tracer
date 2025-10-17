@@ -18,7 +18,6 @@ COPY api-structs api-structs
 COPY Cargo.lock .
 COPY Cargo.toml .
 ARG API_SERVER_URL_NO_TRAILING_SLASH
-ARG FRONTEND_PUBLIC_URL_PATH_NO_TRAILING_SLASH
 RUN trunk build --release --config=./tracer-ui/trunk.toml --dist=dist index.html
 ARG GIT_COMMIT
 RUN cargo build --release --bin tracer-backend

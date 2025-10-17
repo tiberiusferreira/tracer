@@ -18,7 +18,7 @@ pub async fn delete_old(tx: &mut Transaction) -> Result<(), GelError> {
 pub async fn delete_replay_frags(tx: &mut Transaction) -> Result<(), GelError> {
     tracing::info!("deleting replay fragments");
     // GelGen(query, out=Deleted, id=9a8742)
-    let delete_replay_frags = "delete ReplayFragment filter .created_at < (datetime_current() - <cal::relative_duration>'1 month');";
+    let delete_replay_frags = "delete ReplayFragment filter .created_at < (datetime_current() - <cal::relative_duration>'3 day');";
 
     // GelGen(in, id=9a8742)
     #[derive(Clone, Serialize, Deserialize, ToParameters)]
@@ -42,7 +42,7 @@ delete Execution filter .created_at < (datetime_current() - <cal::relative_durat
 
 pub async fn delete_execution_attrs(tx: &mut Transaction) -> Result<(), GelError> {
     // GelGen(query, out=Deleted, id=9a8743)
-    let delete_exec_attrs = "delete ExecutionAttribute filter .created_at < (datetime_current() - <cal::relative_duration>'1 month');";
+    let delete_exec_attrs = "delete ExecutionAttribute filter .created_at < (datetime_current() - <cal::relative_duration>'3 day');";
 
     // GelGen(in, id=9a8743)
     #[derive(Clone, Serialize, Deserialize, ToParameters)]
@@ -65,7 +65,7 @@ delete Execution filter .created_at < (datetime_current() - <cal::relative_durat
 
 pub async fn delete_executions(tx: &mut Transaction) -> Result<(), GelError> {
     // GelGen(query, out=Deleted, id=9a8744)
-    let delete_exec_attrs = "delete Execution filter .created_at < (datetime_current() - <cal::relative_duration>'1 month');";
+    let delete_exec_attrs = "delete Execution filter .created_at < (datetime_current() - <cal::relative_duration>'3 day');";
 
     // GelGen(in, id=9a8744)
     #[derive(Clone, Serialize, Deserialize, ToParameters)]

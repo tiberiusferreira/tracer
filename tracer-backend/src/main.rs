@@ -84,7 +84,7 @@ async fn start_api_and_background_tasks(
                     error!("Error cleaning up old traces: {error_str}");
                 }
             };
-            tracer::application_api::record_execution_simple(task, true).await;
+            tracer::application_api::record_execution_simple(task, false).await;
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
     });

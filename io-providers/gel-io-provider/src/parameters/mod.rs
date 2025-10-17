@@ -4,10 +4,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Parameter {
-    Uuid {
-        val: Option<Uuid>,
-        cast_to_table: Option<String>,
-    },
+    Uuid(Option<Uuid>),
     String(Option<String>),
     Date(Option<NaiveDate>),
     Datetime(Option<DateTime<Utc>>),
@@ -17,11 +14,12 @@ pub enum Parameter {
     I64(Option<i64>),
 }
 
+
 impl Parameter {
     pub fn as_json(&self) -> serde_json::Value {
         let err = "parameter serialization should never fail";
         match self {
-            Parameter::Uuid { val, .. } => serde_json::Value::from(val.map(|v| v.to_string())),
+            Parameter::Uuid(val) => serde_json::Value::from(val.map(|v| v.to_string())),
             Parameter::String(val) => serde_json::to_value(val).expect(err),
             Parameter::I32(val) => serde_json::to_value(val).expect(err),
             Parameter::I64(val) => serde_json::to_value(val).expect(err),
@@ -35,28 +33,25 @@ impl Parameter {
 
 impl From<Uuid> for Parameter {
     fn from(value: Uuid) -> Self {
-        Parameter::Uuid {
-            val: Some(value),
-            cast_to_table: None,
-        }
+        Parameter::Uuid(
+            Some(value)
+        )
     }
 }
 
 impl From<Option<Uuid>> for Parameter {
     fn from(value: Option<Uuid>) -> Self {
-        Parameter::Uuid {
-            val: value,
-            cast_to_table: None,
-        }
+        Parameter::Uuid(
+            value,
+        )
     }
 }
 
 impl From<(Uuid, &str)> for Parameter {
     fn from(value: (Uuid, &str)) -> Self {
-        Parameter::Uuid {
-            val: Some(value.0),
-            cast_to_table: Some(value.1.to_string()),
-        }
+        Parameter::Uuid(
+            Some(value.0)
+        )
     }
 }
 

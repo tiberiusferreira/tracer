@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use tracing::debug;
 use uuid::Uuid;
 use tracked_error::error_chain_to_pretty_formatted;
+use crate::is_playing_recording;
 
 pub mod execution_tracking;
 static GLOBAL_RECORDER: LazyLock<Box<dyn GlobalRecorder>> = LazyLock::new(|| {
@@ -90,7 +91,8 @@ pub async fn record_execution<
     future_generator: Future,
     drop_before_export: bool,
 ) -> FutureOutput {
-    let input_json = serde_json::to_value(&input).unwrap();
+    let input_json = serde_json::to_value(&input).expect("failed to serialize input");
+    // the end is recorded when the future from `track_task` is dropped
     let execution_context_id =
         get_global_recorder().record_execution_start(input_json, drop_before_export);
     let future = future_generator(input);
@@ -129,10 +131,16 @@ impl GlobalRecorder for Recorder {
     }
 
     fn record_io_event(&self, execution_id: Uuid, io_provider_name: &str, event: serde_json::Value, is_error: bool, is_response_of: Option<Uuid>) -> Uuid {
+        if is_playing_recording() {
+            panic!("recording during playback?");
+        }
         self.record_io_event(execution_id, io_provider_name, event, is_error, is_response_of)
     }
 
     fn record_attribute(&self, execution_id: Uuid, name: String, value: String) {
+        if is_playing_recording() {
+            return;
+        }
         self.record_attribute(execution_id, name, value);
     }
 

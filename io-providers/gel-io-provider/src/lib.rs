@@ -1,5 +1,5 @@
 use gel_protocol::value_opt::ValueOpt;
-use gel_tokio::RawTransaction;
+use gel_tokio::{QueryExecutor, RawTransaction};
 pub use parameters::Parameter;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,7 @@ pub enum DatabaseIoRecorder {
     Live(gel_tokio::Client),
 }
 
+
 pub enum TransactionIoProvider {
     Recorded(Arc<RwLock<EventRecordingPlayhead<IoEvent>>>),
     Live(RawTransaction),
@@ -34,6 +35,21 @@ pub enum TransactionIoProvider {
 
 
 impl DatabaseIoRecorder {
+    pub fn clone_with_global(&self, key: String, value: Parameter) -> Self {
+        match self {
+            DatabaseIoRecorder::Recorded(recording) => {
+                DatabaseIoRecorder::Recorded(Arc::clone(recording))
+            }
+            DatabaseIoRecorder::Live(client) => {
+                let new_client = client.with_globals_fn(|g| {
+                    let value = crate::gel::single_param_to_gel_value(value);
+                    g.set(&key, value);
+                });
+                DatabaseIoRecorder::Live(new_client)
+            }
+        }
+    }
+
     pub fn from_global_recording() -> Self {
         let io_events = get_io_provider_recorded_events(RECORDER_NAME).expect("Gel events to exist if in recording");
         let io_events: Vec<SpecializedIoEvent<IoEvent>> = specialize_events_or_panic(io_events);
@@ -84,7 +100,7 @@ impl DatabaseIoRecorder {
         IntoString: Into<String>,
         T: Serialize + DeserializeOwned + Clone,
     >(
-        &mut self,
+        &self,
         query: &str,
         parameters: IndexMap<IntoString, Parameter>,
     ) -> Result<T, Error> {
@@ -119,7 +135,7 @@ impl DatabaseIoRecorder {
         IntoString: Into<String>,
         T: Serialize + DeserializeOwned + Clone,
     >(
-        &mut self,
+        &self,
         query: &str,
         parameters: IndexMap<IntoString, Parameter>,
     ) -> Result<Option<T>, Error> {
@@ -440,7 +456,7 @@ async fn raw_query_required<T: Serialize + DeserializeOwned + Clone>(
         .map(|(k, v)| (k.as_ref(), v.clone()))
         .collect();
     let query_result: gel_protocol::model::Json = client
-        .query_required_single(query, &gel_params)
+        .query_required_single_json(query, &gel_params)
         .await
         .map_err(|e| gel_error_to_recorder_error(e, query, &gel_params))?;
     let query_result: T = serde_json::from_str(&query_result)
@@ -531,6 +547,7 @@ async fn raw_tx_query_multiple<T: Serialize + DeserializeOwned + Clone>(
     Ok(query_result)
 }
 
+#[track_caller]
 fn gel_error_to_recorder_error(
     e: gel_tokio::Error,
     query: &str,
