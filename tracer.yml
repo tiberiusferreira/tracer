@@ -15,10 +15,10 @@ services:
     build:
       dockerfile: ./Dockerfile
       args:
-        API_SERVER_URL_NO_TRAILING_SLASH: 'http://192.168.1.35:4200'
+        API_SERVER_URL_NO_TRAILING_SLASH: "${API_SERVER_URL_NO_TRAILING_SLASH}"
     environment:
-      RUST_LOG: "tracer=info,tracer-backend=info"
-      GEL_DSN: "gel://admin:password@192.168.1.35:5656/main"
+      RUST_LOG: "${RUST_LOG}"
+      GEL_DSN: "${GEL_DSN}"
       GEL_CLIENT_SECURITY: "insecure_dev_mode"
     ports:
       - "4200:4200"

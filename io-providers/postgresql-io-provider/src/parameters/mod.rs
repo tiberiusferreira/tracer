@@ -24,7 +24,7 @@ impl Parameter {
             Parameter::Datetime(val) => serde_json::to_value(val).expect(err),
             Parameter::Bool(val) => serde_json::to_value(val).expect(err),
             Parameter::Date(val) => serde_json::to_value(val).expect(err),
-            Parameter::I32Array(val) => serde_json::to_value(val).expect(err)
+            Parameter::I32Array(val) => serde_json::to_value(val).expect(err),
         }
     }
 }
@@ -124,7 +124,6 @@ impl From<Option<i32>> for Parameter {
         Parameter::I32(value)
     }
 }
-
 
 impl From<i64> for Parameter {
     fn from(value: i64) -> Self {

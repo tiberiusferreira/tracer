@@ -13,7 +13,7 @@ pub fn is_playing_recording() -> bool {
 }
 
 pub mod application_api {
-    pub use crate::recording::global_recorder::{record_execution, record_execution_simple, record_attribute, record_error, get_current_execution};
+    pub use crate::recording::global_recorder::{record_execution, record_execution_simple, record_attribute, record_error, record_error_str, get_current_execution};
 }
 
 pub mod recorder_api {

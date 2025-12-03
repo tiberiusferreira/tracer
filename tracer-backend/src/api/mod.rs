@@ -1,22 +1,21 @@
 use crate::api::handlers::instance::update::ProcessUpdateError;
 use crate::api::state::AppState;
 use axum::response::IntoResponse;
+use axum::routing::{get, post};
 use axum::{Router, ServiceExt};
-use http::{StatusCode};
+use axum_io_provider::{RecordedRequest, axum_request_to_serializable, recorded_request_to_axum};
+use http::StatusCode;
 use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::RwLock;
-use axum::routing::{get, post};
 use tokio::task::JoinHandle;
-use tracing::info;
-use axum_io_provider::{axum_request_to_serializable, recorded_request_to_axum, RecordedRequest};
 use tracer::application_api::record_attribute;
 use tracer::is_playing_recording;
+use tracing::info;
 use tracked_error::error_chain_to_pretty_formatted;
 
 pub mod handlers;
 pub mod state;
-
 
 static SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT: RwLock<u8> = RwLock::new(0);
 
@@ -27,13 +26,13 @@ pub async fn recording_middleware(
     let my_request = axum_request_to_serializable(request).await;
     let drop_before_export = if my_request.parts.uri == "/api/instance/update"
         && my_request
-        .parts
-        .headers
-        .get("service-name")
-        .is_some_and(|service_name| service_name == "tracer-backend")
+            .parts
+            .headers
+            .get("service-name")
+            .is_some_and(|service_name| service_name == "tracer-backend")
     {
         let size_kb = my_request.body_base64.len() / 1000;
-        info!("Got self request of size {size_kb}kb", );
+        info!("Got self request of size {size_kb}kb",);
         let mut w_guard = SELF_TRACE_SKIPPED_IN_SEQUENCE_COUNT.write().unwrap();
         let count = w_guard.deref_mut();
         if *count >= 3 && size_kb <= 1_000 {
@@ -67,29 +66,20 @@ pub async fn recording_middleware(
         },
         drop_before_export,
     )
-        .await;
+    .await;
     response
 }
 
-
 pub fn create_router(app_state: AppState) -> Router<()> {
     println!("Starting API, checking if index.html UI file exist");
-    if std::fs::read("./tracer-ui/dist/index.html")
-        .is_err()
-    {
+    if std::fs::read("./tracer-ui/dist/index.html").is_err() {
         panic!("Failed to read ./tracer-ui/dist/index.html");
     }
-    let serve_ui = tower_http::services::ServeDir::new(
-        "./tracer-ui/dist",
-    )
-        .fallback(tower_http::services::ServeFile::new(
-            "./tracer-ui/dist/index.html",
-        ));
+    let serve_ui = tower_http::services::ServeDir::new("./tracer-ui/dist").fallback(
+        tower_http::services::ServeFile::new("./tracer-ui/dist/index.html"),
+    );
     let service_routes = Router::new()
-        .route(
-            "/data",
-            post(handlers::ui::service::summaries_for_graph),
-        )
+        .route("/data", post(handlers::ui::service::summaries_for_graph))
         .route(
             "/instance-profile",
             get(handlers::ui::service::instance_profile),
@@ -103,14 +93,8 @@ pub fn create_router(app_state: AppState) -> Router<()> {
             get(handlers::ui::execution_details::get_single_execution),
         );
     let instance_routes = Router::new()
-        .route(
-            "/register",
-            post(handlers::instance::register::handler),
-        )
-        .route(
-            "/update",
-            post(handlers::instance::update::handler),
-        );
+        .route("/register", post(handlers::instance::register::handler))
+        .route("/update", post(handlers::instance::update::handler));
     let app = Router::new()
         .route("/api/ready", get(ready_get))
         .nest("/api/ui/service", service_routes)
@@ -136,30 +120,37 @@ pub fn start(app_state: AppState, api_port: u16) -> JoinHandle<()> {
                 .parse::<SocketAddr>()
                 .expect("should be able to api server desired address and port"),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         axum::serve(
             listener,
             ServiceExt::<axum::extract::Request>::into_make_service(app),
         )
-            .await
-            .expect("http server launch to not fail")
+        .await
+        .expect("http server launch to not fail")
     })
 }
 
 #[tokio::test]
 async fn replay_api_recording() {
     dotenvy::dotenv().ok();
-    unsafe { std::env::set_var("GLOBAL_RECORDING_PATH", "/Users/tiberiodarferreira/Documents/github/tracer/rec"); }
+    unsafe {
+        std::env::set_var(
+            "GLOBAL_RECORDING_PATH",
+            "/Users/tiberiodarferreira/Documents/github/tracer/rec",
+        );
+    }
     use tower_service::Service;
     let app_state = AppState {
         execution_io_provider: gel_io_provider::DatabaseIoRecorder::from_global_recording(),
     };
     let mut app = create_router(app_state);
-    let resp = tracer::recording::execution_recorder::play_global_recording(move |request: RecordedRequest| async move {
-        let axum_request = recorded_request_to_axum(request);
-        app.call(axum_request).await.unwrap()
-    }).await;
+    let resp =
+        tracer::player_api::play_global_recording(move |request: RecordedRequest| async move {
+            let axum_request = recorded_request_to_axum(request);
+            app.call(axum_request).await.unwrap()
+        })
+        .await;
     let (parts, body) = resp.into_parts();
     let body_bytes = axum::body::to_bytes(body, 100_000_000)
         .await

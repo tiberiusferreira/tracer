@@ -102,9 +102,6 @@ module default {
         constraint exclusive on ((.name));
     }
 
-
-
-
     type EntityChange{
         required entity_name: str;
         required entity_id: uuid;

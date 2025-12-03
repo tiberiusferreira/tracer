@@ -46,8 +46,7 @@ impl CurrentDatetimeIoRecorder {
                 let io_request = record_io_event_request_or_panic(RECORDER_NAME, request);
                 let datetime = Utc::now();
                 let response = IoEvent::CurrentDateResponse(datetime);
-                let event_json = serde_json::to_value(&response).unwrap();
-                io_request.record_response_serializing_and_panicking(event_json, false);
+                io_request.record_response_serializing_and_panicking(response, false);
                 datetime
             }
         }

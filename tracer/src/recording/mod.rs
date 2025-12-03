@@ -1,10 +1,8 @@
 use crate::recording::global_recorder::{get_current_execution, get_global_recorder};
-use uuid::Uuid;
 use tracked_error::error_chain_to_pretty_formatted;
-
+use uuid::Uuid;
 
 pub mod global_recorder;
-
 
 /// Represents an IO Event Request.
 ///
@@ -40,7 +38,6 @@ fn record_io_event_request(
     }
 }
 
-
 /// Records an IO Event in the internal buffer.
 ///
 /// The event can be exported at any point after this.
@@ -63,7 +60,7 @@ pub fn record_io_event_request_or_panic<T: serde::Serialize>(
 }
 
 impl IoEventRequest {
-    fn record_response(self, response: serde_json::Value, is_error: bool) {
+    pub fn record_response(self, response: serde_json::Value, is_error: bool) {
         let execution_id = get_current_execution().unwrap();
         assert_eq!(
             execution_id, self.execution_id,
@@ -85,7 +82,11 @@ impl IoEventRequest {
     /// # Panics
     ///
     /// This function panics if the serialization panics or if called outside an execution recording scope.
-    pub fn record_response_serializing_and_panicking<T: serde::Serialize>(self, response: T, is_error: bool) {
+    pub fn record_response_serializing_and_panicking<T: serde::Serialize>(
+        self,
+        response: T,
+        is_error: bool,
+    ) {
         let event = serde_json::to_value(response).unwrap_or_else(|e| {
             let e = error_chain_to_pretty_formatted(&e);
             panic!("failed to serialize response event from {self:#?}: {e}")
@@ -93,5 +94,3 @@ impl IoEventRequest {
         self.record_response(event, is_error);
     }
 }
-
-

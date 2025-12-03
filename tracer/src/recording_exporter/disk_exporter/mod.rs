@@ -1,7 +1,7 @@
+use crate::recording::global_recorder::get_global_recorder;
 use std::io::Write;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use crate::recording::global_recorder::get_global_recorder;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum FlushError {
@@ -26,10 +26,10 @@ fn export_to_disk(root_dir_path: std::path::PathBuf) {
         let file_path = recording_dir.join(format!("{}.json", e.last_seen_at.to_rfc3339()));
         let as_json = serde_json::to_string_pretty(&e).expect("to be able to serialize");
         let mut file = std::fs::File::create(file_path).expect("to be able to create directory");
-        file.write_all(as_json.as_bytes()).expect("to be able to write to file");
+        file.write_all(as_json.as_bytes())
+            .expect("to be able to write to file");
     }
 }
-
 
 struct FlushRequest {
     respond_to: tokio::sync::oneshot::Sender<Result<(), String>>,
@@ -54,13 +54,17 @@ pub struct ExportNowRequester {
 
 impl Drop for ExportNowRequester {
     fn drop(&mut self) {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .thread_name("tracer_disk_exporter")
-            .build()
-            .expect("runtime to be able to start");
-        runtime.block_on(async move {
-            self.export(Duration::from_secs(5)).await.unwrap();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .thread_name("tracer_disk_exporter")
+                    .build()
+                    .expect("runtime to be able to start");
+                runtime.block_on(async move {
+                    self.export(Duration::from_secs(5)).await.unwrap();
+                });
+            });
         });
     }
 }
@@ -69,7 +73,6 @@ pub struct TracerHandle {
     pub thread_handle: std::thread::JoinHandle<()>,
     pub export_now_requester: ExportNowRequester,
 }
-
 
 impl ExportNowRequester {
     fn new() -> (Receiver<FlushRequest>, ExportNowRequester) {

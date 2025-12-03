@@ -248,9 +248,15 @@ pub fn record_attribute(name: String, value: String) {
 
 pub fn record_error<E: std::error::Error>(error: E) -> String {
     let error = error_chain_to_pretty_formatted(error);
+    record_error_str(error.clone());
     let current_exec = get_current_execution().unwrap_or_else(|| panic!("tried to record error {error} outside of execution"));
     get_global_recorder().record_attribute(current_exec, "error".to_string(), error.clone());
     error
+}
+
+pub fn record_error_str(error: String) {
+    let current_exec = get_current_execution().unwrap_or_else(|| panic!("tried to record error {error} outside of execution"));
+    get_global_recorder().record_attribute(current_exec, "error".to_string(), error.clone());
 }
 
 thread_local! {

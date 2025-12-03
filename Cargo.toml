@@ -7,6 +7,7 @@ members = [
     "tracer",
     "tracked_error",
     "io-providers/datetime-io-provider",
+    "io-providers/postgresql-io-provider",
     "io-providers/gel-io-provider",
     "io-providers/axum-io-provider",
     "io-providers/gel-io-to-parameters"
