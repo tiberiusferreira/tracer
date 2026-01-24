@@ -8,7 +8,7 @@ pub mod global_recorder;
 ///
 /// The request might have been exported already or still be in the recording buffer.
 /// This is mainly used to easily record the response of the request.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct IoEventRequest {
     pub io_provider_name: &'static str,
     pub execution_id: Uuid,
