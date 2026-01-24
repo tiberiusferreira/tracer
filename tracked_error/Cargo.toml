@@ -9,7 +9,6 @@ edition = "2024"
 thiserror.workspace = true
 serde_json.workspace = true
 reqwest = { workspace = true, optional = true }
-gel-tokio = { workspace = true, optional = true }
 
 [features]
-default = ["reqwest", "gel-tokio"]
+default = ["reqwest"]

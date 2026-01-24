@@ -71,42 +71,4 @@ impl From<reqwest::Error> for ReqwestError {
     }
 }
 
-// #[cfg(feature = "sqlx")]
-// #[derive(Debug, thiserror::Error)]
-// #[error("SqlxError\nat {location}")]
-// pub struct SqlxError {
-//     #[source]
-//     pub source: sqlx::Error,
-//     pub location: &'static Location<'static>,
-// }
 
-// #[cfg(feature = "sqlx")]
-// impl From<sqlx::error::Error> for SqlxError {
-//     #[track_caller]
-//     fn from(source: sqlx::Error) -> Self {
-//         Self {
-//             source,
-//             location: Location::caller(),
-//         }
-//     }
-// }
-
-#[cfg(feature = "gel-tokio")]
-#[derive(Debug, thiserror::Error)]
-#[error("EdgeDBError at {location}")]
-pub struct EdgeDBError {
-    #[source]
-    pub source: gel_tokio::Error,
-    pub location: &'static Location<'static>,
-}
-
-#[cfg(feature = "gel-tokio")]
-impl From<gel_tokio::Error> for EdgeDBError {
-    #[track_caller]
-    fn from(source: gel_tokio::Error) -> Self {
-        Self {
-            source,
-            location: Location::caller(),
-        }
-    }
-}
