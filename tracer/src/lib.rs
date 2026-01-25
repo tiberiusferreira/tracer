@@ -33,6 +33,10 @@ pub mod noop_exporter {
     pub use crate::recording_exporter::noop_exporter::setup_noop_exporter;
 }
 
+pub mod stdout_exporter {
+    pub use crate::recording_exporter::stdout_exporter::setup_stdout_exporter;
+}
+
 pub mod disk_exporter {
     pub use crate::recording_exporter::disk_exporter::setup_disk_exporter;
 }
